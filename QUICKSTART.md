@@ -112,7 +112,7 @@ Uses your private repo as encrypted backup:
 ```dart
 final githubService = GitHubService(
   accessToken: 'ghp_...',
-  repoOwner: 'your-username',
+  repoOwner: 'giofahreza',
   repoName: 'my-vault',
 );
 await githubService.uploadFile(
