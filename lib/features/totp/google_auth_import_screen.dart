@@ -16,11 +16,12 @@ class GoogleAuthImportScreen extends ConsumerStatefulWidget {
 }
 
 class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen> {
-  List<MigrationAccount>? _accounts;
+  List<MigrationAccount> _accounts = [];
   Set<int> _selectedIndices = {};
   bool _importing = false;
   String? _error;
   bool _scanning = false;
+  int _qrCodesScanned = 0;
 
   @override
   void initState() {
@@ -34,14 +35,20 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
 
   void _parseMigrationData(String uri) {
     try {
-      final accounts = GoogleAuthMigration.parseMigrationUri(uri);
-      if (accounts.isEmpty) {
+      final newAccounts = GoogleAuthMigration.parseMigrationUri(uri);
+      if (newAccounts.isEmpty) {
         setState(() => _error = 'No accounts found in the QR code.');
       } else {
         setState(() {
-          _accounts = accounts;
-          _selectedIndices = Set.from(List.generate(accounts.length, (i) => i));
+          final currentCount = _accounts.length;
+          _accounts.addAll(newAccounts);
+          // Select all newly added accounts
+          _selectedIndices.addAll(
+            List.generate(newAccounts.length, (i) => currentCount + i)
+          );
+          _qrCodesScanned++;
           _scanning = false;
+          _error = null;
         });
       }
     } catch (e) {
@@ -66,7 +73,20 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
   Widget _buildScanner() {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scan Google Authenticator Export'),
+        title: Text(_qrCodesScanned > 0
+          ? 'Scan More QR Codes'
+          : 'Scan Google Authenticator Export'),
+        actions: [
+          if (_qrCodesScanned > 0)
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _scanning = false;
+                });
+              },
+              child: const Text('Done', style: TextStyle(color: Colors.white)),
+            ),
+        ],
       ),
       body: Stack(
         children: [
@@ -116,16 +136,34 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                     backgroundColor: Colors.black54,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Note: Google Authenticator exports max 10 codes per QR.\nFor 30+ codes, scan multiple times.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.amber,
-                    fontSize: 11,
-                    backgroundColor: Colors.black54,
+                if (_qrCodesScanned > 0) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '✓ Scanned $_qrCodesScanned QR code${_qrCodesScanned == 1 ? '' : 's'} - ${_accounts.length} accounts',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Scan next QR code or tap back to review',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      backgroundColor: Colors.black54,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -159,37 +197,66 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
       );
     }
 
-    if (_accounts == null) {
+    if (_accounts.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final accounts = _accounts!;
+    final accounts = _accounts;
 
     return Column(
       children: [
         // Header
         Container(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  '${accounts.length} accounts found',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${accounts.length} accounts found',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        if (_qrCodesScanned > 0)
+                          Text(
+                            'Scanned $_qrCodesScanned QR code${_qrCodesScanned == 1 ? '' : 's'}',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        if (_selectedIndices.length == accounts.length) {
+                          _selectedIndices.clear();
+                        } else {
+                          _selectedIndices = Set.from(List.generate(accounts.length, (i) => i));
+                        }
+                      });
+                    },
+                    child: Text(
+                      _selectedIndices.length == accounts.length ? 'Deselect All' : 'Select All',
+                    ),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () {
+              const SizedBox(height: 8),
+              // Scan More button
+              OutlinedButton.icon(
+                onPressed: _importing ? null : () {
                   setState(() {
-                    if (_selectedIndices.length == accounts.length) {
-                      _selectedIndices.clear();
-                    } else {
-                      _selectedIndices = Set.from(List.generate(accounts.length, (i) => i));
-                    }
+                    _scanning = true;
                   });
                 },
-                child: Text(
-                  _selectedIndices.length == accounts.length ? 'Deselect All' : 'Select All',
+                icon: const Icon(Icons.qr_code_scanner, size: 18),
+                label: const Text('Scan More QR Codes'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 36),
                 ),
               ),
             ],
