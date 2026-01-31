@@ -63,3 +63,11 @@ dev_dependencies:
   json_serializable: ^6.7.0
   hive_generator: ^2.0.1
   flutter_lints: ^2.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/gitvault.png"
+  adaptive_icon_background: "#1a1a1a"
+  adaptive_icon_foreground: "assets/icon/gitvault.png"
