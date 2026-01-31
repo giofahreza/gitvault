@@ -114,7 +114,7 @@ class CryptoManager {
       throw CryptoException('Invalid padded data: too short');
     }
 
-    final buffer = ByteData.view(paddedData.buffer);
+    final buffer = ByteData.view(paddedData.buffer, paddedData.offsetInBytes, paddedData.lengthInBytes);
     final dataLength = buffer.getUint32(0, Endian.big);
 
     if (dataLength + 4 > paddedData.length) {

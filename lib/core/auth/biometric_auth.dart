@@ -33,23 +33,34 @@ class BiometricAuth {
     bool biometricOnly = false,
   }) async {
     try {
+      final canCheck = await _localAuth.canCheckBiometrics || await _localAuth.isDeviceSupported();
+      if (!canCheck) {
+        throw BiometricException('Device does not support biometric authentication');
+      }
+
       return await _localAuth.authenticate(
         localizedReason: reason,
         options: AuthenticationOptions(
           biometricOnly: biometricOnly,
           stickyAuth: true,
           useErrorDialogs: true,
+          sensitiveTransaction: false,
         ),
       );
     } on PlatformException catch (e) {
       // Handle specific errors
       if (e.code == 'NotAvailable') {
         throw BiometricException('Biometric authentication not available');
+      } else if (e.code == 'NotEnrolled') {
+        throw BiometricException('No biometric credentials enrolled on this device');
       } else if (e.code == 'LockedOut') {
-        throw BiometricException('Too many failed attempts. Locked out.');
+        throw BiometricException('Too many failed attempts. Try again later.');
       } else if (e.code == 'PermanentlyLockedOut') {
         throw BiometricException('Biometric authentication permanently disabled');
+      } else if (e.code == 'PasscodeNotSet') {
+        throw BiometricException('Device PIN/password not set');
       }
+      // If user cancelled, just return false (don't throw)
       return false;
     }
   }

@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/providers/providers.dart';
+import '../../core/crypto/blind_handshake.dart';
+
 /// Screen for linking a new device via QR code + PIN
 class LinkDeviceScreen extends ConsumerStatefulWidget {
   const LinkDeviceScreen({super.key});
@@ -12,7 +15,7 @@ class LinkDeviceScreen extends ConsumerStatefulWidget {
 }
 
 class _LinkDeviceScreenState extends ConsumerState<LinkDeviceScreen> {
-  bool _isSource = true; // true = showing QR, false = scanning QR
+  bool _isSource = true;
 
   @override
   Widget build(BuildContext context) {
@@ -53,63 +56,157 @@ class _LinkDeviceScreenState extends ConsumerState<LinkDeviceScreen> {
 }
 
 /// View for displaying QR code on the source device
-class _ShowQRView extends ConsumerWidget {
+class _ShowQRView extends ConsumerStatefulWidget {
   const _ShowQRView();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // TODO: Generate actual QR data using BlindHandshake
-    const mockQRData = 'mock-encrypted-payload';
-    const mockPIN = '123456';
+  ConsumerState<_ShowQRView> createState() => _ShowQRViewState();
+}
 
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text(
-            'Scan this QR code on your new device',
-            style: TextStyle(fontSize: 18),
+class _ShowQRViewState extends ConsumerState<_ShowQRView> {
+  LinkingPayload? _payload;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _generatePayload();
+  }
+
+  Future<void> _generatePayload() async {
+    try {
+      final keyStorage = ref.read(keyStorageProvider);
+      final blindHandshake = ref.read(blindHandshakeProvider);
+
+      final rootKey = await keyStorage.getRootKey();
+      if (rootKey == null) {
+        setState(() {
+          _error = 'No root key found. Set up the vault first.';
+          _loading = false;
+        });
+        return;
+      }
+
+      final token = await keyStorage.getGitHubToken() ?? '';
+      final owner = await keyStorage.getRepoOwner() ?? '';
+      final repo = await keyStorage.getRepoName() ?? '';
+
+      final payload = await blindHandshake.generateLinkingPayload(
+        rootKey: rootKey,
+        githubToken: token,
+        repoOwner: owner,
+        repoName: repo,
+      );
+
+      if (mounted) {
+        setState(() {
+          _payload = payload;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to generate linking code: $e';
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      final colorScheme = Theme.of(context).colorScheme;
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: colorScheme.error),
+              const SizedBox(height: 16),
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              FilledButton(onPressed: () {
+                setState(() { _loading = true; _error = null; });
+                _generatePayload();
+              }, child: const Text('Retry')),
+            ],
           ),
-          const SizedBox(height: 32),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: QrImageView(
-              data: mockQRData,
-              version: QrVersions.auto,
-              size: 250,
-            ),
-          ),
-          const SizedBox(height: 32),
-          const Text(
-            'Then enter this PIN:',
-            style: TextStyle(fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.deepPurple.shade100,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              mockPIN,
-              style: const TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 8,
+        ),
+      );
+    }
+
+    final payload = _payload!;
+    final colorScheme = Theme.of(context).colorScheme;
+    return SingleChildScrollView(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'Scan this QR code on your new device',
+                style: TextStyle(fontSize: 18),
               ),
-            ),
+              const SizedBox(height: 32),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: QrImageView(
+                  data: payload.qrData,
+                  version: QrVersions.auto,
+                  size: 250,
+                ),
+              ),
+              const SizedBox(height: 32),
+              const Text(
+                'Then enter this PIN:',
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  payload.displayPIN,
+                  style: const TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 8,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'This code expires in 5 minutes',
+                style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: () {
+                  setState(() { _loading = true; _error = null; _payload = null; });
+                  _generatePayload();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Generate New Code'),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          const Text(
-            'This code expires in 5 minutes',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -126,6 +223,7 @@ class _ScanQRView extends ConsumerStatefulWidget {
 class _ScanQRViewState extends ConsumerState<_ScanQRView> {
   final _pinController = TextEditingController();
   String? _scannedData;
+  bool _linking = false;
 
   @override
   void dispose() {
@@ -149,14 +247,14 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       );
     }
 
-    // Show PIN entry after QR scan
+    final colorScheme = Theme.of(context).colorScheme;
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.check_circle, size: 64, color: Colors.green),
+            Icon(Icons.check_circle, size: 64, color: colorScheme.tertiary),
             const SizedBox(height: 16),
             const Text(
               'QR Code Scanned!',
@@ -179,12 +277,14 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
             ),
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: _verifyAndLink,
-              child: const Text('Link Device'),
+              onPressed: _linking ? null : _verifyAndLink,
+              child: _linking
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Link Device'),
             ),
             const SizedBox(height: 16),
             TextButton(
-              onPressed: () => setState(() => _scannedData = null),
+              onPressed: _linking ? null : () => setState(() => _scannedData = null),
               child: const Text('Scan Again'),
             ),
           ],
@@ -193,7 +293,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
     );
   }
 
-  void _verifyAndLink() {
+  Future<void> _verifyAndLink() async {
     if (_pinController.text.length != 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('PIN must be 6 digits')),
@@ -201,14 +301,54 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       return;
     }
 
-    // TODO: Decrypt QR data with PIN using BlindHandshake
-    // TODO: Store root key and GitHub credentials
-    // TODO: Generate validation TOTP and verify with source device
+    setState(() => _linking = true);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Device linked successfully!')),
-    );
+    try {
+      final blindHandshake = ref.read(blindHandshakeProvider);
+      final keyStorage = ref.read(keyStorageProvider);
 
-    Navigator.of(context).pop();
+      // Decrypt QR data with PIN
+      final linkingData = await blindHandshake.decryptLinkingPayload(
+        qrData: _scannedData!,
+        pin: _pinController.text,
+      );
+
+      // Store root key and GitHub credentials on this device
+      await keyStorage.storeRootKey(linkingData.rootKey);
+
+      if (linkingData.githubToken.isNotEmpty) {
+        await keyStorage.storeGitHubCredentials(
+          token: linkingData.githubToken,
+          repoOwner: linkingData.repoOwner,
+          repoName: linkingData.repoName,
+        );
+      }
+
+      // Refresh setup state
+      ref.invalidate(isVaultSetupProvider);
+      ref.invalidate(vaultEntriesProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Device linked successfully! You can now sync your vault.')),
+        );
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _linking = false);
+        String message = 'Linking failed';
+        if (e.toString().contains('expired')) {
+          message = 'Code expired. Ask the other device to generate a new one.';
+        } else if (e.toString().contains('MAC') || e.toString().contains('Decryption')) {
+          message = 'Wrong PIN. Please try again.';
+        } else {
+          message = 'Linking failed: $e';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    }
   }
 }

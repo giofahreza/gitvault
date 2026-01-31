@@ -6,13 +6,17 @@ import '../../core/crypto/key_storage.dart';
 import '../../core/services/github_service.dart';
 import '../../utils/constants.dart';
 import '../models/vault_entry.dart';
+import '../models/note.dart';
 import '../models/sync_index.dart';
 import 'vault_repository.dart';
+import 'notes_repository.dart';
 
 /// Manages synchronization between local vault and GitHub storage
 /// Implements "Smart Sync" with conflict resolution via Last Write Wins
+/// Syncs both password entries and notes to the same GitHub data folder
 class SyncEngine {
   final VaultRepository _vaultRepository;
+  final NotesRepository _notesRepository;
   final GitHubService _githubService;
   final CryptoManager _cryptoManager;
   final KeyStorage _keyStorage;
@@ -22,10 +26,12 @@ class SyncEngine {
 
   SyncEngine({
     required VaultRepository vaultRepository,
+    required NotesRepository notesRepository,
     required GitHubService githubService,
     required CryptoManager cryptoManager,
     required KeyStorage keyStorage,
   })  : _vaultRepository = vaultRepository,
+        _notesRepository = notesRepository,
         _githubService = githubService,
         _cryptoManager = cryptoManager,
         _keyStorage = keyStorage;
@@ -35,6 +41,8 @@ class SyncEngine {
     if (_isInitialized) return;
 
     _syncMetadataBox = await Hive.openBox<String>('sync_metadata');
+    await _vaultRepository.initialize();
+    await _notesRepository.initialize();
     _isInitialized = true;
   }
 
@@ -54,6 +62,9 @@ class SyncEngine {
 
     // Push local changes
     final pushResult = await _pushToGitHub(rootKey);
+
+    // Record sync time
+    await _setLastSyncTime(DateTime.now());
 
     return SyncResult(
       pulled: pullResult.downloaded,
@@ -85,32 +96,59 @@ class SyncEngine {
         throw SyncException('Rollback attack detected! Remote counter is lower than local.');
       }
 
-      // Download each entry from the map
+      // Download each item from the map (could be password entry or note)
       for (final entry in syncIndex.uuidToHashMap.entries) {
         final uuid = entry.key;
         final filenameHash = entry.value;
         final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
 
-        // Download entry file
-        final entryBytes = await _githubService.downloadFile(remotePath);
-        if (entryBytes == null) continue;
+        // Download file
+        final fileBytes = await _githubService.downloadFile(remotePath);
+        if (fileBytes == null) continue;
 
-        // Decrypt entry
-        final remoteEntry = await _decryptEntry(entryBytes, rootKey);
+        // Try to decrypt as VaultEntry first, then as Note
+        try {
+          // Try as password entry
+          final remoteEntry = await _decryptEntry(fileBytes, rootKey);
 
-        // Check if we have local version
-        final localEntry = await _vaultRepository.getEntry(uuid);
+          // Check if we have local version
+          final localEntry = await _vaultRepository.getEntry(uuid);
 
-        if (localEntry == null) {
-          // New entry, save it
-          await _vaultRepository.saveEntry(remoteEntry);
-          downloaded++;
-        } else {
-          // Conflict resolution: Last Write Wins
-          if (remoteEntry.modifiedAt.isAfter(localEntry.modifiedAt)) {
+          if (localEntry == null) {
+            // New entry, save it
             await _vaultRepository.saveEntry(remoteEntry);
             downloaded++;
-            conflicts++;
+          } else {
+            // Conflict resolution: Last Write Wins
+            if (remoteEntry.modifiedAt.isAfter(localEntry.modifiedAt)) {
+              await _vaultRepository.saveEntry(remoteEntry);
+              downloaded++;
+              conflicts++;
+            }
+          }
+        } catch (_) {
+          // Not a vault entry, try as note
+          try {
+            final remoteNote = await _decryptNote(fileBytes, rootKey);
+
+            // Check if we have local version
+            final localNote = await _notesRepository.getNote(uuid);
+
+            if (localNote == null) {
+              // New note, save it
+              await _notesRepository.saveNote(remoteNote);
+              downloaded++;
+            } else {
+              // Conflict resolution: Last Write Wins
+              if (remoteNote.modifiedAt.isAfter(localNote.modifiedAt)) {
+                await _notesRepository.saveNote(remoteNote);
+                downloaded++;
+                conflicts++;
+              }
+            }
+          } catch (e) {
+            // Could not decrypt as either type, skip
+            continue;
           }
         }
       }
@@ -124,18 +162,31 @@ class SyncEngine {
     }
   }
 
-  /// Pushes local entries to GitHub
+  /// Pushes local entries and notes to GitHub
   Future<PushResult> _pushToGitHub(Uint8List rootKey) async {
     int uploaded = 0;
 
     try {
-      // Get all local entries
+      // Get all local entries (passwords) and notes
       final entries = await _vaultRepository.getAllEntries();
+      final notes = await _notesRepository.getAllNotes();
+
+      // If no local data, check if remote index exists
+      if (entries.isEmpty && notes.isEmpty) {
+        final indexBytes = await _githubService.downloadFile(Constants.indexFile);
+        if (indexBytes == null) {
+          // Both local and remote empty - nothing to push
+          return PushResult(uploaded: 0);
+        }
+
+        // Remote has data but local is empty - already pulled, nothing to push
+        return PushResult(uploaded: 0);
+      }
 
       // Build UUID-to-hash map
       final Map<String, String> uuidToHashMap = {};
 
-      // Upload each entry
+      // Upload each password entry
       for (final entry in entries) {
         // Generate deterministic filename hash
         final filenameHash = await _cryptoManager.hmacSha256(
@@ -149,6 +200,31 @@ class SyncEngine {
 
         // Encrypt entry
         final encryptedBytes = await _encryptEntry(entry, rootKey);
+
+        // Upload to GitHub
+        await _githubService.uploadFile(
+          path: remotePath,
+          content: encryptedBytes,
+          commitMessage: Constants.defaultCommitMessage,
+        );
+
+        uploaded++;
+      }
+
+      // Upload each note
+      for (final note in notes) {
+        // Generate deterministic filename hash
+        final filenameHash = await _cryptoManager.hmacSha256(
+          key: rootKey,
+          data: note.uuid,
+        );
+
+        uuidToHashMap[note.uuid] = filenameHash;
+
+        final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
+
+        // Encrypt note
+        final encryptedBytes = await _encryptNote(note, rootKey);
 
         // Upload to GitHub
         await _githubService.uploadFile(
@@ -211,6 +287,35 @@ class SyncEngine {
     final json = jsonDecode(jsonString) as Map<String, dynamic>;
 
     return VaultEntry.fromJson(json);
+  }
+
+  /// Encrypts a note to bytes
+  Future<Uint8List> _encryptNote(Note note, Uint8List key) async {
+    final jsonString = jsonEncode(note.toJson());
+    final jsonBytes = utf8.encode(jsonString);
+    final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+
+    final encryptedBox = await _cryptoManager.encryptXChaCha20(
+      data: paddedBytes,
+      key: key,
+    );
+
+    return encryptedBox.toBytes();
+  }
+
+  /// Decrypts a note from bytes
+  Future<Note> _decryptNote(Uint8List bytes, Uint8List key) async {
+    final encryptedBox = EncryptedBox.fromBytes(bytes);
+    final decryptedPadded = await _cryptoManager.decryptXChaCha20(
+      box: encryptedBox,
+      key: key,
+    );
+
+    final decryptedBytes = _cryptoManager.removeRandomPadding(decryptedPadded);
+    final jsonString = utf8.decode(decryptedBytes);
+    final json = jsonDecode(jsonString) as Map<String, dynamic>;
+
+    return Note.fromJson(json);
   }
 
   /// Encrypts the sync index

@@ -40,11 +40,20 @@ dependencies:
   otp: ^3.1.0
   # For Unique ID generation
   uuid: ^4.0.0
+  # For BIP39 mnemonic recovery phrases
+  bip39: ^1.0.6
+  # For hex encoding (used by BIP39)
+  hex: ^0.2.0
+  # For opening URLs (giofahreza.com, GitHub)
+  url_launcher: ^6.2.0
 
   # --- STATE MANAGEMENT ---
   flutter_riverpod: ^2.4.9
   freezed_annotation: ^2.4.1
   json_annotation: ^4.9.0
+
+flutter:
+  uses-material-design: true
 
 dev_dependencies:
   flutter_test:
