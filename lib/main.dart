@@ -493,7 +493,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
       await syncEngine.initialize();
       await syncEngine.sync();
-      await syncEngine.close();
+      syncEngine.dispose(); // Don't close the box, just dispose resources
       githubService.dispose();
 
       ref.invalidate(vaultEntriesProvider);

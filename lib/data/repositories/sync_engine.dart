@@ -349,32 +349,54 @@ class SyncEngine {
 
   /// Gets local monotonic counter
   Future<int> _getLocalCounter() async {
+    if (!_isInitialized || !_syncMetadataBox.isOpen) {
+      return 0;
+    }
     final counterStr = _syncMetadataBox.get('monotonic_counter');
     return counterStr != null ? int.parse(counterStr) : 0;
   }
 
   /// Sets local monotonic counter
   Future<void> _setLocalCounter(int counter) async {
+    if (!_isInitialized || !_syncMetadataBox.isOpen) {
+      return;
+    }
     await _syncMetadataBox.put('monotonic_counter', counter.toString());
   }
 
   /// Gets last sync timestamp
   Future<DateTime?> getLastSyncTime() async {
+    if (!_isInitialized || !_syncMetadataBox.isOpen) {
+      return null;
+    }
     final timestamp = _syncMetadataBox.get('last_sync');
     return timestamp != null ? DateTime.parse(timestamp) : null;
   }
 
   /// Sets last sync timestamp
   Future<void> _setLastSyncTime(DateTime time) async {
+    if (!_isInitialized || !_syncMetadataBox.isOpen) {
+      return;
+    }
     await _syncMetadataBox.put('last_sync', time.toIso8601String());
   }
 
   /// Close sync engine
+  /// Note: In most cases, you should NOT call this method as Hive boxes
+  /// should remain open for the lifetime of the app. Only call this when
+  /// the app is shutting down.
   Future<void> close() async {
-    if (_isInitialized) {
+    if (_isInitialized && _syncMetadataBox.isOpen) {
       await _syncMetadataBox.close();
       _isInitialized = false;
     }
+  }
+
+  /// Disposes resources without closing the Hive box
+  /// Use this after sync operations instead of close()
+  void dispose() {
+    // Don't close the box, just mark as not needing initialization
+    // The box will remain open for future sync operations
   }
 }
 

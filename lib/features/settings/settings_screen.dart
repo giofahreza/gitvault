@@ -913,7 +913,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       await syncEngine.initialize();
       final result = await syncEngine.sync();
-      await syncEngine.close();
+      syncEngine.dispose(); // Don't close the box, just dispose resources
       githubService.dispose();
 
       // Invalidate all data providers to reload synced data
