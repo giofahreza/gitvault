@@ -172,13 +172,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _launchUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
+    try {
+      final uri = Uri.parse(url);
       await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open $url')),
+          SnackBar(content: Text('Could not open $url: $e')),
         );
       }
     }
@@ -916,7 +916,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await syncEngine.close();
       githubService.dispose();
 
+      // Invalidate all data providers to reload synced data
       ref.invalidate(vaultEntriesProvider);
+      ref.invalidate(notesProvider);
 
       if (context.mounted) {
         String message;

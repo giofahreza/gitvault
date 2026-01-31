@@ -116,6 +116,16 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                     backgroundColor: Colors.black54,
                   ),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  'Note: Google Authenticator exports max 10 codes per QR.\nFor 30+ codes, scan multiple times.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.amber,
+                    fontSize: 11,
+                    backgroundColor: Colors.black54,
+                  ),
+                ),
               ],
             ),
           ),
@@ -263,9 +273,25 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
       final repo = ref.read(vaultRepositoryProvider);
       await repo.initialize();
 
+      // Get existing entries to check for duplicates
+      final existingEntries = await repo.getAllEntries();
+      final existingSecrets = existingEntries
+          .where((e) => e.totpSecret != null && e.totpSecret!.isNotEmpty)
+          .map((e) => e.totpSecret!.toUpperCase().replaceAll(' ', ''))
+          .toSet();
+
       int imported = 0;
+      int skipped = 0;
+
       for (final index in _selectedIndices) {
         final account = _accounts![index];
+        final normalizedSecret = account.secret.toUpperCase().replaceAll(' ', '');
+
+        // Skip if duplicate
+        if (existingSecrets.contains(normalizedSecret)) {
+          skipped++;
+          continue;
+        }
 
         await repo.createEntry(
           title: account.issuer.isNotEmpty ? account.issuer : account.name,
@@ -273,15 +299,22 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
           password: '',
           totpSecret: account.secret,
         );
+
+        // Add to existing set to prevent duplicates in this import batch
+        existingSecrets.add(normalizedSecret);
         imported++;
       }
 
       ref.invalidate(vaultEntriesProvider);
 
       if (mounted) {
+        String message = 'Imported $imported account${imported == 1 ? '' : 's'} successfully';
+        if (skipped > 0) {
+          message += ' ($skipped duplicate${skipped == 1 ? '' : 's'} skipped)';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Imported $imported account${imported == 1 ? '' : 's'} successfully'),
+            content: Text(message),
             backgroundColor: Colors.green,
           ),
         );
