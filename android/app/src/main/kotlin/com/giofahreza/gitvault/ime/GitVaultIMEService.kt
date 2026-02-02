@@ -50,13 +50,19 @@ class GitVaultIMEService : InputMethodService() {
         // Note: InputMethodService doesn't have direct window access for security flags
         // The IME runs in the system process and is inherently more secure than app windows
 
+        // Setup load credentials button
+        inputView?.findViewById<ImageButton>(R.id.ime_load_credentials)?.setOnClickListener {
+            loadCredentialsAfterAuth()
+        }
+
         // Setup switch keyboard button
         inputView?.findViewById<ImageButton>(R.id.ime_switch_keyboard)?.setOnClickListener {
             switchToSystemKeyboard()
         }
 
-        // Setup credentials list (initially empty, will load after biometric auth)
-        loadCredentialsAfterAuth()
+        // Show keyboard immediately without auth (prevents keyboard from dismissing)
+        // User can tap the load button to authenticate and load credentials
+        loadCredentialsWithoutAuth()
 
         return inputView!!
     }
@@ -88,6 +94,18 @@ class GitVaultIMEService : InputMethodService() {
         super.onFinishInput()
         Log.d(TAG, "onFinishInput called")
         clearSensitiveData()
+    }
+
+    /**
+     * Load credentials without authentication.
+     * Just shows empty state with instructions initially.
+     * User can tap a button to trigger auth and load credentials.
+     */
+    private fun loadCredentialsWithoutAuth() {
+        // Don't auto-load credentials to avoid launching activity that dismisses keyboard
+        // Show empty state with message
+        showEmptyState()
+        Log.d(TAG, "Keyboard ready. Credentials not loaded to prevent dismissal.")
     }
 
     /**
@@ -144,10 +162,16 @@ class GitVaultIMEService : InputMethodService() {
      */
     private fun displayCredentialsList(credentials: List<CredentialMetadata>) {
         val recyclerView = inputView?.findViewById<RecyclerView>(R.id.ime_credentials_list)
+        val messageView = inputView?.findViewById<android.widget.TextView>(R.id.ime_message)
+
         if (recyclerView == null) {
             Log.e(TAG, "RecyclerView not found")
             return
         }
+
+        // Hide message, show list
+        messageView?.visibility = View.GONE
+        recyclerView.visibility = View.VISIBLE
 
         val adapter = CredentialAdapter(
             credentials,
@@ -191,9 +215,11 @@ class GitVaultIMEService : InputMethodService() {
      */
     private fun showEmptyState() {
         val recyclerView = inputView?.findViewById<RecyclerView>(R.id.ime_credentials_list)
-        val adapter = CredentialAdapter(emptyList(), {}, {})
-        recyclerView?.layoutManager = LinearLayoutManager(this)
-        recyclerView?.adapter = adapter
+        val messageView = inputView?.findViewById<android.widget.TextView>(R.id.ime_message)
+
+        // Show message, hide list
+        messageView?.visibility = View.VISIBLE
+        recyclerView?.visibility = View.GONE
     }
 
     /**

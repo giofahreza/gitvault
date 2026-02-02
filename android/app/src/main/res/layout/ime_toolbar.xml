@@ -33,6 +33,15 @@
             android:textColor="@android:color/black" />
 
         <ImageButton
+            android:id="@+id/ime_load_credentials"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Load Credentials"
+            android:src="@android:drawable/ic_menu_upload" />
+
+        <ImageButton
             android:id="@+id/ime_switch_keyboard"
             android:layout_width="40dp"
             android:layout_height="40dp"
@@ -46,11 +55,23 @@
         android:layout_height="1dp"
         android:background="@android:color/darker_gray" />
 
+    <!-- Message when credentials not loaded -->
+    <TextView
+        android:id="@+id/ime_message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="24dp"
+        android:text="Tap the upload icon to load credentials"
+        android:textAlignment="center"
+        android:textColor="@android:color/darker_gray"
+        android:visibility="visible" />
+
     <!-- Credential list -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/ime_credentials_list"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:maxHeight="200dp" />
+        android:maxHeight="200dp"
+        android:visibility="gone" />
 
 </LinearLayout>
