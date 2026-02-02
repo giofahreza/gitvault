@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:dartssh2/dartssh2.dart';
 import 'package:xterm/xterm.dart';
 
+import '../../core/services/ssh_connection_manager.dart';
 import '../../data/models/ssh_credential.dart';
 
 /// SSH terminal screen using dartssh2 + xterm
@@ -23,10 +23,11 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
   late final TerminalController _terminalController;
   late final FocusNode _focusNode;
   late final TextEditingController _voiceInputController;
-  SSHClient? _client;
-  SSHSession? _session;
+  late final SshConnectionManager _connectionManager;
   bool _isConnecting = true;
   bool _isConnected = false;
+  StreamSubscription? _stdoutSubscription;
+  StreamSubscription? _stderrSubscription;
 
   // Modifier key toggle states
   bool _ctrlActive = false;
@@ -39,6 +40,7 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     _terminalController = TerminalController();
     _focusNode = FocusNode();
     _voiceInputController = TextEditingController();
+    _connectionManager = SshConnectionManager(credential: widget.credential);
     // Listen for voice input and send to terminal
     _voiceInputController.addListener(_handleVoiceInput);
     _connect();
@@ -46,12 +48,21 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
 
   @override
   void dispose() {
+    _stdoutSubscription?.cancel();
+    _stderrSubscription?.cancel();
     _terminalController.dispose();
     _focusNode.dispose();
     _voiceInputController.dispose();
-    _session?.close();
-    _client?.close();
+    _connectionManager.disconnect();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Reconnect when app resumes
+      _reconnect();
+    }
   }
 
   Future<void> _connect() async {
@@ -63,55 +74,20 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     _terminal.write('Connecting to ${widget.credential.host}:${widget.credential.port}...\r\n');
 
     try {
-      final socket = await SSHSocket.connect(
-        widget.credential.host,
-        widget.credential.port,
-        timeout: const Duration(seconds: 10),
-      );
-
-      if (widget.credential.authType == SshAuthType.password) {
-        _client = SSHClient(
-          socket,
-          username: widget.credential.username,
-          onPasswordRequest: () => widget.credential.password,
-        );
-      } else {
-        _client = SSHClient(
-          socket,
-          username: widget.credential.username,
-          identities: [
-            ...SSHKeyPair.fromPem(
-              widget.credential.privateKey,
-              widget.credential.passphrase.isNotEmpty
-                  ? widget.credential.passphrase
-                  : null,
-            ),
-          ],
-        );
-      }
-
-      _session = await _client!.shell(
-        pty: SSHPtyConfig(
-          type: 'xterm-256color',
-          width: 80,
-          height: 24,
-        ),
-        environment: {
-          'LANG': 'en_US.UTF-8',
-          'LC_ALL': 'en_US.UTF-8',
-        },
-      );
+      await _connectionManager.connect();
 
       _terminal.write('Connected!\r\n');
 
+      final session = _connectionManager.session!;
+
       // Pipe terminal output with proper UTF-8 decoding
-      final stdoutDecoder = utf8.decoder.bind(_session!.stdout);
-      stdoutDecoder.listen((data) {
+      _stdoutSubscription?.cancel();
+      _stdoutSubscription = utf8.decoder.bind(session.stdout).listen((data) {
         _terminal.write(data);
       });
 
-      final stderrDecoder = utf8.decoder.bind(_session!.stderr);
-      stderrDecoder.listen((data) {
+      _stderrSubscription?.cancel();
+      _stderrSubscription = utf8.decoder.bind(session.stderr).listen((data) {
         _terminal.write(data);
       });
 
@@ -131,7 +107,7 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
               bytes.add(char);
             }
           }
-          _session?.write(Uint8List.fromList(bytes));
+          session.write(Uint8List.fromList(bytes));
           setState(() => _ctrlActive = false);
           return;
         }
@@ -143,28 +119,18 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
             bytes.add(0x1B);
             bytes.add(byte);
           }
-          _session?.write(Uint8List.fromList(bytes));
+          session.write(Uint8List.fromList(bytes));
           setState(() => _altActive = false);
           return;
         }
 
-        _session?.write(Uint8List.fromList(utf8.encode(data)));
+        session.write(Uint8List.fromList(utf8.encode(data)));
       };
 
       // Handle terminal resize
       _terminal.onResize = (width, height, pixelWidth, pixelHeight) {
-        _session?.resizeTerminal(width, height);
+        session.resizeTerminal(width, height);
       };
-
-      // Handle session done
-      _session!.done.then((_) {
-        if (mounted) {
-          _terminal.write('\r\nConnection closed.\r\n');
-          setState(() {
-            _isConnected = false;
-          });
-        }
-      });
 
       if (mounted) {
         setState(() {
@@ -183,9 +149,25 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     }
   }
 
+  Future<void> _reconnect() async {
+    if (!mounted) return;
+
+    try {
+      await _connectionManager.ensureConnected();
+      if (mounted && !_isConnected) {
+        _terminal.write('\r\nReconnecting...\r\n');
+        await _connect();
+      }
+    } catch (e) {
+      if (mounted) {
+        _terminal.write('\r\nReconnection failed: $e\r\n');
+      }
+    }
+  }
+
   /// Send a raw byte sequence to the SSH session
   void _sendRaw(List<int> bytes) {
-    _session?.write(Uint8List.fromList(bytes));
+    _connectionManager.session?.write(Uint8List.fromList(bytes));
   }
 
   /// Send a key with current modifier state, then reset modifiers
