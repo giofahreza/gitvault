@@ -40,6 +40,7 @@ class NotesRepository {
     List<ChecklistItem> checklistItems = const [],
   }) async {
     final now = DateTime.now();
+    final nextSortOrder = await _getNextSortOrder();
     final note = Note(
       uuid: _uuid.v4(),
       title: title,
@@ -49,6 +50,7 @@ class NotesRepository {
       tags: tags,
       isChecklist: isChecklist,
       checklistItems: checklistItems,
+      sortOrder: nextSortOrder,
       createdAt: now,
       modifiedAt: now,
     );
@@ -121,14 +123,41 @@ class NotesRepository {
       }
     }
 
-    // Sort: pinned first, then by modified date
-    notes.sort((a, b) {
+    // Filter out archived notes
+    final activeNotes = notes.where((n) => !n.isArchived).toList();
+
+    // Sort: pinned first, then by sortOrder asc, then createdAt desc as tiebreaker
+    activeNotes.sort((a, b) {
       if (a.isPinned != b.isPinned) {
         return a.isPinned ? -1 : 1;
       }
-      return b.modifiedAt.compareTo(a.modifiedAt);
+      final orderCmp = a.sortOrder.compareTo(b.sortOrder);
+      if (orderCmp != 0) return orderCmp;
+      return b.createdAt.compareTo(a.createdAt);
     });
 
+    return activeNotes;
+  }
+
+  /// Get all archived notes
+  Future<List<Note>> getArchivedNotes() async {
+    if (!_isInitialized) {
+      throw StateError('NotesRepository not initialized');
+    }
+
+    final notes = <Note>[];
+    for (final uuid in _notesBox.keys) {
+      try {
+        final note = await getNote(uuid as String);
+        if (note != null && note.isArchived) {
+          notes.add(note);
+        }
+      } catch (e) {
+        // Skip corrupted notes
+      }
+    }
+
+    notes.sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
     return notes;
   }
 
@@ -153,6 +182,31 @@ class NotesRepository {
       tags.addAll(note.tags);
     }
     return tags.toList()..sort();
+  }
+
+  /// Reorder notes by updating sortOrder for each UUID in the given order
+  Future<void> reorderNotes(List<String> uuidOrder) async {
+    for (int i = 0; i < uuidOrder.length; i++) {
+      final note = await getNote(uuidOrder[i]);
+      if (note != null && note.sortOrder != i) {
+        final updated = note.copyWith(sortOrder: i);
+        await _saveNote(updated);
+      }
+    }
+  }
+
+  /// Get the next available sortOrder value
+  Future<int> _getNextSortOrder() async {
+    int maxOrder = -1;
+    for (final uuid in _notesBox.keys) {
+      try {
+        final note = await getNote(uuid as String);
+        if (note != null && note.sortOrder > maxOrder) {
+          maxOrder = note.sortOrder;
+        }
+      } catch (_) {}
+    }
+    return maxOrder + 1;
   }
 
   Future<void> _saveNote(Note note) async {

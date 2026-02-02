@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GitVault</string>
+
+    <!-- IME Keyboard Strings -->
+    <string name="ime_subtype_name">GitVault Credentials</string>
+    <string name="ime_lock_icon">Lock icon</string>
+    <string name="ime_switch_keyboard">Switch to another keyboard</string>
+    <string name="ime_fill_username">Fill username</string>
+    <string name="ime_fill_password">Fill password</string>
+    <string name="ime_empty_state">No credentials available</string>
+</resources>

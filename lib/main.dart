@@ -12,6 +12,7 @@ import 'data/repositories/sync_engine.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/vault/vault_screen.dart';
 import 'features/totp/totp_codes_page.dart';
+import 'features/ssh/ssh_screen.dart';
 import 'features/notes/notes_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/autofill/autofill_select_screen.dart';
@@ -88,7 +89,8 @@ class BiometricGate extends ConsumerStatefulWidget {
   ConsumerState<BiometricGate> createState() => _BiometricGateState();
 }
 
-class _BiometricGateState extends ConsumerState<BiometricGate> {
+class _BiometricGateState extends ConsumerState<BiometricGate>
+    with WidgetsBindingObserver {
   bool _authenticated = false;
   bool _checking = true;
   bool _showPinEntry = false;
@@ -97,7 +99,42 @@ class _BiometricGateState extends ConsumerState<BiometricGate> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _attemptBiometric();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused && _authenticated) {
+      // Only lock if biometric or PIN is configured
+      final biometricEnabled = ref.read(biometricEnabledProvider);
+      _checkAndLock(biometricEnabled);
+    } else if (state == AppLifecycleState.resumed && !_authenticated) {
+      setState(() => _checking = true);
+      _attemptBiometric();
+    }
+  }
+
+  Future<void> _checkAndLock(bool biometricEnabled) async {
+    final pinAuth = ref.read(pinAuthProvider);
+    final hasPIN = await pinAuth.isPinSetup();
+
+    if (biometricEnabled || hasPIN) {
+      if (mounted) {
+        setState(() {
+          _authenticated = false;
+          _checking = true;
+          _showPinEntry = false;
+          _error = null;
+        });
+      }
+    }
   }
 
   Future<void> _attemptBiometric() async {
@@ -427,7 +464,7 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
-  int _currentIndex = 0;
+  int _currentIndex = 2; // Default to Notes tab
   Timer? _autoSyncTimer;
   bool _isSyncing = false;
 
@@ -435,6 +472,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     VaultScreen(),
     TotpCodesPage(),
     NotesScreen(),
+    SshScreen(),
     SettingsScreen(),
   ];
 
@@ -486,6 +524,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       final syncEngine = SyncEngine(
         vaultRepository: ref.read(vaultRepositoryProvider),
         notesRepository: ref.read(notesRepositoryProvider),
+        sshRepository: ref.read(sshRepositoryProvider),
         githubService: githubService,
         cryptoManager: ref.read(cryptoManagerProvider),
         keyStorage: keyStorage,
@@ -498,6 +537,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
       ref.invalidate(vaultEntriesProvider);
       ref.invalidate(notesProvider);
+      ref.invalidate(sshCredentialsProvider);
     } catch (_) {
       // Silent failure for auto-sync
     } finally {
@@ -573,6 +613,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           NavigationDestination(
             icon: Icon(Icons.note),
             label: 'Notes',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.terminal),
+            label: 'SSH',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings),

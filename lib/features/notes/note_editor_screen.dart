@@ -4,18 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/providers.dart';
 import '../../core/theme/note_colors.dart';
 import '../../data/models/note.dart';
+import '../../utils/auto_bullet.dart';
 
 /// Note editor screen for creating and editing notes
-class NoteEditorScreen extends ConsumerStatefulWidget {
+class NoteEditorDialog extends ConsumerStatefulWidget {
   final Note? note;
 
-  const NoteEditorScreen({super.key, this.note});
+  const NoteEditorDialog({super.key, this.note});
 
   @override
-  ConsumerState<NoteEditorScreen> createState() => _NoteEditorScreenState();
+  ConsumerState<NoteEditorDialog> createState() => _NoteEditorDialogState();
 }
 
-class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
+class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
   late NoteColor _selectedColor;
@@ -24,6 +25,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   late bool _isChecklist;
   late List<ChecklistItem> _checklistItems;
   bool _hasChanges = false;
+  String _previousContent = '';
 
   @override
   void initState() {
@@ -35,9 +37,10 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     _tags = List.from(widget.note?.tags ?? []);
     _isChecklist = widget.note?.isChecklist ?? false;
     _checklistItems = List.from(widget.note?.checklistItems ?? []);
+    _previousContent = _contentController.text;
 
     _titleController.addListener(() => _hasChanges = true);
-    _contentController.addListener(() => _hasChanges = true);
+    _contentController.addListener(_onContentChanged);
   }
 
   @override
@@ -45,6 +48,55 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     _titleController.dispose();
     _contentController.dispose();
     super.dispose();
+  }
+
+  void _onContentChanged() {
+    _hasChanges = true;
+
+    final text = _contentController.text;
+    final prevText = _previousContent;
+    _previousContent = text;
+
+    // Only process when a newline was just inserted
+    if (text.length <= prevText.length) return;
+    final diff = text.length - prevText.length;
+    if (diff != 1) return;
+
+    final cursorPos = _contentController.selection.baseOffset;
+    if (cursorPos <= 0) return;
+    if (text[cursorPos - 1] != '\n') return;
+
+    // Get the previous line
+    final beforeNewline = text.substring(0, cursorPos - 1);
+    final lastNewline = beforeNewline.lastIndexOf('\n');
+    final previousLine = lastNewline >= 0
+        ? beforeNewline.substring(lastNewline + 1)
+        : beforeNewline;
+
+    final prefix = AutoBullet.detectBulletPrefix(previousLine);
+    if (prefix == null) return;
+
+    // If the previous line was an empty bullet (just the prefix), remove it
+    if (AutoBullet.isEmptyBullet(previousLine)) {
+      // Remove the empty bullet line and the newline
+      final lineStart = lastNewline >= 0 ? lastNewline + 1 : 0;
+      final newText = text.substring(0, lineStart) + text.substring(cursorPos);
+      _previousContent = newText;
+      _contentController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: lineStart),
+      );
+      return;
+    }
+
+    // Insert the next bullet
+    final nextBullet = AutoBullet.getNextBullet(prefix);
+    final newText = text.substring(0, cursorPos) + nextBullet + text.substring(cursorPos);
+    _previousContent = newText;
+    _contentController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: cursorPos + nextBullet.length),
+    );
   }
 
   @override
@@ -57,7 +109,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
+      onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         await _handleBack();
       },
@@ -65,6 +117,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
         backgroundColor: backgroundColor,
         appBar: AppBar(
           backgroundColor: backgroundColor,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
           leading: IconButton(
             icon: Icon(Icons.arrow_back, color: textColor),
             onPressed: _handleBack,
@@ -93,12 +148,18 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               tooltip: 'Change color',
               onPressed: _showColorPicker,
             ),
-            if (widget.note != null)
+            if (widget.note != null) ...[
+              IconButton(
+                icon: Icon(Icons.archive_outlined, color: textColor),
+                tooltip: 'Archive',
+                onPressed: _archiveNote,
+              ),
               IconButton(
                 icon: Icon(Icons.delete_outline, color: textColor),
                 tooltip: 'Delete',
                 onPressed: _deleteNote,
               ),
+            ],
           ],
         ),
         body: Padding(
@@ -118,7 +179,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   color: textColor,
                 ),
               ),
-              const SizedBox(height: 8),
               if (_isChecklist)
                 Expanded(child: _buildChecklistEditor(textColor, hintColor))
               else
@@ -278,6 +338,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           return '$prefix${item.text}';
         }).join('\n');
         _contentController.text = lines;
+        _previousContent = lines;
         _isChecklist = false;
       } else {
         // Convert text to checklist
@@ -425,6 +486,16 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     }
   }
 
+  Future<void> _archiveNote() async {
+    if (widget.note != null) {
+      final repo = ref.read(notesRepositoryProvider);
+      await repo.initialize();
+      final updated = widget.note!.copyWith(isArchived: true);
+      await repo.updateNote(updated);
+      if (mounted) Navigator.pop(context);
+    }
+  }
+
   Future<void> _handleBack() async {
     if (_hasChanges) {
       await _saveNote();
@@ -468,12 +539,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           checklistItems: _checklistItems,
         );
         await repo.updateNote(updated);
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Note saved'), duration: Duration(seconds: 1)),
-        );
       }
     } catch (e) {
       if (mounted) {

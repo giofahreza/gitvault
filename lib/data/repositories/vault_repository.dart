@@ -4,6 +4,7 @@ import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/crypto/crypto_manager.dart';
 import '../../core/crypto/key_storage.dart';
+import '../../core/services/credential_cache_service.dart';
 import '../models/vault_entry.dart';
 
 /// Orchestrates encryption and local storage of vault entries
@@ -89,6 +90,9 @@ class VaultRepository {
     // Store as base64 to avoid Hive serialization issues with raw bytes
     final base64Encoded = base64Encode(encryptedBytes);
     await _localVaultBox.put(entry.uuid, base64Encoded);
+
+    // Update IME credential cache after write
+    await _updateCredentialCache();
   }
 
   /// Retrieves a vault entry by UUID
@@ -162,6 +166,9 @@ class VaultRepository {
     }
 
     await _localVaultBox.delete(uuid);
+
+    // Update IME credential cache after deletion
+    await _updateCredentialCache();
   }
 
   /// Search entries by title, username, or URL
@@ -193,6 +200,19 @@ class VaultRepository {
     }
 
     await _localVaultBox.clear();
+    await _updateCredentialCache();
+  }
+
+  /// Update the IME credential metadata cache (non-fatal).
+  /// Called after vault changes to keep the encrypted metadata cache in sync.
+  Future<void> _updateCredentialCache() async {
+    try {
+      final entries = await getAllEntries();
+      await CredentialCacheService.updateCredentialCache(entries);
+    } catch (e) {
+      // Non-fatal error: IME cache update failed, but vault operation succeeded
+      print('Warning: Failed to update IME credential cache: $e');
+    }
   }
 
   /// Close the vault (cleanup)

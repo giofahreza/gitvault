@@ -13,8 +13,8 @@ class TotpGenerator {
       // Remove spaces and convert to uppercase
       final cleanSecret = secret.replaceAll(' ', '').toUpperCase();
 
-      // Get current time in seconds
-      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      // Get current time in milliseconds (otp package expects ms with isGoogle: true)
+      final now = DateTime.now().millisecondsSinceEpoch;
 
       // Generate TOTP code
       final code = OTP.generateTOTPCodeString(
@@ -36,6 +36,12 @@ class TotpGenerator {
   static int getSecondsRemaining() {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     return Constants.totpInterval - (now % Constants.totpInterval);
+  }
+
+  /// Gets the current TOTP time period (increments every 30 seconds)
+  static int getCurrentPeriod() {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return now ~/ Constants.totpInterval;
   }
 
   /// Validates a TOTP secret format

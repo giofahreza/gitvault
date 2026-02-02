@@ -37,6 +37,18 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Enable vector drawable caching
+        vectorDrawables.useSupportLibrary = true
+    }
+
+    // Split APKs by ABI for smaller download size
+    bundle {
+        density {
+            enableSplit = true
+        }
+        abi {
+            enableSplit = true
+        }
     }
 
     signingConfigs {
@@ -69,4 +81,10 @@ flutter {
 dependencies {
     // AndroidX Autofill for inline suggestions
     implementation("androidx.autofill:autofill:1.3.0")
+    // Biometric authentication for IME keyboard
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    // JSON serialization for credential metadata cache
+    implementation("com.google.code.gson:gson:2.10.1")
+    // RecyclerView for IME credential list
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
 }

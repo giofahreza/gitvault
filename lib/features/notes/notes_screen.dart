@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/providers.dart';
 import '../../core/theme/note_colors.dart';
 import '../../data/models/note.dart';
-import 'note_editor_screen.dart';
+import 'note_editor_screen.dart'; // NoteEditorDialog
 
 /// Google Keep-like notes screen
 class NotesScreen extends ConsumerStatefulWidget {
@@ -63,6 +63,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 });
               },
             ),
+          IconButton(
+            icon: const Icon(Icons.archive_outlined),
+            tooltip: 'Archived notes',
+            onPressed: () => _showArchivedNotes(),
+          ),
           IconButton(
             icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view),
             tooltip: _isGridView ? 'List view' : 'Grid view',
@@ -127,7 +132,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 padding: const EdgeInsets.all(8.0),
                 child: Text('PINNED', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ),
-              _buildGrid(pinnedNotes),
+              _buildMasonryGrid(pinnedNotes),
               if (unpinnedNotes.isNotEmpty) const SizedBox(height: 16),
             ],
             if (unpinnedNotes.isNotEmpty) ...[
@@ -136,25 +141,73 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                   padding: const EdgeInsets.all(8.0),
                   child: Text('OTHERS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                 ),
-              _buildGrid(unpinnedNotes),
+              _buildMasonryGrid(unpinnedNotes),
             ],
           ],
         ),
       );
     } else {
-      return ListView(
-        padding: const EdgeInsets.all(8),
+      return _buildReorderableListView(pinnedNotes, unpinnedNotes);
+    }
+  }
+
+  Widget _buildMasonryGrid(List<Note> notes) {
+    // Distribute notes into two columns
+    final leftColumn = <Note>[];
+    final rightColumn = <Note>[];
+
+    for (int i = 0; i < notes.length; i++) {
+      if (i % 2 == 0) {
+        leftColumn.add(notes[i]);
+      } else {
+        rightColumn.add(notes[i]);
+      }
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            children: leftColumn.map((note) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _NoteCard(
+                note: note,
+                onTap: () => _navigateToEditor(note),
+                onArchive: () => _archiveNote(note),
+              ),
+            )).toList(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            children: rightColumn.map((note) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _NoteCard(
+                note: note,
+                onTap: () => _navigateToEditor(note),
+                onArchive: () => _archiveNote(note),
+              ),
+            )).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReorderableListView(List<Note> pinnedNotes, List<Note> unpinnedNotes) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (pinnedNotes.isNotEmpty) ...[
             Padding(
               padding: const EdgeInsets.all(8.0),
               child: Text('PINNED', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ),
-            ...pinnedNotes.map((note) => _NoteListTile(
-                  note: note,
-                  onTap: () => _navigateToEditor(note),
-                  onDelete: () => _deleteNote(note),
-                )),
+            _buildReorderableSection(pinnedNotes, isPinned: true),
             if (unpinnedNotes.isNotEmpty) const SizedBox(height: 8),
           ],
           if (unpinnedNotes.isNotEmpty) ...[
@@ -163,82 +216,236 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 padding: const EdgeInsets.all(8.0),
                 child: Text('OTHERS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ),
-            ...unpinnedNotes.map((note) => _NoteListTile(
-                  note: note,
-                  onTap: () => _navigateToEditor(note),
-                  onDelete: () => _deleteNote(note),
-                )),
+            _buildReorderableSection(unpinnedNotes, isPinned: false),
           ],
         ],
-      );
-    }
+      ),
+    );
   }
 
-  Widget _buildGrid(List<Note> notes) {
-    return GridView.builder(
+  Widget _buildReorderableSection(List<Note> notes, {required bool isPinned}) {
+    return ReorderableListView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 0.85,
-      ),
-      itemCount: notes.length,
-      itemBuilder: (context, index) {
-        final note = notes[index];
-        return _NoteCard(
-          note: note,
-          onTap: () => _navigateToEditor(note),
-          onDelete: () => _deleteNote(note),
-        );
+      buildDefaultDragHandles: true,
+      onReorder: (oldIndex, newIndex) {
+        _onReorderSection(oldIndex, newIndex, notes);
       },
+      children: notes.map((note) => _NoteListTile(
+        key: ValueKey('reorder_${note.uuid}'),
+        note: note,
+        onTap: () => _navigateToEditor(note),
+        onArchive: () => _archiveNote(note),
+      )).toList(),
     );
+  }
+
+  Future<void> _onReorderSection(int oldIndex, int newIndex, List<Note> sectionNotes) async {
+    if (newIndex > oldIndex) newIndex--;
+    if (oldIndex == newIndex) return;
+
+    final reordered = List<Note>.from(sectionNotes);
+    final note = reordered.removeAt(oldIndex);
+    reordered.insert(newIndex, note);
+
+    final repo = ref.read(notesRepositoryProvider);
+    await repo.initialize();
+    await repo.reorderNotes(reordered.map((n) => n.uuid).toList());
+    ref.invalidate(notesProvider);
   }
 
   void _navigateToEditor(Note? note) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => NoteEditorScreen(note: note),
+        builder: (_) => NoteEditorDialog(note: note),
       ),
     );
     ref.invalidate(notesProvider);
   }
 
-  Future<void> _deleteNote(Note note) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Note'),
-        content: Text('Delete "${note.title}"? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+  Future<void> _archiveNote(Note note) async {
+    final repo = ref.read(notesRepositoryProvider);
+    await repo.initialize();
+    final updated = note.copyWith(isArchived: true);
+    await repo.updateNote(updated);
+    ref.invalidate(notesProvider);
+    ref.invalidate(archivedNotesProvider);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Note archived'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () async {
+              final undone = updated.copyWith(isArchived: false);
+              await repo.updateNote(undone);
+              ref.invalidate(notesProvider);
+              ref.invalidate(archivedNotesProvider);
+            },
           ),
-        ],
+        ),
+      );
+    }
+  }
+
+  void _showArchivedNotes() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _ArchivedNotesScreen(),
       ),
     );
+  }
+}
 
-    if (confirm == true) {
-      final repo = ref.read(notesRepositoryProvider);
-      await repo.deleteNote(note.uuid);
-      ref.invalidate(notesProvider);
-    }
+/// Screen showing archived notes
+class _ArchivedNotesScreen extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final archivedAsync = ref.watch(archivedNotesProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Archived Notes'),
+      ),
+      body: archivedAsync.when(
+        data: (notes) {
+          if (notes.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.archive_outlined, size: 64, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No archived notes',
+                    style: TextStyle(fontSize: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(8),
+            itemCount: notes.length,
+            itemBuilder: (context, index) {
+              final note = notes[index];
+              return _ArchivedNoteCard(
+                note: note,
+                onUnarchive: () async {
+                  final repo = ref.read(notesRepositoryProvider);
+                  await repo.initialize();
+                  final updated = note.copyWith(isArchived: false);
+                  await repo.updateNote(updated);
+                  ref.invalidate(notesProvider);
+                  ref.invalidate(archivedNotesProvider);
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Note unarchived')),
+                    );
+                  }
+                },
+                onDelete: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Delete Note'),
+                      content: Text('Delete "${note.title}"? This cannot be undone.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                        FilledButton(
+                          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (confirm == true) {
+                    final repo = ref.read(notesRepositoryProvider);
+                    await repo.deleteNote(note.uuid);
+                    ref.invalidate(notesProvider);
+                    ref.invalidate(archivedNotesProvider);
+                  }
+                },
+              );
+            },
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, _) => Center(child: Text('Error: $err')),
+      ),
+    );
+  }
+}
+
+class _ArchivedNoteCard extends StatelessWidget {
+  final Note note;
+  final VoidCallback onUnarchive;
+  final VoidCallback onDelete;
+
+  const _ArchivedNoteCard({
+    required this.note,
+    required this.onUnarchive,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final backgroundColor = note.getBackgroundColor(brightness);
+    final textColor = note.getTextColor(brightness);
+
+    return Card(
+      color: backgroundColor,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        title: Text(
+          note.title.isEmpty ? 'Untitled' : note.title,
+          style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          note.isChecklist
+              ? '${note.checklistItems.where((i) => i.isChecked).length}/${note.checklistItems.length} items checked'
+              : note.content,
+          style: TextStyle(color: textColor),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(Icons.unarchive, color: textColor),
+              tooltip: 'Unarchive',
+              onPressed: onUnarchive,
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline, color: textColor),
+              tooltip: 'Delete',
+              onPressed: onDelete,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
 class _NoteCard extends StatelessWidget {
   final Note note;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
+  final VoidCallback onArchive;
 
   const _NoteCard({
     required this.note,
     required this.onTap,
-    required this.onDelete,
+    required this.onArchive,
   });
 
   @override
@@ -250,74 +457,86 @@ class _NoteCard extends StatelessWidget {
     final iconColor = NoteColorPalette.getIconColor(brightness);
     final tagBgColor = NoteColorPalette.getTagBackgroundColor(note.color.colorIndex, brightness);
 
-    return Card(
-      color: backgroundColor,
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: borderColor, width: 0.5),
+    return Dismissible(
+      key: ValueKey('note_${note.uuid}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 16),
+        decoration: BoxDecoration(
+          color: Colors.orange.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Icon(Icons.archive, color: Colors.orange),
       ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (note.title.isNotEmpty) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        note.title,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: textColor,
+      onDismissed: (_) => onArchive(),
+      child: Card(
+        color: backgroundColor,
+        elevation: 1,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: borderColor, width: 0.5),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (note.title.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          note.title,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    if (note.isPinned)
-                      Icon(Icons.push_pin, size: 16, color: iconColor),
-                  ],
-                ),
-                const SizedBox(height: 8),
-              ],
-              if (note.isChecklist && note.checklistItems.isNotEmpty)
-                Expanded(child: _buildChecklistPreview(note, textColor))
-              else if (note.content.isNotEmpty)
-                Expanded(
-                  child: Text(
+                      if (note.isPinned)
+                        Icon(Icons.push_pin, size: 16, color: iconColor),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (note.isChecklist && note.checklistItems.isNotEmpty)
+                  _buildChecklistPreview(note, textColor)
+                else if (note.content.isNotEmpty)
+                  Text(
                     note.content,
                     style: TextStyle(fontSize: 14, color: textColor),
-                    maxLines: 10,
+                    maxLines: 30,
                     overflow: TextOverflow.fade,
                   ),
-                ),
-              if (note.tags.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  children: note.tags.take(3).map((tag) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: tagBgColor,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        '#$tag',
-                        style: TextStyle(fontSize: 10, color: textColor),
-                      ),
-                    );
-                  }).toList(),
-                ),
+                if (note.tags.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: note.tags.take(3).map((tag) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: tagBgColor,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '#$tag',
+                          style: TextStyle(fontSize: 10, color: textColor),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -325,7 +544,7 @@ class _NoteCard extends StatelessWidget {
   }
 
   Widget _buildChecklistPreview(Note note, Color textColor) {
-    final items = note.checklistItems.take(6).toList();
+    final items = note.checklistItems.take(12).toList();
     final remaining = note.checklistItems.length - items.length;
 
     return Column(
@@ -372,12 +591,13 @@ class _NoteCard extends StatelessWidget {
 class _NoteListTile extends StatelessWidget {
   final Note note;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
+  final VoidCallback onArchive;
 
   const _NoteListTile({
+    super.key,
     required this.note,
     required this.onTap,
-    required this.onDelete,
+    required this.onArchive,
   });
 
   @override
@@ -396,30 +616,41 @@ class _NoteListTile extends StatelessWidget {
       subtitle = note.content;
     }
 
-    return Card(
-      color: backgroundColor,
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: note.isPinned
-            ? Icon(Icons.push_pin, color: iconColor)
-            : note.isChecklist
-                ? Icon(Icons.checklist, color: iconColor)
-                : null,
-        title: Text(
-          note.title.isEmpty ? 'Untitled' : note.title,
-          style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+    return Dismissible(
+      key: ValueKey('note_list_${note.uuid}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 16),
+        color: Colors.orange.withOpacity(0.3),
+        child: const Icon(Icons.archive, color: Colors.orange),
+      ),
+      onDismissed: (_) => onArchive(),
+      child: Card(
+        color: backgroundColor,
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ListTile(
+          leading: note.isPinned
+              ? Icon(Icons.push_pin, color: iconColor)
+              : note.isChecklist
+                  ? Icon(Icons.checklist, color: iconColor)
+                  : null,
+          title: Text(
+            note.title.isEmpty ? 'Untitled' : note.title,
+            style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: subtitle.isNotEmpty
+              ? Text(
+                  subtitle,
+                  style: TextStyle(color: textColor),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                )
+              : null,
+          onTap: onTap,
         ),
-        subtitle: subtitle.isNotEmpty
-            ? Text(
-                subtitle,
-                style: TextStyle(color: textColor),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              )
-            : null,
-        onTap: onTap,
       ),
     );
   }

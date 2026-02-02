@@ -20,17 +20,21 @@ class TotpCodesPage extends ConsumerStatefulWidget {
 class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
   Timer? _timer;
   int _secondsRemaining = 30;
+  int _currentPeriod = 0;
   final _searchController = TextEditingController();
   String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _updateTimer();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _secondsRemaining = TotpGenerator.getSecondsRemaining();
+    _currentPeriod = TotpGenerator.getCurrentPeriod();
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (mounted) {
+        final newPeriod = TotpGenerator.getCurrentPeriod();
         setState(() {
           _secondsRemaining = TotpGenerator.getSecondsRemaining();
+          _currentPeriod = newPeriod;
         });
       }
     });
@@ -41,10 +45,6 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
     _timer?.cancel();
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _updateTimer() {
-    _secondsRemaining = TotpGenerator.getSecondsRemaining();
   }
 
   @override
@@ -187,6 +187,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                     itemBuilder: (context, index) {
                       final entry = totpEntries[index];
                       return _TotpCodeCard(
+                        key: ValueKey('${entry.uuid}_$_currentPeriod'),
                         entry: entry,
                         secondsRemaining: _secondsRemaining,
                       );
@@ -305,6 +306,7 @@ class _TotpCodeCard extends StatelessWidget {
   final int secondsRemaining;
 
   const _TotpCodeCard({
+    super.key,
     required this.entry,
     required this.secondsRemaining,
   });

@@ -28,6 +28,8 @@ class Note with _$Note {
     @Default([]) List<String> tags,
     @Default(false) bool isChecklist,
     @Default([]) List<ChecklistItem> checklistItems,
+    @Default(false) bool isArchived,
+    @Default(0) int sortOrder,
     required DateTime createdAt,
     required DateTime modifiedAt,
   }) = _Note;

@@ -46,6 +46,12 @@ dependencies:
   hex: ^0.2.0
   # For opening URLs (giofahreza.com, GitHub)
   url_launcher: ^6.2.0
+  # For SSH connections
+  dartssh2: ^2.8.2
+  # For terminal emulator UI
+  xterm: ^4.0.0
+  # For file picking (SSH private key import)
+  file_picker: ^8.0.0
 
   # --- STATE MANAGEMENT ---
   flutter_riverpod: ^2.4.9
@@ -54,6 +60,10 @@ dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: JetBrainsMonoNerd
+      fonts:
+        - asset: assets/fonts/JetBrainsMonoNerdFont-Regular.ttf
 
 dev_dependencies:
   flutter_test:
@@ -68,6 +78,6 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: false
-  image_path: "assets/icon/gitvault.png"
+  image_path: "assets/icon/gitvault_new.jpeg"
   adaptive_icon_background: "#1a1a1a"
   adaptive_icon_foreground: "assets/icon/gitvault_padded.png"

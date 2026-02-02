@@ -7,9 +7,11 @@ import '../../core/services/github_service.dart';
 import '../../utils/constants.dart';
 import '../models/vault_entry.dart';
 import '../models/note.dart';
+import '../models/ssh_credential.dart';
 import '../models/sync_index.dart';
 import 'vault_repository.dart';
 import 'notes_repository.dart';
+import 'ssh_repository.dart';
 
 /// Manages synchronization between local vault and GitHub storage
 /// Implements "Smart Sync" with conflict resolution via Last Write Wins
@@ -17,6 +19,7 @@ import 'notes_repository.dart';
 class SyncEngine {
   final VaultRepository _vaultRepository;
   final NotesRepository _notesRepository;
+  final SshRepository? _sshRepository;
   final GitHubService _githubService;
   final CryptoManager _cryptoManager;
   final KeyStorage _keyStorage;
@@ -27,11 +30,13 @@ class SyncEngine {
   SyncEngine({
     required VaultRepository vaultRepository,
     required NotesRepository notesRepository,
+    SshRepository? sshRepository,
     required GitHubService githubService,
     required CryptoManager cryptoManager,
     required KeyStorage keyStorage,
   })  : _vaultRepository = vaultRepository,
         _notesRepository = notesRepository,
+        _sshRepository = sshRepository,
         _githubService = githubService,
         _cryptoManager = cryptoManager,
         _keyStorage = keyStorage;
@@ -43,6 +48,7 @@ class SyncEngine {
     _syncMetadataBox = await Hive.openBox<String>('sync_metadata');
     await _vaultRepository.initialize();
     await _notesRepository.initialize();
+    await _sshRepository?.initialize();
     _isInitialized = true;
   }
 
@@ -146,9 +152,29 @@ class SyncEngine {
                 conflicts++;
               }
             }
-          } catch (e) {
-            // Could not decrypt as either type, skip
-            continue;
+          } catch (_) {
+            // Not a note, try as SSH credential
+            try {
+              if (_sshRepository != null) {
+                final remoteSsh = await _decryptSshCredential(fileBytes, rootKey);
+
+                final localSsh = await _sshRepository!.getCredential(uuid);
+
+                if (localSsh == null) {
+                  await _sshRepository!.saveCredential(remoteSsh);
+                  downloaded++;
+                } else {
+                  if (remoteSsh.modifiedAt.isAfter(localSsh.modifiedAt)) {
+                    await _sshRepository!.saveCredential(remoteSsh);
+                    downloaded++;
+                    conflicts++;
+                  }
+                }
+              }
+            } catch (e) {
+              // Could not decrypt as any type, skip
+              continue;
+            }
           }
         }
       }
@@ -167,12 +193,15 @@ class SyncEngine {
     int uploaded = 0;
 
     try {
-      // Get all local entries (passwords) and notes
+      // Get all local entries (passwords), notes, and SSH credentials
       final entries = await _vaultRepository.getAllEntries();
       final notes = await _notesRepository.getAllNotes();
+      final sshCredentials = _sshRepository != null
+          ? await _sshRepository!.getAllCredentials()
+          : <SshCredential>[];
 
       // If no local data, check if remote index exists
-      if (entries.isEmpty && notes.isEmpty) {
+      if (entries.isEmpty && notes.isEmpty && sshCredentials.isEmpty) {
         final indexBytes = await _githubService.downloadFile(Constants.indexFile);
         if (indexBytes == null) {
           // Both local and remote empty - nothing to push
@@ -227,6 +256,28 @@ class SyncEngine {
         final encryptedBytes = await _encryptNote(note, rootKey);
 
         // Upload to GitHub
+        await _githubService.uploadFile(
+          path: remotePath,
+          content: encryptedBytes,
+          commitMessage: Constants.defaultCommitMessage,
+        );
+
+        uploaded++;
+      }
+
+      // Upload each SSH credential
+      for (final ssh in sshCredentials) {
+        final filenameHash = await _cryptoManager.hmacSha256(
+          key: rootKey,
+          data: ssh.uuid,
+        );
+
+        uuidToHashMap[ssh.uuid] = filenameHash;
+
+        final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
+
+        final encryptedBytes = await _encryptSshCredential(ssh, rootKey);
+
         await _githubService.uploadFile(
           path: remotePath,
           content: encryptedBytes,
@@ -316,6 +367,35 @@ class SyncEngine {
     final json = jsonDecode(jsonString) as Map<String, dynamic>;
 
     return Note.fromJson(json);
+  }
+
+  /// Encrypts an SSH credential to bytes
+  Future<Uint8List> _encryptSshCredential(SshCredential credential, Uint8List key) async {
+    final jsonString = jsonEncode(credential.toJson());
+    final jsonBytes = utf8.encode(jsonString);
+    final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+
+    final encryptedBox = await _cryptoManager.encryptXChaCha20(
+      data: paddedBytes,
+      key: key,
+    );
+
+    return encryptedBox.toBytes();
+  }
+
+  /// Decrypts an SSH credential from bytes
+  Future<SshCredential> _decryptSshCredential(Uint8List bytes, Uint8List key) async {
+    final encryptedBox = EncryptedBox.fromBytes(bytes);
+    final decryptedPadded = await _cryptoManager.decryptXChaCha20(
+      box: encryptedBox,
+      key: key,
+    );
+
+    final decryptedBytes = _cryptoManager.removeRandomPadding(decryptedPadded);
+    final jsonString = utf8.decode(decryptedBytes);
+    final json = jsonDecode(jsonString) as Map<String, dynamic>;
+
+    return SshCredential.fromJson(json);
   }
 
   /// Encrypts the sync index

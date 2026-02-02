@@ -6,11 +6,14 @@ import '../auth/duress_manager.dart';
 import '../auth/pin_auth.dart';
 import '../crypto/blind_handshake.dart';
 import '../services/autofill_service.dart';
+import '../services/ime_service.dart';
 import '../theme/theme_provider.dart';
 import '../../data/repositories/vault_repository.dart';
 import '../../data/repositories/notes_repository.dart';
+import '../../data/repositories/ssh_repository.dart';
 import '../../data/models/vault_entry.dart';
 import '../../data/models/note.dart';
+import '../../data/models/ssh_credential.dart';
 import '../../main.dart' show navigatorKey;
 
 export '../theme/theme_provider.dart';
@@ -104,6 +107,36 @@ final notesProvider = FutureProvider<List<Note>>((ref) async {
   }
 });
 
+/// Provider for archived notes list
+final archivedNotesProvider = FutureProvider<List<Note>>((ref) async {
+  final repo = ref.watch(notesRepositoryProvider);
+  try {
+    await repo.initialize();
+    return await repo.getArchivedNotes();
+  } catch (e) {
+    return [];
+  }
+});
+
+/// Provider for SshRepository
+final sshRepositoryProvider = Provider<SshRepository>((ref) {
+  return SshRepository(
+    cryptoManager: ref.watch(cryptoManagerProvider),
+    keyStorage: ref.watch(keyStorageProvider),
+  );
+});
+
+/// Provider for SSH credentials list (auto-refreshes when invalidated)
+final sshCredentialsProvider = FutureProvider<List<SshCredential>>((ref) async {
+  final repo = ref.watch(sshRepositoryProvider);
+  try {
+    await repo.initialize();
+    return await repo.getAllCredentials();
+  } catch (e) {
+    return [];
+  }
+});
+
 /// Provider for PinAuth
 final pinAuthProvider = Provider<PinAuth>((ref) {
   return PinAuth(keyStorage: ref.watch(keyStorageProvider));
@@ -126,6 +159,13 @@ final clipboardClearSecondsProvider = StateProvider<int>((ref) => 30);
 /// Provider for auto-sync interval in minutes (0 = off)
 /// Initialized from storage at app startup via loadPersistedSettings()
 final autoSyncIntervalProvider = StateProvider<int>((ref) => 5);
+
+/// Provider for IMEService (custom keyboard integration)
+final imeServiceProvider = Provider<IMEService>((ref) {
+  return IMEService(
+    vaultRepository: ref.watch(vaultRepositoryProvider),
+  );
+});
 
 /// Loads persisted settings from secure storage into state providers
 Future<void> loadPersistedSettings(ProviderContainer container) async {

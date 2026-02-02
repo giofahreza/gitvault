@@ -240,6 +240,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       final syncEngine = SyncEngine(
         vaultRepository: ref.read(vaultRepositoryProvider),
         notesRepository: ref.read(notesRepositoryProvider),
+        sshRepository: ref.read(sshRepositoryProvider),
         githubService: githubService,
         cryptoManager: ref.read(cryptoManagerProvider),
         keyStorage: keyStorage,
@@ -603,16 +604,22 @@ class _TotpCodeRow extends StatefulWidget {
 class _TotpCodeRowState extends State<_TotpCodeRow> {
   Timer? _timer;
   int _secondsRemaining = 30;
+  int _currentPeriod = 0;
 
   @override
   void initState() {
     super.initState();
-    _updateTimer();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _secondsRemaining = TotpGenerator.getSecondsRemaining();
+    _currentPeriod = TotpGenerator.getCurrentPeriod();
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (mounted) {
-        setState(() {
-          _secondsRemaining = TotpGenerator.getSecondsRemaining();
-        });
+        final newPeriod = TotpGenerator.getCurrentPeriod();
+        if (newPeriod != _currentPeriod || _secondsRemaining != TotpGenerator.getSecondsRemaining()) {
+          setState(() {
+            _secondsRemaining = TotpGenerator.getSecondsRemaining();
+            _currentPeriod = newPeriod;
+          });
+        }
       }
     });
   }
@@ -621,10 +628,6 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
   void dispose() {
     _timer?.cancel();
     super.dispose();
-  }
-
-  void _updateTimer() {
-    _secondsRemaining = TotpGenerator.getSecondsRemaining();
   }
 
   @override

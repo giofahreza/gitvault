@@ -93,6 +93,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showAutofillSettings(context, ref),
           ),
+          ListTile(
+            leading: const Icon(Icons.keyboard),
+            title: const Text('GitVault Keyboard'),
+            subtitle: const Text('Custom IME for credential filling'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showKeyboardSettings(context, ref),
+          ),
           const Divider(),
           const _SectionHeader(title: 'Devices'),
           ListTile(
@@ -658,6 +665,62 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  void _showKeyboardSettings(BuildContext context, WidgetRef ref) async {
+    final imeService = ref.read(imeServiceProvider);
+    final isEnabled = await imeService.isIMEEnabled();
+
+    if (!context.mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('GitVault Keyboard'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isEnabled
+                  ? 'GitVault keyboard is enabled. Switch to it when filling credentials.'
+                  : 'Enable GitVault as a keyboard input method to fill credentials without switching apps.',
+            ),
+            const SizedBox(height: 16),
+            if (!isEnabled)
+              const Text(
+                'You will be taken to keyboard settings.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                if (!isEnabled) {
+                  await imeService.openIMESettings();
+                } else {
+                  await imeService.showKeyboardPicker();
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
+            },
+            child: Text(isEnabled ? 'Switch Keyboard' : 'Enable'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showAutofillSettings(BuildContext context, WidgetRef ref) async {
     final autofillService = ref.read(autofillServiceProvider);
     final isEnabled = await autofillService.isAutofillServiceEnabled();
@@ -877,11 +940,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final indexBytes = await githubService.downloadFile('vault_index.enc');
       final hasExistingData = indexBytes != null;
 
-      // Check if local vault is empty
+      // Check if local vault is empty (check all repositories)
       final vaultRepo = ref.read(vaultRepositoryProvider);
       await vaultRepo.initialize();
       final localEntries = await vaultRepo.getAllEntries();
-      final hasLocalData = localEntries.isNotEmpty;
+
+      final notesRepo = ref.read(notesRepositoryProvider);
+      await notesRepo.initialize();
+      final localNotes = await notesRepo.getAllNotes();
+
+      final sshRepo = ref.read(sshRepositoryProvider);
+      await sshRepo.initialize();
+      final localSsh = await sshRepo.getAllCredentials();
+
+      final hasLocalData = localEntries.isNotEmpty || localNotes.isNotEmpty || localSsh.isNotEmpty;
 
       // If repo has data but local is empty, prompt for recovery or wipe
       if (hasExistingData && !hasLocalData) {
@@ -906,6 +978,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final syncEngine = SyncEngine(
         vaultRepository: ref.read(vaultRepositoryProvider),
         notesRepository: ref.read(notesRepositoryProvider),
+        sshRepository: ref.read(sshRepositoryProvider),
         githubService: githubService,
         cryptoManager: ref.read(cryptoManagerProvider),
         keyStorage: keyStorage,
@@ -919,6 +992,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // Invalidate all data providers to reload synced data
       ref.invalidate(vaultEntriesProvider);
       ref.invalidate(notesProvider);
+      ref.invalidate(sshCredentialsProvider);
 
       if (context.mounted) {
         String message;

@@ -167,6 +167,8 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
                   data: payload.qrData,
                   version: QrVersions.auto,
                   size: 250,
+                  eyeStyle: QrEyeStyle(color: colorScheme.onSurface),
+                  dataModuleStyle: QrDataModuleStyle(color: colorScheme.onSurface),
                 ),
               ),
               const SizedBox(height: 32),
