@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,11 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const Divider(),
           const _SectionHeader(title: 'Devices'),
-          ListTile(
-            leading: const Icon(Icons.phone_android),
-            title: const Text('This Device'),
-            subtitle: const Text('Primary'),
-          ),
+          _DeviceListSection(),
           ListTile(
             leading: const Icon(Icons.add),
             title: const Text('Link New Device'),
@@ -686,9 +683,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             if (!isEnabled)
-              const Text(
+              Text(
                 'You will be taken to keyboard settings.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
           ],
         ),
@@ -742,9 +739,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 16),
             if (!isEnabled)
-              const Text(
+              Text(
                 'You will be taken to system settings to enable autofill.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
           ],
         ),
@@ -859,9 +856,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade300),
+                      border: Border.all(color: Theme.of(context).colorScheme.outline),
                     ),
                     child: SelectableText(
                       formattedMnemonic,
@@ -1073,18 +1070,18 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const ListTile(
-        leading: Icon(Icons.cloud, color: Colors.grey),
-        title: Text('GitHub Sync'),
-        subtitle: Text('Checking...'),
-        trailing: Icon(Icons.chevron_right),
+      return ListTile(
+        leading: Icon(Icons.cloud, color: Theme.of(context).colorScheme.outline),
+        title: const Text('GitHub Sync'),
+        subtitle: const Text('Checking...'),
+        trailing: const Icon(Icons.chevron_right),
       );
     }
 
     return ListTile(
       leading: Icon(
         Icons.cloud,
-        color: _connected ? Colors.green : Colors.grey,
+        color: _connected ? Colors.green : Theme.of(context).colorScheme.outline,
       ),
       title: const Text('GitHub Sync'),
       subtitle: Text(_connected ? 'Connected' : 'Not configured'),
@@ -1124,9 +1121,9 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
               const SizedBox(height: 4),
               Text('Repository: ${repo ?? 'Unknown'}'),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Encrypted vault data is automatically synced to your private GitHub repository.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -1411,25 +1408,30 @@ void _showEnterRecoveryCodeDialog(
               style: TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 12),
-            Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.help_outline, size: 20, color: Colors.amber.shade900),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'This is the 24-word phrase from your original device, NOT your GitHub password or token.',
-                      style: TextStyle(fontSize: 11, color: Colors.amber.shade900),
-                    ),
+            Builder(
+              builder: (context) {
+                final colorScheme = Theme.of(context).colorScheme;
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: colorScheme.tertiary),
                   ),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.help_outline, size: 20, color: colorScheme.onTertiaryContainer),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This is the 24-word phrase from your original device, NOT your GitHub password or token.',
+                          style: TextStyle(fontSize: 11, color: colorScheme.onTertiaryContainer),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 16),
             TextField(
@@ -1625,6 +1627,172 @@ void _showEraseRepoDialog(
       ],
     ),
   );
+}
+
+class _DeviceListSection extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_DeviceListSection> createState() => _DeviceListSectionState();
+}
+
+class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
+  List<Map<String, dynamic>> _devices = [];
+  String? _localDeviceId;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+
+  Future<void> _loadDevices() async {
+    final keyStorage = ref.read(keyStorageProvider);
+    await keyStorage.initialize();
+
+    final deviceId = await keyStorage.getDeviceId();
+    final registryJson = await keyStorage.getDeviceRegistry();
+    final localName = await keyStorage.getLocalDeviceName();
+
+    List<Map<String, dynamic>> devices = [];
+
+    if (registryJson != null) {
+      try {
+        final registry = jsonDecode(registryJson) as Map<String, dynamic>;
+        final deviceList = registry['devices'] as List<dynamic>? ?? [];
+        devices = deviceList.map((d) => Map<String, dynamic>.from(d as Map)).toList();
+      } catch (_) {}
+    }
+
+    // If no devices from registry, show at least this device
+    if (devices.isEmpty) {
+      devices = [
+        {
+          'deviceId': deviceId ?? 'unknown',
+          'name': localName ?? 'This Device',
+          'lastSeen': DateTime.now().toIso8601String(),
+        }
+      ];
+    }
+
+    if (mounted) {
+      setState(() {
+        _devices = devices;
+        _localDeviceId = deviceId;
+        _loaded = true;
+      });
+    }
+  }
+
+  String _formatLastSeen(String? isoString) {
+    if (isoString == null) return 'Unknown';
+    try {
+      final dt = DateTime.parse(isoString);
+      final now = DateTime.now();
+      final diff = now.difference(dt);
+      if (diff.inMinutes < 1) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
+      return '${dt.day}/${dt.month}/${dt.year}';
+    } catch (_) {
+      return 'Unknown';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_loaded) {
+      return const ListTile(
+        leading: Icon(Icons.phone_android),
+        title: Text('Loading devices...'),
+      );
+    }
+
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Column(
+      children: _devices.map((device) {
+        final isThisDevice = device['deviceId'] == _localDeviceId;
+        final name = device['name'] as String? ?? 'Unknown Device';
+        final lastSeen = _formatLastSeen(device['lastSeen'] as String?);
+
+        return ListTile(
+          leading: Icon(
+            isThisDevice ? Icons.phone_android : Icons.devices_other,
+            color: isThisDevice ? colorScheme.primary : null,
+          ),
+          title: Row(
+            children: [
+              Text(name),
+              if (isThisDevice) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'This Device',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: colorScheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          subtitle: Text('Last seen: $lastSeen'),
+          onTap: isThisDevice ? () => _editDeviceName(context) : null,
+        );
+      }).toList(),
+    );
+  }
+
+  void _editDeviceName(BuildContext context) {
+    final controller = TextEditingController(
+      text: _devices.firstWhere(
+        (d) => d['deviceId'] == _localDeviceId,
+        orElse: () => {'name': 'This Device'},
+      )['name'] as String?,
+    );
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename This Device'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Device Name',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final name = controller.text.trim();
+              if (name.isNotEmpty) {
+                final keyStorage = ref.read(keyStorageProvider);
+                await keyStorage.storeLocalDeviceName(name);
+                Navigator.pop(ctx);
+                _loadDevices();
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SectionHeader extends StatelessWidget {

@@ -69,6 +69,9 @@ class SyncEngine {
     // Push local changes
     final pushResult = await _pushToGitHub(rootKey);
 
+    // Sync device registry
+    await _syncDeviceRegistry(rootKey);
+
     // Record sync time
     await _setLastSyncTime(DateTime.now());
 
@@ -308,6 +311,85 @@ class SyncEngine {
       return PushResult(uploaded: uploaded);
     } catch (e) {
       throw SyncException('Push failed: $e');
+    }
+  }
+
+  /// Syncs the device registry with GitHub
+  Future<void> _syncDeviceRegistry(Uint8List rootKey) async {
+    try {
+      final deviceId = await _keyStorage.getDeviceId();
+      if (deviceId == null) return;
+
+      final deviceName = await _keyStorage.getLocalDeviceName() ?? 'Unknown Device';
+      final now = DateTime.now().toIso8601String();
+
+      // Download existing registry
+      Map<String, dynamic> registry = {};
+      final registryBytes = await _githubService.downloadFile(Constants.trustedDevicesFile);
+      if (registryBytes != null) {
+        try {
+          final encryptedBox = EncryptedBox.fromBytes(registryBytes);
+          final decryptedPadded = await _cryptoManager.decryptXChaCha20(
+            box: encryptedBox,
+            key: rootKey,
+          );
+          final decryptedBytes = _cryptoManager.removeRandomPadding(decryptedPadded);
+          final jsonString = utf8.decode(decryptedBytes);
+          registry = jsonDecode(jsonString) as Map<String, dynamic>;
+        } catch (_) {
+          // Corrupt or wrong key, start fresh
+          registry = {};
+        }
+      }
+
+      // Ensure 'devices' list exists
+      final devices = (registry['devices'] as List<dynamic>?) ?? [];
+
+      // Update or add this device
+      bool found = false;
+      final updatedDevices = devices.map((d) {
+        final device = d as Map<String, dynamic>;
+        if (device['deviceId'] == deviceId) {
+          found = true;
+          return {
+            ...device,
+            'name': deviceName,
+            'lastSeen': now,
+          };
+        }
+        return device;
+      }).toList();
+
+      if (!found) {
+        updatedDevices.add({
+          'deviceId': deviceId,
+          'name': deviceName,
+          'lastSeen': now,
+          'addedAt': now,
+        });
+      }
+
+      registry['devices'] = updatedDevices;
+
+      // Encrypt and upload
+      final registryJson = jsonEncode(registry);
+      final jsonBytes = utf8.encode(registryJson);
+      final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+      final encryptedBox = await _cryptoManager.encryptXChaCha20(
+        data: paddedBytes,
+        key: rootKey,
+      );
+
+      await _githubService.uploadFile(
+        path: Constants.trustedDevicesFile,
+        content: encryptedBox.toBytes(),
+        commitMessage: 'Update device registry',
+      );
+
+      // Cache locally
+      await _keyStorage.storeDeviceRegistry(registryJson);
+    } catch (_) {
+      // Non-fatal: device registry sync failure should not block vault sync
     }
   }
 

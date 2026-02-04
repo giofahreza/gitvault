@@ -317,15 +317,50 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       // User must manually set up GitHub sync on each device if desired
       await keyStorage.storeRootKey(linkingData.rootKey);
 
+      // Register this device with a name
+      await keyStorage.storeLocalDeviceName('Linked Device');
+
       // Refresh setup state
       ref.invalidate(isVaultSetupProvider);
       ref.invalidate(vaultEntriesProvider);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device linked successfully! Set up GitHub sync in Settings to sync your vault.')),
+        // Prompt for device name
+        final nameController = TextEditingController(text: 'Linked Device');
+        final deviceName = await showDialog<String>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Name This Device'),
+            content: TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Device Name',
+                hintText: 'e.g., My Pixel, Work Phone',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, nameController.text.trim()),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
         );
-        Navigator.of(context).pop();
+
+        if (deviceName != null && deviceName.isNotEmpty) {
+          await keyStorage.storeLocalDeviceName(deviceName);
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Device linked successfully! Set up GitHub sync in Settings to sync your vault.')),
+          );
+          Navigator.of(context).pop();
+        }
       }
     } catch (e) {
       if (mounted) {

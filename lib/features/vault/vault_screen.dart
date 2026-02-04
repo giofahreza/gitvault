@@ -178,7 +178,58 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     );
   }
 
-  void _copyPassword(VaultEntry entry) {
+  Future<void> _copyPassword(VaultEntry entry) async {
+    // Require biometric or PIN auth before copying
+    final biometricEnabled = ref.read(biometricEnabledProvider);
+    final pinEnabled = await ref.read(pinEnabledProvider.future);
+
+    if (!biometricEnabled && !pinEnabled) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Authentication Required'),
+          content: const Text('Please enable biometrics or PIN in Settings to copy passwords.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Try biometric first
+    if (biometricEnabled) {
+      final biometricAuth = ref.read(biometricAuthProvider);
+      final supported = await biometricAuth.isSupported();
+      if (supported) {
+        final authenticated = await biometricAuth.authenticate(
+          reason: 'Authenticate to copy password',
+        );
+        if (!authenticated) return;
+        // Authenticated via biometric, proceed to copy
+        if (!mounted) return;
+        _performCopy(entry);
+        return;
+      }
+    }
+
+    // Fall back to PIN
+    if (pinEnabled && mounted) {
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => _PinVerifyDialog(),
+      );
+      if (result == true && mounted) {
+        _performCopy(entry);
+      }
+    }
+  }
+
+  void _performCopy(VaultEntry entry) {
     Clipboard.setData(ClipboardData(text: entry.password));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(

@@ -20,6 +20,8 @@ class KeyStorage {
   static const String _pinHashKey = 'gitvault_pin_hash';
   static const String _pinSaltKey = 'gitvault_pin_salt';
   static const String _autoSyncIntervalKey = 'gitvault_auto_sync_interval';
+  static const String _localDeviceNameKey = 'gitvault_local_device_name';
+  static const String _deviceRegistryKey = 'gitvault_device_registry';
 
   /// Initialize the storage box
   Future<void> initialize() async {
@@ -221,6 +223,30 @@ class KeyStorage {
     final value = _box.get(_autoSyncIntervalKey);
     if (value == null) return 5;
     return int.tryParse(value) ?? 5;
+  }
+
+  /// Stores local device name
+  Future<void> storeLocalDeviceName(String name) async {
+    _ensureInitialized();
+    await _box.put(_localDeviceNameKey, name);
+  }
+
+  /// Retrieves local device name
+  Future<String?> getLocalDeviceName() async {
+    _ensureInitialized();
+    return _box.get(_localDeviceNameKey);
+  }
+
+  /// Stores device registry JSON (cached for UI)
+  Future<void> storeDeviceRegistry(String json) async {
+    _ensureInitialized();
+    await _box.put(_deviceRegistryKey, json);
+  }
+
+  /// Retrieves cached device registry JSON
+  Future<String?> getDeviceRegistry() async {
+    _ensureInitialized();
+    return _box.get(_deviceRegistryKey);
   }
 
   /// Wipes all stored keys (emergency)

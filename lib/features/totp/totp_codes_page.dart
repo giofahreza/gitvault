@@ -154,21 +154,22 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
           }
 
           if (totpEntries.isEmpty && _searchQuery.isEmpty) {
+            final colorScheme = Theme.of(context).colorScheme;
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.security, size: 64, color: Colors.grey.shade400),
+                  Icon(Icons.security, size: 64, color: colorScheme.outline),
                   const SizedBox(height: 16),
                   Text(
                     'No 2FA Codes',
-                    style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+                    style: TextStyle(fontSize: 18, color: colorScheme.onSurfaceVariant),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Tap + to add manually, or scan a QR code',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade500),
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
                   ),
                   const SizedBox(height: 24),
                   OutlinedButton.icon(
@@ -185,7 +186,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
             return Center(
               child: Text(
                 'No matching 2FA codes',
-                style: TextStyle(color: Colors.grey.shade600),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             );
           }
@@ -655,7 +656,7 @@ class _TotpCodeCard extends StatelessWidget {
                             entry.username,
                             style: TextStyle(
                               fontSize: 13,
-                              color: Colors.grey.shade600,
+                              color: colorScheme.onSurfaceVariant,
                             ),
                           ),
                       ],
@@ -672,7 +673,7 @@ class _TotpCodeCard extends StatelessWidget {
                           value: secondsRemaining / 30,
                           strokeWidth: 3,
                           color: progressColor,
-                          backgroundColor: Colors.grey.shade300,
+                          backgroundColor: colorScheme.surfaceContainerHighest,
                         ),
                         Text(
                           '$secondsRemaining',

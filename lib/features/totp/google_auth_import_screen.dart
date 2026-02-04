@@ -224,7 +224,7 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                         if (_qrCodesScanned > 0)
                           Text(
                             'Scanned $_qrCodesScanned QR code${_qrCodesScanned == 1 ? '' : 's'}',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                           ),
                       ],
                     ),
@@ -292,7 +292,7 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                   account.name.isNotEmpty && account.issuer.isNotEmpty
                       ? account.name
                       : account.type.toUpperCase(),
-                  style: TextStyle(color: Colors.grey.shade600),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
                 secondary: CircleAvatar(
                   child: Text(
