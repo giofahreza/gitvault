@@ -9,7 +9,7 @@ import '../../data/models/vault_entry.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/totp_generator.dart';
 
-/// Main vault screen displaying all password entries
+/// Main vault screen displaying all password entries grouped by category
 class VaultScreen extends ConsumerStatefulWidget {
   const VaultScreen({super.key});
 
@@ -20,6 +20,7 @@ class VaultScreen extends ConsumerStatefulWidget {
 class _VaultScreenState extends ConsumerState<VaultScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  final Set<String> _collapsedGroups = {};
 
   @override
   void dispose() {
@@ -79,6 +80,13 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     );
   }
 
+  String _getGroup(VaultEntry entry) {
+    if (entry.tags.isNotEmpty && entry.tags.first.isNotEmpty) {
+      return entry.tags.first;
+    }
+    return 'Ungrouped';
+  }
+
   Widget _buildVaultList(List<VaultEntry> entries) {
     // Filter out 2FA-only entries (entries with empty passwords)
     final passwordEntries = entries.where((e) => e.password.isNotEmpty).toList();
@@ -89,7 +97,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             final q = _searchQuery.toLowerCase();
             return e.title.toLowerCase().contains(q) ||
                 e.username.toLowerCase().contains(q) ||
-                (e.url?.toLowerCase().contains(q) ?? false);
+                (e.url?.toLowerCase().contains(q) ?? false) ||
+                e.tags.any((t) => t.toLowerCase().contains(q));
           }).toList();
 
     if (filtered.isEmpty) {
@@ -112,14 +121,58 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       );
     }
 
+    // Group entries
+    final Map<String, List<VaultEntry>> grouped = {};
+    for (final entry in filtered) {
+      final group = _getGroup(entry);
+      grouped.putIfAbsent(group, () => []).add(entry);
+    }
+
+    // Sort groups: "Ungrouped" last, others alphabetically
+    final sortedGroups = grouped.keys.toList()
+      ..sort((a, b) {
+        if (a == 'Ungrouped') return 1;
+        if (b == 'Ungrouped') return -1;
+        return a.toLowerCase().compareTo(b.toLowerCase());
+      });
+
+    // If only one group and it's "Ungrouped", show flat list
+    if (sortedGroups.length == 1 && sortedGroups.first == 'Ungrouped') {
+      return ListView.builder(
+        itemCount: filtered.length,
+        itemBuilder: (context, index) {
+          final entry = filtered[index];
+          return _VaultEntryTile(
+            entry: entry,
+            onTap: () => _showEntryDetails(entry),
+            onCopyPassword: () => _copyPassword(entry),
+          );
+        },
+      );
+    }
+
     return ListView.builder(
-      itemCount: filtered.length,
+      itemCount: sortedGroups.length,
       itemBuilder: (context, index) {
-        final entry = filtered[index];
-        return _VaultEntryTile(
-          entry: entry,
-          onTap: () => _showEntryDetails(entry),
-          onCopyPassword: () => _copyPassword(entry),
+        final group = sortedGroups[index];
+        final groupEntries = grouped[group]!;
+        final isCollapsed = _collapsedGroups.contains(group);
+
+        return _GroupSection(
+          groupName: group,
+          entries: groupEntries,
+          isCollapsed: isCollapsed,
+          onToggle: () {
+            setState(() {
+              if (isCollapsed) {
+                _collapsedGroups.remove(group);
+              } else {
+                _collapsedGroups.add(group);
+              }
+            });
+          },
+          onEntryTap: _showEntryDetails,
+          onCopyPassword: _copyPassword,
         );
       },
     );
@@ -287,6 +340,76 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
   }
 }
 
+/// Collapsible group section
+class _GroupSection extends StatelessWidget {
+  final String groupName;
+  final List<VaultEntry> entries;
+  final bool isCollapsed;
+  final VoidCallback onToggle;
+  final void Function(VaultEntry) onEntryTap;
+  final void Function(VaultEntry) onCopyPassword;
+
+  const _GroupSection({
+    required this.groupName,
+    required this.entries,
+    required this.isCollapsed,
+    required this.onToggle,
+    required this.onEntryTap,
+    required this.onCopyPassword,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: onToggle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  isCollapsed ? Icons.expand_more : Icons.expand_less,
+                  size: 20,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  groupName,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.onSurfaceVariant,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '(${entries.length})',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colorScheme.outline,
+                  ),
+                ),
+                const Spacer(),
+              ],
+            ),
+          ),
+        ),
+        if (!isCollapsed)
+          ...entries.map((entry) => _VaultEntryTile(
+                entry: entry,
+                onTap: () => onEntryTap(entry),
+                onCopyPassword: () => onCopyPassword(entry),
+              )),
+        const Divider(height: 1),
+      ],
+    );
+  }
+}
+
 class _VaultEntryTile extends StatelessWidget {
   final VaultEntry entry;
   final VoidCallback onTap;
@@ -375,6 +498,19 @@ class _EntryDetailsSheet extends StatelessWidget {
                   ),
                 ],
               ),
+              if (entry.tags.isNotEmpty && entry.tags.first.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    Chip(
+                      label: Text(entry.tags.first, style: const TextStyle(fontSize: 12)),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 24),
               _DetailRow(label: 'Username', value: entry.username, onCopy: onCopyUsername),
               const SizedBox(height: 12),
@@ -470,6 +606,7 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
   final _passwordController = TextEditingController();
   final _urlController = TextEditingController();
   final _notesController = TextEditingController();
+  final _groupController = TextEditingController();
 
   bool _obscurePassword = true;
   bool _saving = false;
@@ -481,6 +618,7 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
     _passwordController.dispose();
     _urlController.dispose();
     _notesController.dispose();
+    _groupController.dispose();
     super.dispose();
   }
 
@@ -520,6 +658,17 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
                 ),
               ),
               obscureText: _obscurePassword,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _groupController,
+              decoration: const InputDecoration(
+                labelText: 'Group (optional)',
+                hintText: 'e.g., Social, Work, Finance',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.folder_outlined),
+              ),
+              textCapitalization: TextCapitalization.words,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -570,12 +719,17 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
     try {
       final repo = ref.read(vaultRepositoryProvider);
       await repo.initialize();
+
+      final group = _groupController.text.trim();
+      final tags = group.isNotEmpty ? [group] : <String>[];
+
       await repo.createEntry(
         title: _titleController.text.trim(),
         username: _usernameController.text.trim(),
         password: _passwordController.text,
         url: _urlController.text.trim().isEmpty ? null : _urlController.text.trim(),
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        tags: tags,
       );
 
       widget.onSaved();
@@ -723,6 +877,7 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
   late final TextEditingController _passwordController;
   late final TextEditingController _urlController;
   late final TextEditingController _notesController;
+  late final TextEditingController _groupController;
 
   bool _obscurePassword = true;
   bool _saving = false;
@@ -735,6 +890,9 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
     _passwordController = TextEditingController(text: widget.entry.password);
     _urlController = TextEditingController(text: widget.entry.url ?? '');
     _notesController = TextEditingController(text: widget.entry.notes ?? '');
+    _groupController = TextEditingController(
+      text: widget.entry.tags.isNotEmpty ? widget.entry.tags.first : '',
+    );
   }
 
   @override
@@ -744,6 +902,7 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
     _passwordController.dispose();
     _urlController.dispose();
     _notesController.dispose();
+    _groupController.dispose();
     super.dispose();
   }
 
@@ -782,6 +941,17 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
                 ),
               ),
               obscureText: _obscurePassword,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _groupController,
+              decoration: const InputDecoration(
+                labelText: 'Group (optional)',
+                hintText: 'e.g., Social, Work, Finance',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.folder_outlined),
+              ),
+              textCapitalization: TextCapitalization.words,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -834,12 +1004,16 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
       final repo = ref.read(vaultRepositoryProvider);
       await repo.initialize();
 
+      final group = _groupController.text.trim();
+      final tags = group.isNotEmpty ? [group] : <String>[];
+
       final updated = widget.entry.copyWith(
         title: _titleController.text.trim(),
         username: _usernameController.text.trim(),
         password: _passwordController.text,
         url: _urlController.text.trim().isEmpty ? null : _urlController.text.trim(),
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        tags: tags,
       );
 
       await repo.updateEntry(updated);

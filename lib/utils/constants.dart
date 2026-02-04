@@ -18,5 +18,6 @@ class Constants {
   static const int totpDigits = 6;
 
   // Sync
+  static const String dataBranch = 'data';
   static const String defaultCommitMessage = 'Update entry';
 }

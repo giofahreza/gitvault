@@ -88,15 +88,13 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
         return;
       }
 
-      final token = await keyStorage.getGitHubToken() ?? '';
-      final owner = await keyStorage.getRepoOwner() ?? '';
-      final repo = await keyStorage.getRepoName() ?? '';
-
+      // Only transfer root key, not GitHub credentials
+      // User must manually set up GitHub sync on each device
       final payload = await blindHandshake.generateLinkingPayload(
         rootKey: rootKey,
-        githubToken: token,
-        repoOwner: owner,
-        repoName: repo,
+        githubToken: '',
+        repoOwner: '',
+        repoName: '',
       );
 
       if (mounted) {
@@ -315,16 +313,9 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
         pin: _pinController.text,
       );
 
-      // Store root key and GitHub credentials on this device
+      // Store only the root key on this device (not GitHub credentials)
+      // User must manually set up GitHub sync on each device if desired
       await keyStorage.storeRootKey(linkingData.rootKey);
-
-      if (linkingData.githubToken.isNotEmpty) {
-        await keyStorage.storeGitHubCredentials(
-          token: linkingData.githubToken,
-          repoOwner: linkingData.repoOwner,
-          repoName: linkingData.repoName,
-        );
-      }
 
       // Refresh setup state
       ref.invalidate(isVaultSetupProvider);
@@ -332,7 +323,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device linked successfully! You can now sync your vault.')),
+          const SnackBar(content: Text('Device linked successfully! Set up GitHub sync in Settings to sync your vault.')),
         );
         Navigator.of(context).pop();
       }

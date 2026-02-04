@@ -1286,9 +1286,6 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
                           repoName: repo,
                         );
 
-                        // Refresh connection status
-                        await _checkConnection();
-
                         if (context.mounted) {
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -1297,6 +1294,11 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
                               backgroundColor: Colors.green,
                             ),
                           );
+                        }
+
+                        // Refresh connection status (after checking mounted)
+                        if (mounted) {
+                          await _checkConnection();
                         }
                       } catch (e) {
                         setState(() => validating = false);
