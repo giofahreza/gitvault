@@ -102,8 +102,8 @@ class GitHubService {
              errorStr.contains('422') ||
              errorStr.contains('no commit found') ||
              errorStr.contains('branch'))) {
-          // Initialize the repository and retry
-          await _initializeRepository();
+          // Ensure data branch exists and retry
+          await _ensureDataBranch();
 
           // Retry the upload (with isRetry flag to prevent infinite recursion)
           return await uploadFile(
