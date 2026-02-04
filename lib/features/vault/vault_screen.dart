@@ -20,7 +20,7 @@ class VaultScreen extends ConsumerStatefulWidget {
 class _VaultScreenState extends ConsumerState<VaultScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
-  final Set<String> _collapsedGroups = {};
+  final Set<String> _expandedGroups = {};
 
   @override
   void dispose() {
@@ -156,7 +156,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       itemBuilder: (context, index) {
         final group = sortedGroups[index];
         final groupEntries = grouped[group]!;
-        final isCollapsed = _collapsedGroups.contains(group);
+        final isCollapsed = !_expandedGroups.contains(group);
 
         return _GroupSection(
           groupName: group,
@@ -165,9 +165,9 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           onToggle: () {
             setState(() {
               if (isCollapsed) {
-                _collapsedGroups.remove(group);
+                _expandedGroups.add(group);
               } else {
-                _collapsedGroups.add(group);
+                _expandedGroups.remove(group);
               }
             });
           },
@@ -210,7 +210,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             context: context,
             builder: (ctx) => AlertDialog(
               title: const Text('Delete Entry'),
-              content: Text('Delete "${entry.title}"? This cannot be undone.'),
+              content: Text('Are you sure to delete "${entry.title}"?'),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
                 FilledButton(
@@ -541,7 +541,7 @@ class _EntryDetailsSheet extends StatelessWidget {
   }
 }
 
-class _DetailRow extends StatefulWidget {
+class _DetailRow extends ConsumerStatefulWidget {
   final String label;
   final String value;
   final bool obscured;
@@ -555,11 +555,67 @@ class _DetailRow extends StatefulWidget {
   });
 
   @override
-  State<_DetailRow> createState() => _DetailRowState();
+  ConsumerState<_DetailRow> createState() => _DetailRowState();
 }
 
-class _DetailRowState extends State<_DetailRow> {
+class _DetailRowState extends ConsumerState<_DetailRow> {
   bool _hidden = true;
+
+  Future<void> _togglePasswordVisibility() async {
+    if (!_hidden) {
+      setState(() => _hidden = true);
+      return;
+    }
+
+    // Check if biometric or PIN is enabled
+    final biometricEnabled = ref.read(biometricEnabledProvider);
+    final pinEnabled = await ref.read(pinEnabledProvider.future);
+
+    if (!biometricEnabled && !pinEnabled) {
+      // Neither is enabled — prompt user to enable one
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Authentication Required'),
+          content: const Text('Please enable biometrics or PIN in Settings to view passwords.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Try biometric first
+    if (biometricEnabled) {
+      final biometricAuth = ref.read(biometricAuthProvider);
+      final supported = await biometricAuth.isSupported();
+      if (supported) {
+        final authenticated = await biometricAuth.authenticate(
+          reason: 'Authenticate to view password',
+        );
+        if (authenticated && mounted) {
+          setState(() => _hidden = false);
+        }
+        return;
+      }
+    }
+
+    // Fall back to PIN
+    if (pinEnabled && mounted) {
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => _PinVerifyDialog(),
+      );
+      if (result == true && mounted) {
+        setState(() => _hidden = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -576,7 +632,7 @@ class _DetailRowState extends State<_DetailRow> {
             if (widget.obscured)
               IconButton(
                 icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off, size: 20),
-                onPressed: () => setState(() => _hidden = !_hidden),
+                onPressed: _togglePasswordVisibility,
               ),
             if (widget.onCopy != null)
               IconButton(
@@ -584,6 +640,76 @@ class _DetailRowState extends State<_DetailRow> {
                 onPressed: widget.onCopy,
               ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Simple PIN verification dialog
+class _PinVerifyDialog extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_PinVerifyDialog> createState() => _PinVerifyDialogState();
+}
+
+class _PinVerifyDialogState extends ConsumerState<_PinVerifyDialog> {
+  final _pinController = TextEditingController();
+  bool _verifying = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _verify() async {
+    final pin = _pinController.text;
+    if (pin.isEmpty) return;
+
+    setState(() { _verifying = true; _error = null; });
+
+    final pinAuth = ref.read(pinAuthProvider);
+    final valid = await pinAuth.verifyPin(pin);
+
+    if (valid) {
+      if (mounted) Navigator.pop(context, true);
+    } else {
+      setState(() { _verifying = false; _error = 'Incorrect PIN'; _pinController.clear(); });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Enter PIN'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _pinController,
+            keyboardType: TextInputType.number,
+            obscureText: true,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'PIN',
+              border: const OutlineInputBorder(),
+              errorText: _error,
+            ),
+            onSubmitted: (_) => _verify(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _verifying ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _verifying ? null : _verify,
+          child: _verifying
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Verify'),
         ),
       ],
     );

@@ -25,7 +25,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
   int _currentPeriod = 0;
   final _searchController = TextEditingController();
   String _searchQuery = '';
-  final Set<String> _collapsedGroups = {};
+  final Set<String> _expandedGroups = {};
 
   @override
   void initState() {
@@ -234,7 +234,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
               itemBuilder: (context, index) {
                 final group = sortedGroups[index];
                 final groupEntries = grouped[group]!;
-                final isCollapsed = _collapsedGroups.contains(group);
+                final isCollapsed = !_expandedGroups.contains(group);
 
                 return _TotpGroupSection(
                   groupName: group,
@@ -245,9 +245,9 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                   onToggle: () {
                     setState(() {
                       if (isCollapsed) {
-                        _collapsedGroups.remove(group);
+                        _expandedGroups.add(group);
                       } else {
-                        _collapsedGroups.add(group);
+                        _expandedGroups.remove(group);
                       }
                     });
                   },
@@ -294,7 +294,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete 2FA Code'),
-        content: Text('Delete "${entry.title}"? This cannot be undone.'),
+        content: Text('Are you sure to delete this 2FA "${entry.title}"?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(
@@ -629,7 +629,7 @@ class _TotpCodeCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         onTap: () => _copyCode(context, code),
-        onLongPress: () => _showOptionsMenu(context),
+        onLongPress: onDelete,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -711,43 +711,14 @@ class _TotpCodeCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: const Icon(Icons.copy),
-                    onPressed: () => _copyCode(context, code),
-                    tooltip: 'Copy code',
+                    icon: const Icon(Icons.edit),
+                    onPressed: onEdit,
+                    tooltip: 'Edit',
                   ),
                 ],
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  void _showOptionsMenu(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('Edit'),
-              onTap: () {
-                Navigator.pop(ctx);
-                onEdit();
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.delete, color: Theme.of(context).colorScheme.error),
-              title: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error)),
-              onTap: () {
-                Navigator.pop(ctx);
-                onDelete();
-              },
-            ),
-          ],
         ),
       ),
     );
