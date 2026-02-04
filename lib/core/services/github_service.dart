@@ -119,7 +119,7 @@ class GitHubService {
   }
 
   /// Downloads a file from the repository on the data branch
-  /// Returns the file content as bytes
+  /// Returns the file content as bytes, or null if file not found
   Future<Uint8List?> downloadFile(String path) async {
     try {
       final response = await _github.request(
@@ -127,8 +127,11 @@ class GitHubService {
         '/repos/$_repoOwner/$_repoName/contents/$path?ref=$_branch',
       );
 
-      if (response.statusCode == 404) return null;
-      _checkResponse(response, 'Download file "$path"');
+      // Auth errors should throw, everything else treat as "not found"
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        _checkResponse(response, 'Download file "$path"');
+      }
+      if (response.statusCode != 200) return null;
 
       final responseJson = jsonDecode(response.body) as Map<String, dynamic>;
       final base64Content = (responseJson['content'] as String?)?.replaceAll('\n', '') ?? '';
@@ -138,7 +141,7 @@ class GitHubService {
     } catch (e) {
       final errorStr = e.toString().toLowerCase();
       if (errorStr.contains('404') || errorStr.contains('not found')) {
-        return null; // File not found
+        return null;
       }
       throw e is GitHubException ? e : GitHubException('Failed to download file: $e');
     }
@@ -152,8 +155,10 @@ class GitHubService {
         '/repos/$_repoOwner/$_repoName/contents/$path?ref=$_branch',
       );
 
-      if (response.statusCode == 404) return [];
-      _checkResponse(response, 'List files "$path"');
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        _checkResponse(response, 'List files "$path"');
+      }
+      if (response.statusCode != 200) return [];
 
       final items = jsonDecode(response.body) as List<dynamic>;
       return items
@@ -163,7 +168,7 @@ class GitHubService {
     } catch (e) {
       final errorStr = e.toString().toLowerCase();
       if (errorStr.contains('404') || errorStr.contains('not found')) {
-        return []; // Directory doesn't exist yet
+        return [];
       }
       throw e is GitHubException ? e : GitHubException('Failed to list files: $e');
     }
@@ -181,8 +186,10 @@ class GitHubService {
         '/repos/$_repoOwner/$_repoName/contents/$path?ref=$_branch',
       );
 
-      if (response.statusCode == 404) return;
-      _checkResponse(response, 'Get file SHA "$path"');
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        _checkResponse(response, 'Get file SHA "$path"');
+      }
+      if (response.statusCode != 200) return;
 
       final responseJson = jsonDecode(response.body) as Map<String, dynamic>;
       final sha = responseJson['sha'] as String?;
