@@ -7,6 +7,8 @@ import 'core/auth/biometric_auth.dart';
 import 'core/providers/providers.dart';
 import 'core/services/autofill_request_handler.dart';
 import 'core/services/github_service.dart';
+import 'core/services/background_sync_service.dart';
+import 'core/services/persistent_ssh_service.dart';
 import 'core/theme/app_theme.dart';
 import 'data/repositories/sync_engine.dart';
 import 'features/onboarding/onboarding_screen.dart';
@@ -30,6 +32,12 @@ void main() async {
 
   // Load persisted settings (biometric toggle, clipboard timer)
   await loadPersistedSettings(container);
+
+  // Initialize background sync service
+  await BackgroundSyncService.initialize();
+
+  // Initialize persistent SSH service
+  await PersistentSshService().initialize();
 
   runApp(
     UncontrolledProviderScope(

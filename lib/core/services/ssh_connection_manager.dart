@@ -2,14 +2,16 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 import '../../../data/models/ssh_credential.dart';
+import 'battery_optimization_manager.dart';
 
-/// Manages persistent SSH connections with keep-alive
+/// Manages persistent SSH connections with battery-aware keep-alive
 class SshConnectionManager {
   final SshCredential credential;
   SSHClient? _client;
   SSHSession? _session;
   Timer? _keepAliveTimer;
   bool _isConnected = false;
+  final BatteryOptimizationManager _batteryManager = BatteryOptimizationManager();
 
   late StreamSubscription<void> _doneSubscription;
 
@@ -77,11 +79,27 @@ class SshConnectionManager {
     }
   }
 
-  /// Start keep-alive mechanism
-  void _startKeepAlive() {
+  /// Start battery-aware keep-alive mechanism
+  void _startKeepAlive() async {
     _keepAliveTimer?.cancel();
-    _keepAliveTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+
+    // Get battery-optimized interval
+    final shouldEnable = await _batteryManager.shouldEnableSshKeepAlive();
+    if (!shouldEnable) {
+      return; // Skip keep-alive on low battery
+    }
+
+    final intervalSeconds = await _batteryManager.getSshKeepAliveInterval();
+
+    _keepAliveTimer = Timer.periodic(Duration(seconds: intervalSeconds), (_) async {
       if (_isConnected && _client != null) {
+        // Re-check battery status periodically
+        final canKeepAlive = await _batteryManager.shouldEnableSshKeepAlive();
+        if (!canKeepAlive) {
+          _keepAliveTimer?.cancel();
+          return;
+        }
+
         try {
           // Send SSH keep-alive by writing empty data
           _session?.write(Uint8List(0));

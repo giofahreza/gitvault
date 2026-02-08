@@ -11,6 +11,7 @@ import '../../core/services/github_service.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/mnemonic_helper.dart';
 import '../device_linking/link_device_screen.dart';
+import 'background_sync_settings.dart';
 
 /// Settings and security controls screen
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -130,6 +131,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             subtitle: Text(_getAutoSyncLabel(autoSyncInterval)),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showAutoSyncSettings(context, ref, autoSyncInterval),
+          ),
+          ListTile(
+            leading: const Icon(Icons.cloud_sync),
+            title: const Text('Background Sync'),
+            subtitle: const Text('Battery-optimized background sync'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const BackgroundSyncSettings()),
+              );
+            },
           ),
           ListTile(
             leading: const Icon(Icons.download),

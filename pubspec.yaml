@@ -1,6 +1,6 @@
 name: gitvault
 description: A sovereign, device-centric password manager using GitHub.
-version: 1.0.101+101
+version: 1.0.102+102
 publish_to: 'none'
 
 environment:
@@ -52,6 +52,24 @@ dependencies:
   xterm: ^4.0.0
   # For file picking (SSH private key import)
   file_picker: ^8.0.0
+
+  # --- BACKGROUND SERVICES & BATTERY OPTIMIZATION ---
+  # For background sync tasks
+  workmanager: ^0.5.2
+  # For checking connectivity status
+  connectivity_plus: ^6.0.0
+  # For battery optimization
+  battery_plus: ^6.0.0
+  # For device info
+  device_info_plus: ^10.0.0
+  # For persistent SSH notifications
+  flutter_local_notifications: ^17.0.0
+  # For wake locks (keep SSH alive)
+  wakelock_plus: ^1.2.0
+
+  # --- UI COMPONENTS ---
+  # For masonry/staggered grid layout (Bootstrap-style notes)
+  flutter_staggered_grid_view: ^0.7.0
 
   # --- STATE MANAGEMENT ---
   flutter_riverpod: ^2.4.9

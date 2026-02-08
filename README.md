@@ -6,11 +6,16 @@ A secure password manager with GitHub-backed encrypted storage and Android autof
 
 - 🔐 **End-to-end encryption** - Your passwords are encrypted locally before syncing
 - 🔄 **GitHub sync** - Store encrypted vault in private GitHub repository
+- 🔋 **Background sync** - Battery-optimized automatic sync in background
+- ⚡ **Adaptive intervals** - Smart sync frequency based on battery and connectivity
 - 📱 **Android autofill** - System-wide password autofill (Android 8.0+)
 - ⌨️ **Inline keyboard suggestions** - Autofill suggestions appear in your keyboard (Android 11+)
 - 👆 **Biometric authentication** - Unlock with fingerprint
 - 🔗 **Device linking** - Link multiple devices via QR code
 - 🚨 **Duress mode** - Emergency wipe with duress PIN
+- 🖥️ **Termux-like SSH** - Persistent background SSH sessions with notifications
+- ⌨️ **Advanced terminal** - Gestures, volume keys, enhanced keyboard toolbar
+- 📡 **Multiple SSH sessions** - Concurrent sessions with session manager
 
 ## Installation
 
@@ -199,6 +204,68 @@ If fingerprint doesn't work:
 2. Toggle off and on
 3. Re-test fingerprint
 4. Check Android Settings → Biometrics → Fingerprint is registered
+
+### Background Sync
+
+GitVault now supports automatic background sync with intelligent battery optimization:
+
+**Features:**
+- Automatic periodic sync with GitHub
+- Battery-aware sync intervals (adapts to battery level)
+- WiFi-only sync option (save cellular data)
+- Sync only when charging option (maximum battery conservation)
+- Real-time sync statistics and monitoring
+
+**Configuration:**
+1. Go to Settings → Background Sync
+2. Enable background sync
+3. Choose sync interval (15-360 minutes)
+4. Optional: Enable "WiFi Only" or "Charging Only"
+
+**How it works:**
+- Syncs automatically in background even when app is closed
+- Adjusts frequency based on battery (e.g., less frequent on low battery)
+- Uses exponential backoff on failures to save battery
+- Shows last sync time and status in settings
+
+For detailed information, see [Background Sync Guide](BACKGROUND_SYNC_GUIDE.md).
+
+### SSH Terminal (Termux-Like Features)
+
+GitVault includes a professional SSH terminal with Termux-inspired features:
+
+**Features:**
+- Persistent background sessions (survive app closure)
+- Notification-based session access
+- Multiple concurrent SSH sessions
+- Wake locks to keep connections alive
+- Gestures (double tap, long press, pinch zoom)
+- Volume key bindings (Ctrl+C, Ctrl+D)
+- Enhanced keyboard toolbar
+- Session manager
+- Copy/paste support
+
+**Usage:**
+1. Go to SSH → Add credential
+2. Connect → Choose "Persistent Session"
+3. Session runs in background with notification
+4. Tap notification to return to session
+5. Manage sessions from Sessions screen
+
+**Termux-Like Gestures:**
+- **Double Tap**: Toggle keyboard toolbar
+- **Long Press**: Context menu
+- **Pinch Zoom**: Adjust font size
+- **Volume Down**: Ctrl+C (interrupt)
+- **Volume Up**: Ctrl+D (end input)
+
+**Session Management:**
+- Multiple sessions supported
+- Sessions persist across app restarts
+- Tap notification to switch sessions
+- Close individual or all sessions
+
+For detailed information, see [SSH Termux Features](SSH_TERMUX_FEATURES.md).
 
 ## File Structure
 

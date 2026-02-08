@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../core/providers/providers.dart';
 import '../../core/theme/note_colors.dart';
@@ -152,47 +153,22 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   }
 
   Widget _buildMasonryGrid(List<Note> notes) {
-    // Distribute notes into two columns
-    final leftColumn = <Note>[];
-    final rightColumn = <Note>[];
-
-    for (int i = 0; i < notes.length; i++) {
-      if (i % 2 == 0) {
-        leftColumn.add(notes[i]);
-      } else {
-        rightColumn.add(notes[i]);
-      }
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            children: leftColumn.map((note) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _NoteCard(
-                note: note,
-                onTap: () => _navigateToEditor(note),
-                onArchive: () => _archiveNote(note),
-              ),
-            )).toList(),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            children: rightColumn.map((note) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _NoteCard(
-                note: note,
-                onTap: () => _navigateToEditor(note),
-                onArchive: () => _archiveNote(note),
-              ),
-            )).toList(),
-          ),
-        ),
-      ],
+    // Bootstrap-style masonry grid: automatically places notes in shortest column
+    return MasonryGridView.count(
+      crossAxisCount: 2,
+      mainAxisSpacing: 8,
+      crossAxisSpacing: 8,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: notes.length,
+      itemBuilder: (context, index) {
+        final note = notes[index];
+        return _NoteCard(
+          note: note,
+          onTap: () => _navigateToEditor(note),
+          onArchive: () => _archiveNote(note),
+        );
+      },
     );
   }
 

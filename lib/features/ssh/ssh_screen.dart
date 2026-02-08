@@ -5,7 +5,10 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../core/providers/providers.dart';
 import '../../data/models/ssh_credential.dart';
+import '../../core/services/persistent_ssh_service.dart';
 import 'ssh_terminal_screen.dart';
+import 'ssh_persistent_terminal_screen.dart';
+import 'ssh_sessions_screen.dart';
 
 /// SSH credentials list screen
 class SshScreen extends ConsumerStatefulWidget {
@@ -19,10 +22,51 @@ class _SshScreenState extends ConsumerState<SshScreen> {
   @override
   Widget build(BuildContext context) {
     final credentialsAsync = ref.watch(sshCredentialsProvider);
+    final sshService = PersistentSshService();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('SSH'),
+        actions: [
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.list_alt),
+                tooltip: 'Active Sessions',
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SshSessionsScreen()),
+                  );
+                },
+              ),
+              if (sshService.hasActiveSessions)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      '${sshService.activeSessionCount}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
       body: credentialsAsync.when(
         data: (credentials) => _buildList(credentials),
@@ -69,12 +113,65 @@ class _SshScreenState extends ConsumerState<SshScreen> {
     );
   }
 
-  void _connectSsh(SshCredential credential) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SshTerminalScreen(credential: credential),
+  Future<void> _connectSsh(SshCredential credential) async {
+    // Ask if user wants persistent session
+    final persistent = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('SSH Session Type'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Choose session type:'),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.notifications_active),
+              title: const Text('Persistent Session'),
+              subtitle: const Text('Runs in background with notification'),
+              contentPadding: EdgeInsets.zero,
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.terminal),
+              title: const Text('Regular Session'),
+              subtitle: const Text('Closes when you leave the screen'),
+              contentPadding: EdgeInsets.zero,
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+          ],
+        ),
       ),
     );
+
+    if (persistent == null) return;
+
+    if (persistent) {
+      // Create persistent session
+      final sshService = PersistentSshService();
+      final session = await sshService.createSession(
+        credential: credential,
+        persistent: true,
+      );
+
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SshPersistentTerminalScreen(session: session),
+          ),
+        );
+      }
+    } else {
+      // Regular session
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SshTerminalScreen(credential: credential),
+          ),
+        );
+      }
+    }
   }
 
   void _showAddCredentialDialog() {
