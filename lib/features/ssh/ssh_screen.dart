@@ -6,7 +6,6 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/providers/providers.dart';
 import '../../data/models/ssh_credential.dart';
 import '../../core/services/persistent_ssh_service.dart';
-import 'ssh_terminal_screen.dart';
 import 'ssh_persistent_terminal_screen.dart';
 import 'ssh_sessions_screen.dart';
 
@@ -114,63 +113,25 @@ class _SshScreenState extends ConsumerState<SshScreen> {
   }
 
   Future<void> _connectSsh(SshCredential credential) async {
-    // Ask if user wants persistent session
-    final persistent = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('SSH Session Type'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Choose session type:'),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.notifications_active),
-              title: const Text('Persistent Session'),
-              subtitle: const Text('Runs in background with notification'),
-              contentPadding: EdgeInsets.zero,
-              onTap: () => Navigator.pop(ctx, true),
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.terminal),
-              title: const Text('Regular Session'),
-              subtitle: const Text('Closes when you leave the screen'),
-              contentPadding: EdgeInsets.zero,
-              onTap: () => Navigator.pop(ctx, false),
-            ),
-          ],
-        ),
-      ),
+    final sshService = PersistentSshService();
+
+    // Check if there's already an active session for this credential
+    final existingSessions = sshService.getAllSessions();
+    final existingSession = existingSessions.where(
+      (s) => s.credential.uuid == credential.uuid
+    ).firstOrNull;
+
+    final session = existingSession ?? await sshService.createSession(
+      credential: credential,
+      persistent: true,
     );
 
-    if (persistent == null) return;
-
-    if (persistent) {
-      // Create persistent session
-      final sshService = PersistentSshService();
-      final session = await sshService.createSession(
-        credential: credential,
-        persistent: true,
+    if (mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SshPersistentTerminalScreen(session: session),
+        ),
       );
-
-      if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => SshPersistentTerminalScreen(session: session),
-          ),
-        );
-      }
-    } else {
-      // Regular session
-      if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => SshTerminalScreen(credential: credential),
-          ),
-        );
-      }
     }
   }
 

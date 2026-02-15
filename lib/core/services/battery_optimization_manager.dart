@@ -144,11 +144,11 @@ class BatteryOptimizationManager {
     final charging = await isCharging();
 
     if (charging) {
-      return 30; // 30 seconds when charging
+      return 15; // 15 seconds when charging
     } else if (batteryLevel > _mediumBatteryThreshold) {
-      return 60; // 1 minute on good battery
+      return 30; // 30 seconds on good battery
     } else if (batteryLevel > _lowBatteryThreshold) {
-      return 120; // 2 minutes on medium battery
+      return 60; // 1 minute on medium battery
     } else {
       return 300; // 5 minutes on low battery
     }

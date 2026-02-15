@@ -20,6 +20,13 @@ class _SshSessionsScreenState extends State<SshSessionsScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh the screen when navigating back to it
+    setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -39,6 +46,8 @@ class _SshSessionsScreenState extends State<SshSessionsScreen> {
 
   Widget _buildSessionsList() {
     final sessions = _sshService.getAllSessions();
+    debugPrint('[SessionsList] Found ${sessions.length} sessions');
+    debugPrint('[SessionsList] Has active sessions: ${_sshService.hasActiveSessions}');
 
     if (sessions.isEmpty) {
       return Center(

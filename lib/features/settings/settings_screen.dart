@@ -27,7 +27,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final biometricEnabled = ref.watch(biometricEnabledProvider);
     final clipboardSeconds = ref.watch(clipboardClearSecondsProvider);
     final themeMode = ref.watch(themeModeProvider);
-    final autoSyncInterval = ref.watch(autoSyncIntervalProvider);
     final pinEnabledAsync = ref.watch(pinEnabledProvider);
 
     return Scaffold(
@@ -119,20 +118,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const _SectionHeader(title: 'Backup'),
           _GitHubStatusTile(),
           ListTile(
-            leading: const Icon(Icons.sync),
-            title: const Text('Sync Now'),
-            subtitle: const Text('Manually sync with GitHub'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _performSync(context, ref),
-          ),
-          ListTile(
-            leading: const Icon(Icons.timer_outlined),
-            title: const Text('Auto-Sync'),
-            subtitle: Text(_getAutoSyncLabel(autoSyncInterval)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showAutoSyncSettings(context, ref, autoSyncInterval),
-          ),
-          ListTile(
             leading: const Icon(Icons.cloud_sync),
             title: const Text('Background Sync'),
             subtitle: const Text('Battery-optimized background sync'),
@@ -198,34 +183,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       }
     }
-  }
-
-  String _getAutoSyncLabel(int minutes) {
-    if (minutes <= 0) return 'Off';
-    if (minutes == 1) return 'Every minute';
-    return 'Every $minutes minutes';
-  }
-
-  void _showAutoSyncSettings(BuildContext context, WidgetRef ref, int current) {
-    showDialog(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Auto-Sync Interval'),
-        children: [
-          for (final minutes in [0, 1, 5, 15, 30])
-            RadioListTile<int>(
-              title: Text(minutes == 0 ? 'Off' : minutes == 1 ? 'Every minute' : 'Every $minutes minutes'),
-              value: minutes,
-              groupValue: current,
-              onChanged: (value) {
-                ref.read(autoSyncIntervalProvider.notifier).state = value!;
-                ref.read(keyStorageProvider).setAutoSyncInterval(value);
-                Navigator.pop(ctx);
-              },
-            ),
-        ],
-      ),
-    );
   }
 
   void _showPinSettings(BuildContext context, WidgetRef ref, bool pinEnabled) {
@@ -904,148 +861,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to retrieve recovery phrase: $e')),
         );
-      }
-    }
-  }
-
-  Future<void> _performSync(BuildContext context, WidgetRef ref) async {
-    final keyStorage = ref.read(keyStorageProvider);
-    await keyStorage.initialize();
-    final hasGitHub = await keyStorage.hasGitHubCredentials();
-
-    if (!hasGitHub) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('GitHub not configured. Set it up first.')),
-        );
-      }
-      return;
-    }
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Checking sync status...')),
-      );
-    }
-
-    GitHubService? githubService;
-
-    try {
-      final token = await keyStorage.getGitHubToken();
-      final owner = await keyStorage.getRepoOwner();
-      final name = await keyStorage.getRepoName();
-
-      if (token == null || owner == null || name == null) {
-        throw Exception('GitHub credentials incomplete');
-      }
-
-      githubService = GitHubService(
-        accessToken: token,
-        repoOwner: owner,
-        repoName: name,
-      );
-
-      // Check if repo has existing vault data
-      final indexBytes = await githubService.downloadFile('vault_index.enc');
-      final hasExistingData = indexBytes != null;
-
-      // Check if local vault is empty (check all repositories)
-      final vaultRepo = ref.read(vaultRepositoryProvider);
-      await vaultRepo.initialize();
-      final localEntries = await vaultRepo.getAllEntries();
-
-      final notesRepo = ref.read(notesRepositoryProvider);
-      await notesRepo.initialize();
-      final localNotes = await notesRepo.getAllNotes();
-
-      final sshRepo = ref.read(sshRepositoryProvider);
-      await sshRepo.initialize();
-      final localSsh = await sshRepo.getAllCredentials();
-
-      final hasLocalData = localEntries.isNotEmpty || localNotes.isNotEmpty || localSsh.isNotEmpty;
-
-      // If repo has data but local is empty, prompt for recovery or wipe
-      if (hasExistingData && !hasLocalData) {
-        githubService.dispose();
-
-        if (context.mounted) {
-          // Remove "checking" message
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-
-          _showRecoveryCodeDialog(
-            context,
-            ref,
-            token: token,
-            owner: owner,
-            repo: name,
-          );
-        }
-        return;
-      }
-
-      // Proceed with normal sync
-      final syncEngine = SyncEngine(
-        vaultRepository: ref.read(vaultRepositoryProvider),
-        notesRepository: ref.read(notesRepositoryProvider),
-        sshRepository: ref.read(sshRepositoryProvider),
-        githubService: githubService,
-        cryptoManager: ref.read(cryptoManagerProvider),
-        keyStorage: keyStorage,
-      );
-
-      await syncEngine.initialize();
-      final result = await syncEngine.sync();
-      syncEngine.dispose(); // Don't close the box, just dispose resources
-      githubService.dispose();
-
-      // Invalidate all data providers to reload synced data
-      ref.invalidate(vaultEntriesProvider);
-      ref.invalidate(notesProvider);
-      ref.invalidate(sshCredentialsProvider);
-
-      if (context.mounted) {
-        String message;
-        if (result.pushed == 0 && result.pulled == 0) {
-          message = 'Synced (up to date)';
-        } else {
-          message = 'Synced: ${result.pushed} pushed, ${result.pulled} pulled';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      githubService?.dispose();
-
-      final errorMsg = e.toString().toLowerCase();
-
-      // Check if it's a decryption/MAC error (wrong encryption key)
-      if (errorMsg.contains('mac') || errorMsg.contains('decrypt')) {
-        if (context.mounted) {
-          // Directly show the recovery phrase input dialog (no intermediate dialog)
-          final token = await keyStorage.getGitHubToken();
-          final owner = await keyStorage.getRepoOwner();
-          final repoName = await keyStorage.getRepoName();
-          if (token != null && owner != null && repoName != null) {
-            _showEnterRecoveryCodeDialog(
-              context,
-              ref,
-              token: token,
-              owner: owner,
-              repo: repoName,
-            );
-          }
-        }
-      } else {
-        // Other sync errors
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Sync failed: $e')),
-          );
-        }
       }
     }
   }

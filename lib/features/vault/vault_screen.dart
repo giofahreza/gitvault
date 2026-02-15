@@ -8,6 +8,7 @@ import '../../core/services/github_service.dart';
 import '../../data/models/vault_entry.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/totp_generator.dart';
+import '../../utils/auth_helper.dart';
 
 /// Main vault screen displaying all password entries grouped by category
 class VaultScreen extends ConsumerStatefulWidget {
@@ -144,8 +145,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           final entry = filtered[index];
           return _VaultEntryTile(
             entry: entry,
-            onTap: () => _showEntryDetails(entry),
-            onCopyPassword: () => _copyPassword(entry),
+            onTap: () => _copyPassword(entry),
+            onLongPress: () => _showEditEntryDialog(entry),
           );
         },
       );
@@ -171,8 +172,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               }
             });
           },
-          onEntryTap: _showEntryDetails,
-          onCopyPassword: _copyPassword,
+          onEntryTap: _copyPassword,
+          onEntryLongPress: _showEditEntryDialog,
         );
       },
     );
@@ -180,52 +181,14 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
 
   Future<void> _copyPassword(VaultEntry entry) async {
     // Require biometric or PIN auth before copying
-    final biometricEnabled = ref.read(biometricEnabledProvider);
-    final pinEnabled = await ref.read(pinEnabledProvider.future);
+    final authenticated = await AuthHelper.authenticate(
+      context: context,
+      ref: ref,
+      reason: 'Authenticate to copy password',
+    );
 
-    if (!biometricEnabled && !pinEnabled) {
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Authentication Required'),
-          content: const Text('Please enable biometrics or PIN in Settings to copy passwords.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    // Try biometric first
-    if (biometricEnabled) {
-      final biometricAuth = ref.read(biometricAuthProvider);
-      final supported = await biometricAuth.isSupported();
-      if (supported) {
-        final authenticated = await biometricAuth.authenticate(
-          reason: 'Authenticate to copy password',
-        );
-        if (!authenticated) return;
-        // Authenticated via biometric, proceed to copy
-        if (!mounted) return;
-        _performCopy(entry);
-        return;
-      }
-    }
-
-    // Fall back to PIN
-    if (pinEnabled && mounted) {
-      final result = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => _PinVerifyDialog(),
-      );
-      if (result == true && mounted) {
-        _performCopy(entry);
-      }
+    if (authenticated && mounted) {
+      _performCopy(entry);
     }
   }
 
@@ -302,8 +265,50 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           // Auto-sync after edit (in background)
           _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
         },
+        onDelete: () => _showDeleteConfirmation(entry),
       ),
     );
+  }
+
+  Future<void> _showDeleteConfirmation(VaultEntry entry) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Entry'),
+        content: Text('Are you sure you want to delete "${entry.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final repo = ref.read(vaultRepositoryProvider);
+      await repo.initialize();
+      await repo.deleteEntry(entry.uuid);
+      ref.invalidate(vaultEntriesProvider);
+      // Auto-sync after delete (in background)
+      _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Entry deleted'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _syncVault() async {
@@ -398,7 +403,7 @@ class _GroupSection extends StatelessWidget {
   final bool isCollapsed;
   final VoidCallback onToggle;
   final void Function(VaultEntry) onEntryTap;
-  final void Function(VaultEntry) onCopyPassword;
+  final void Function(VaultEntry) onEntryLongPress;
 
   const _GroupSection({
     required this.groupName,
@@ -406,7 +411,7 @@ class _GroupSection extends StatelessWidget {
     required this.isCollapsed,
     required this.onToggle,
     required this.onEntryTap,
-    required this.onCopyPassword,
+    required this.onEntryLongPress,
   });
 
   @override
@@ -453,7 +458,7 @@ class _GroupSection extends StatelessWidget {
           ...entries.map((entry) => _VaultEntryTile(
                 entry: entry,
                 onTap: () => onEntryTap(entry),
-                onCopyPassword: () => onCopyPassword(entry),
+                onLongPress: () => onEntryLongPress(entry),
               )),
         const Divider(height: 1),
       ],
@@ -464,12 +469,12 @@ class _GroupSection extends StatelessWidget {
 class _VaultEntryTile extends StatelessWidget {
   final VaultEntry entry;
   final VoidCallback onTap;
-  final VoidCallback onCopyPassword;
+  final VoidCallback onLongPress;
 
   const _VaultEntryTile({
     required this.entry,
     required this.onTap,
-    required this.onCopyPassword,
+    required this.onLongPress,
   });
 
   @override
@@ -488,17 +493,13 @@ class _VaultEntryTile extends StatelessWidget {
       ),
       title: Text(entry.title),
       subtitle: Text(entry.username),
-      trailing: IconButton(
-        icon: const Icon(Icons.copy),
-        tooltip: 'Copy password',
-        onPressed: onCopyPassword,
-      ),
       onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
 }
 
-class _EntryDetailsSheet extends StatelessWidget {
+class _EntryDetailsSheet extends ConsumerWidget {
   final VaultEntry entry;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
@@ -513,8 +514,52 @@ class _EntryDetailsSheet extends StatelessWidget {
     required this.onCopyUsername,
   });
 
+  Future<void> _showDelete2FAConfirmation(BuildContext context, VaultEntry entry) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove 2FA'),
+        content: const Text('Are you sure you want to remove 2FA from this entry?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && context.mounted) {
+      // Remove 2FA from entry
+      final ref = ProviderScope.containerOf(context);
+      final repo = ref.read(vaultRepositoryProvider);
+      await repo.initialize();
+
+      final updated = entry.copyWith(totpSecret: null);
+      await repo.updateEntry(updated);
+      ref.invalidate(vaultEntriesProvider);
+
+      if (context.mounted) {
+        Navigator.pop(context); // Close the details sheet
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('2FA removed'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
     return DraggableScrollableSheet(
       initialChildSize: 0.6,
@@ -537,18 +582,7 @@ class _EntryDetailsSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(entry.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.edit),
-                    tooltip: 'Edit',
-                    onPressed: onEdit,
-                  ),
-                ],
-              ),
+              Text(entry.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               if (entry.tags.isNotEmpty && entry.tags.first.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Wrap(
@@ -568,7 +602,10 @@ class _EntryDetailsSheet extends StatelessWidget {
               _DetailRow(label: 'Password', value: entry.password, obscured: true, onCopy: onCopyPassword),
               if (entry.totpSecret != null && entry.totpSecret!.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _TotpCodeRow(totpSecret: entry.totpSecret!),
+                _TotpCodeRow(
+                  totpSecret: entry.totpSecret!,
+                  onEdit: onEdit,
+                ),
               ],
               if (entry.url != null && entry.url!.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -578,12 +615,6 @@ class _EntryDetailsSheet extends StatelessWidget {
                 const SizedBox(height: 12),
                 _DetailRow(label: 'Notes', value: entry.notes!),
               ],
-              const SizedBox(height: 24),
-              OutlinedButton.icon(
-                onPressed: onDelete,
-                icon: Icon(Icons.delete_forever, color: colorScheme.error),
-                label: Text('Delete Entry', style: TextStyle(color: colorScheme.error)),
-              ),
             ],
           ),
         );
@@ -618,53 +649,14 @@ class _DetailRowState extends ConsumerState<_DetailRow> {
       return;
     }
 
-    // Check if biometric or PIN is enabled
-    final biometricEnabled = ref.read(biometricEnabledProvider);
-    final pinEnabled = await ref.read(pinEnabledProvider.future);
+    final authenticated = await AuthHelper.authenticate(
+      context: context,
+      ref: ref,
+      reason: 'Authenticate to view password',
+    );
 
-    if (!biometricEnabled && !pinEnabled) {
-      // Neither is enabled — prompt user to enable one
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Authentication Required'),
-          content: const Text('Please enable biometrics or PIN in Settings to view passwords.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    // Try biometric first
-    if (biometricEnabled) {
-      final biometricAuth = ref.read(biometricAuthProvider);
-      final supported = await biometricAuth.isSupported();
-      if (supported) {
-        final authenticated = await biometricAuth.authenticate(
-          reason: 'Authenticate to view password',
-        );
-        if (authenticated && mounted) {
-          setState(() => _hidden = false);
-        }
-        return;
-      }
-    }
-
-    // Fall back to PIN
-    if (pinEnabled && mounted) {
-      final result = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => _PinVerifyDialog(),
-      );
-      if (result == true && mounted) {
-        setState(() => _hidden = false);
-      }
+    if (authenticated && mounted) {
+      setState(() => _hidden = false);
     }
   }
 
@@ -697,76 +689,6 @@ class _DetailRowState extends ConsumerState<_DetailRow> {
   }
 }
 
-/// Simple PIN verification dialog
-class _PinVerifyDialog extends ConsumerStatefulWidget {
-  @override
-  ConsumerState<_PinVerifyDialog> createState() => _PinVerifyDialogState();
-}
-
-class _PinVerifyDialogState extends ConsumerState<_PinVerifyDialog> {
-  final _pinController = TextEditingController();
-  bool _verifying = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _pinController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _verify() async {
-    final pin = _pinController.text;
-    if (pin.isEmpty) return;
-
-    setState(() { _verifying = true; _error = null; });
-
-    final pinAuth = ref.read(pinAuthProvider);
-    final valid = await pinAuth.verifyPin(pin);
-
-    if (valid) {
-      if (mounted) Navigator.pop(context, true);
-    } else {
-      setState(() { _verifying = false; _error = 'Incorrect PIN'; _pinController.clear(); });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Enter PIN'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _pinController,
-            keyboardType: TextInputType.number,
-            obscureText: true,
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: 'PIN',
-              border: const OutlineInputBorder(),
-              errorText: _error,
-            ),
-            onSubmitted: (_) => _verify(),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: _verifying ? null : () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _verifying ? null : _verify,
-          child: _verifying
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text('Verify'),
-        ),
-      ],
-    );
-  }
-}
-
 /// Dialog for adding a new vault entry
 class AddEntryDialog extends ConsumerStatefulWidget {
   final VoidCallback onSaved;
@@ -787,6 +709,7 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
 
   bool _obscurePassword = true;
   bool _saving = false;
+  bool _authenticated = false;
 
   @override
   void dispose() {
@@ -797,6 +720,26 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
     _notesController.dispose();
     _groupController.dispose();
     super.dispose();
+  }
+
+  Future<void> _togglePasswordVisibility() async {
+    if (!_obscurePassword) {
+      setState(() => _obscurePassword = true);
+      return;
+    }
+
+    final authenticated = await AuthHelper.authenticate(
+      context: context,
+      ref: ref,
+      reason: 'Authenticate to view password',
+    );
+
+    if (authenticated && mounted) {
+      setState(() {
+        _obscurePassword = false;
+        _authenticated = true;
+      });
+    }
   }
 
   @override
@@ -831,7 +774,7 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
                   icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: _togglePasswordVisibility,
                 ),
               ),
               obscureText: _obscurePassword,
@@ -925,8 +868,12 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
 /// Widget to display TOTP code with countdown timer
 class _TotpCodeRow extends StatefulWidget {
   final String totpSecret;
+  final VoidCallback onEdit;
 
-  const _TotpCodeRow({required this.totpSecret});
+  const _TotpCodeRow({
+    required this.totpSecret,
+    required this.onEdit,
+  });
 
   @override
   State<_TotpCodeRow> createState() => _TotpCodeRowState();
@@ -976,19 +923,32 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
         Row(
           children: [
             Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  formattedCode,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 4,
-                    fontFamily: 'monospace',
+              child: GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: code));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Copied: $code'),
+                      duration: const Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                onLongPress: widget.onEdit,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    formattedCode,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 4,
+                      fontFamily: 'monospace',
+                    ),
                   ),
                 ),
               ),
@@ -1017,19 +977,6 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
                 ],
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.copy, size: 20),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: code));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Copied: $code'),
-                    duration: const Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-            ),
           ],
         ),
       ],
@@ -1041,8 +988,14 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
 class EditEntryDialog extends ConsumerStatefulWidget {
   final VaultEntry entry;
   final VoidCallback onSaved;
+  final VoidCallback onDelete;
 
-  const EditEntryDialog({super.key, required this.entry, required this.onSaved});
+  const EditEntryDialog({
+    super.key,
+    required this.entry,
+    required this.onSaved,
+    required this.onDelete,
+  });
 
   @override
   ConsumerState<EditEntryDialog> createState() => _EditEntryDialogState();
@@ -1058,6 +1011,7 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
 
   bool _obscurePassword = true;
   bool _saving = false;
+  bool _authenticated = false;
 
   @override
   void initState() {
@@ -1081,6 +1035,26 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
     _notesController.dispose();
     _groupController.dispose();
     super.dispose();
+  }
+
+  Future<void> _togglePasswordVisibility() async {
+    if (!_obscurePassword) {
+      setState(() => _obscurePassword = true);
+      return;
+    }
+
+    final authenticated = await AuthHelper.authenticate(
+      context: context,
+      ref: ref,
+      reason: 'Authenticate to view password',
+    );
+
+    if (authenticated && mounted) {
+      setState(() {
+        _obscurePassword = false;
+        _authenticated = true;
+      });
+    }
   }
 
   @override
@@ -1114,7 +1088,7 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
                   icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: _togglePasswordVisibility,
                 ),
               ),
               obscureText: _obscurePassword,
@@ -1146,6 +1120,61 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
                 border: OutlineInputBorder(),
               ),
               maxLines: 3,
+            ),
+            const SizedBox(height: 16),
+            if (widget.entry.totpSecret != null && widget.entry.totpSecret!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Remove 2FA'),
+                        content: const Text('Are you sure you want to remove 2FA from this entry?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Theme.of(context).colorScheme.error,
+                            ),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Remove'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true && mounted) {
+                      final repo = ref.read(vaultRepositoryProvider);
+                      await repo.initialize();
+                      final updated = widget.entry.copyWith(totpSecret: null);
+                      await repo.updateEntry(updated);
+                      widget.onSaved();
+                      if (mounted) {
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('2FA removed')),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.remove_circle_outline),
+                  label: const Text('Remove 2FA'),
+                ),
+              ),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                widget.onDelete();
+              },
+              icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+              label: Text('Delete Entry', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: Theme.of(context).colorScheme.error),
+              ),
             ),
           ],
         ),

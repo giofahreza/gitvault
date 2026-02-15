@@ -473,8 +473,6 @@ class MainScreen extends ConsumerStatefulWidget {
 
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 2; // Default to Notes tab
-  Timer? _autoSyncTimer;
-  bool _isSyncing = false;
 
   final _screens = const [
     VaultScreen(),
@@ -485,124 +483,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _setupAutoSync();
-  }
-
-  @override
-  void dispose() {
-    _autoSyncTimer?.cancel();
-    super.dispose();
-  }
-
-  void _setupAutoSync() {
-    _autoSyncTimer?.cancel();
-    final interval = ref.read(autoSyncIntervalProvider);
-    if (interval > 0) {
-      _autoSyncTimer = Timer.periodic(Duration(minutes: interval), (_) {
-        _performAutoSync();
-      });
-    }
-  }
-
-  Future<void> _performAutoSync() async {
-    if (_isSyncing) return;
-
-    try {
-      final keyStorage = ref.read(keyStorageProvider);
-      await keyStorage.initialize();
-      final hasGitHub = await keyStorage.hasGitHubCredentials();
-      if (!hasGitHub) return;
-
-      setState(() => _isSyncing = true);
-
-      final token = await keyStorage.getGitHubToken();
-      final owner = await keyStorage.getRepoOwner();
-      final name = await keyStorage.getRepoName();
-
-      if (token == null || owner == null || name == null) return;
-
-      final githubService = GitHubService(
-        accessToken: token,
-        repoOwner: owner,
-        repoName: name,
-      );
-
-      final syncEngine = SyncEngine(
-        vaultRepository: ref.read(vaultRepositoryProvider),
-        notesRepository: ref.read(notesRepositoryProvider),
-        sshRepository: ref.read(sshRepositoryProvider),
-        githubService: githubService,
-        cryptoManager: ref.read(cryptoManagerProvider),
-        keyStorage: keyStorage,
-      );
-
-      await syncEngine.initialize();
-      await syncEngine.sync();
-      syncEngine.dispose(); // Don't close the box, just dispose resources
-      githubService.dispose();
-
-      ref.invalidate(vaultEntriesProvider);
-      ref.invalidate(notesProvider);
-      ref.invalidate(sshCredentialsProvider);
-    } catch (_) {
-      // Silent failure for auto-sync
-    } finally {
-      if (mounted) {
-        setState(() => _isSyncing = false);
-      }
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    // Listen for auto-sync interval changes
-    ref.listen<int>(autoSyncIntervalProvider, (prev, next) {
-      _setupAutoSync();
-    });
-
     return Scaffold(
-      body: Stack(
-        children: [
-          IndexedStack(
-            index: _currentIndex,
-            children: _screens,
-          ),
-          if (_isSyncing)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 4,
-              right: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Syncing...',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,

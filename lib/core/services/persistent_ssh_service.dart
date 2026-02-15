@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:hive/hive.dart';
+import 'package:xterm/xterm.dart';
 import '../../data/models/ssh_credential.dart';
 import 'ssh_connection_manager.dart';
 
@@ -70,6 +71,7 @@ class PersistentSshService {
     );
 
     _activeSessions[sessionId] = wrapper;
+    debugPrint('[PersistentSSH] Added session $sessionId to active sessions (total: ${_activeSessions.length})');
 
     // Connect
     await wrapper.connect();
@@ -202,17 +204,11 @@ class PersistentSshService {
   }
 
   /// Save session to Hive for restoration
+  /// NOTE: Currently disabled - sessions are memory-only
   Future<void> _saveSession(SshSessionWrapper session) async {
-    if (!session.persistent) return;
-
-    final box = await Hive.openBox<String>('ssh_sessions');
-    final data = {
-      'sessionId': session.sessionId,
-      'credentialUuid': session.credential.uuid,
-      'startTime': session.startTime.toIso8601String(),
-      'notificationId': session.notificationId,
-    };
-    await box.put(session.sessionId, jsonEncode(data));
+    // Don't save sessions - they are memory-only while app is running
+    // If app restarts, sessions are cleared (SSH connections can't persist across app restarts anyway)
+    return;
   }
 
   /// Remove saved session
@@ -226,19 +222,16 @@ class PersistentSshService {
     try {
       final box = await Hive.openBox<String>('ssh_sessions');
 
-      for (final key in box.keys) {
-        final dataStr = box.get(key);
-        if (dataStr == null) continue;
+      // First, clear any old sessions that were not properly cleaned up
+      await box.clear();
 
-        final data = jsonDecode(dataStr) as Map<String, dynamic>;
-        final sessionId = data['sessionId'] as String;
+      debugPrint('[PersistentSSH] Cleared old saved sessions');
 
-        // For now, don't auto-restore (user can manually reconnect)
-        // In Termux style, we'd restore but that requires more complex state management
-        debugPrint('[PersistentSSH] Found saved session: $sessionId');
-      }
+      // Note: Active sessions will be recreated when user connects
+      // We don't auto-restore connections to avoid stale/disconnected sessions
+      // appearing in the list
     } catch (e) {
-      debugPrint('[PersistentSSH] Failed to restore sessions: $e');
+      debugPrint('[PersistentSSH] Failed to clear sessions: $e');
     }
   }
 
@@ -269,6 +262,23 @@ class SshSessionWrapper {
   final _stateController = StreamController<SshSessionState>.broadcast();
   Stream<SshSessionState> get stateStream => _stateController.stream;
 
+  // Broadcast controllers for stdout/stderr to allow multiple listeners
+  final _stdoutController = StreamController<List<int>>.broadcast();
+  final _stderrController = StreamController<List<int>>.broadcast();
+  Stream<List<int>> get stdout => _stdoutController.stream;
+  Stream<List<int>> get stderr => _stderrController.stream;
+
+  StreamSubscription? _stdoutSubscription;
+  StreamSubscription? _stderrSubscription;
+
+  // Store Terminal to preserve scrollback across widget rebuilds
+  // This is what makes it work like Termux!
+  Terminal? _terminal;
+  Terminal get terminal {
+    _terminal ??= Terminal(maxLines: 10000);
+    return _terminal!;
+  }
+
   SshSessionWrapper({
     required this.sessionId,
     required this.credential,
@@ -289,10 +299,39 @@ class SshSessionWrapper {
       _isConnected = true;
       _stateController.add(SshSessionState.connected);
 
-      // Listen for disconnection
+      // Pipe stdout/stderr through broadcast controllers
+      // This allows multiple terminal screens to attach to the same session
+      final session = _connectionManager.session;
+      if (session != null) {
+        _stdoutSubscription?.cancel();
+        _stdoutSubscription = session.stdout.listen(
+          (data) => _stdoutController.add(data),
+          onError: (e) => debugPrint('[SSH] stdout error: $e'),
+          cancelOnError: false,
+        );
+
+        _stderrSubscription?.cancel();
+        _stderrSubscription = session.stderr.listen(
+          (data) => _stderrController.add(data),
+          onError: (e) => debugPrint('[SSH] stderr error: $e'),
+          cancelOnError: false,
+        );
+      }
+
+      // Listen for actual disconnection (not just stream cancellation)
       _connectionManager.session?.done.then((_) {
+        // Only mark as disconnected if the connection manager also thinks so
+        if (!_connectionManager.isConnected) {
+          _isConnected = false;
+          _stateController.add(SshSessionState.disconnected);
+          _stdoutSubscription?.cancel();
+          _stderrSubscription?.cancel();
+        }
+      }).catchError((_) {
         _isConnected = false;
-        _stateController.add(SshSessionState.disconnected);
+        _stateController.add(SshSessionState.error);
+        _stdoutSubscription?.cancel();
+        _stderrSubscription?.cancel();
       });
     } catch (e) {
       _isConnected = false;
@@ -303,6 +342,8 @@ class SshSessionWrapper {
 
   /// Disconnect from SSH server
   Future<void> disconnect() async {
+    _stdoutSubscription?.cancel();
+    _stderrSubscription?.cancel();
     await _connectionManager.disconnect();
     _isConnected = false;
     _stateController.add(SshSessionState.disconnected);
@@ -320,6 +361,10 @@ class SshSessionWrapper {
 
   /// Clean up resources
   void dispose() {
+    _stdoutSubscription?.cancel();
+    _stderrSubscription?.cancel();
+    _stdoutController.close();
+    _stderrController.close();
     _stateController.close();
   }
 }

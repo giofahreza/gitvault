@@ -167,6 +167,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           note: note,
           onTap: () => _navigateToEditor(note),
           onArchive: () => _archiveNote(note),
+          onTogglePin: () => _togglePin(note),
         );
       },
     );
@@ -200,19 +201,28 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   }
 
   Widget _buildReorderableSection(List<Note> notes, {required bool isPinned}) {
-    return ReorderableListView(
+    return ReorderableListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      buildDefaultDragHandles: true,
+      buildDefaultDragHandles: false,
+      itemCount: notes.length,
       onReorder: (oldIndex, newIndex) {
         _onReorderSection(oldIndex, newIndex, notes);
       },
-      children: notes.map((note) => _NoteListTile(
-        key: ValueKey('reorder_${note.uuid}'),
-        note: note,
-        onTap: () => _navigateToEditor(note),
-        onArchive: () => _archiveNote(note),
-      )).toList(),
+      itemBuilder: (context, index) {
+        final note = notes[index];
+        return ReorderableDragStartListener(
+          key: ValueKey('reorder_${note.uuid}'),
+          index: index,
+          child: _NoteListTile(
+            note: note,
+            onTap: () => _navigateToEditor(note),
+            onArchive: () => _archiveNote(note),
+            onTogglePin: () => _togglePin(note),
+            showDragHandle: true,
+          ),
+        );
+      },
     );
   }
 
@@ -237,6 +247,23 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       ),
     );
     ref.invalidate(notesProvider);
+  }
+
+  Future<void> _togglePin(Note note) async {
+    final repo = ref.read(notesRepositoryProvider);
+    await repo.initialize();
+    final updated = note.copyWith(isPinned: !note.isPinned);
+    await repo.updateNote(updated);
+    ref.invalidate(notesProvider);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(updated.isPinned ? 'Note pinned' : 'Note unpinned'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    }
   }
 
   Future<void> _archiveNote(Note note) async {
@@ -417,11 +444,13 @@ class _NoteCard extends StatelessWidget {
   final Note note;
   final VoidCallback onTap;
   final VoidCallback onArchive;
+  final VoidCallback onTogglePin;
 
   const _NoteCard({
     required this.note,
     required this.onTap,
     required this.onArchive,
+    required this.onTogglePin,
   });
 
   @override
@@ -435,8 +464,30 @@ class _NoteCard extends StatelessWidget {
 
     return Dismissible(
       key: ValueKey('note_${note.uuid}'),
-      direction: DismissDirection.endToStart,
+      direction: DismissDirection.horizontal,
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          // Swipe right to pin/unpin
+          onTogglePin();
+          return false; // Don't actually dismiss
+        } else {
+          // Swipe left to archive
+          return true; // Allow dismiss for archive
+        }
+      },
       background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 16),
+        decoration: BoxDecoration(
+          color: note.isPinned ? Colors.grey.withOpacity(0.3) : Colors.blue.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          note.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+          color: note.isPinned ? Colors.grey : Colors.blue,
+        ),
+      ),
+      secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 16),
         decoration: BoxDecoration(
@@ -568,12 +619,16 @@ class _NoteListTile extends StatelessWidget {
   final Note note;
   final VoidCallback onTap;
   final VoidCallback onArchive;
+  final VoidCallback onTogglePin;
+  final bool showDragHandle;
 
   const _NoteListTile({
     super.key,
     required this.note,
     required this.onTap,
     required this.onArchive,
+    required this.onTogglePin,
+    this.showDragHandle = false,
   });
 
   @override
@@ -594,8 +649,27 @@ class _NoteListTile extends StatelessWidget {
 
     return Dismissible(
       key: ValueKey('note_list_${note.uuid}'),
-      direction: DismissDirection.endToStart,
+      direction: DismissDirection.horizontal,
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          // Swipe right to pin/unpin
+          onTogglePin();
+          return false; // Don't actually dismiss
+        } else {
+          // Swipe left to archive
+          return true; // Allow dismiss for archive
+        }
+      },
       background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 16),
+        color: note.isPinned ? Colors.grey.withOpacity(0.3) : Colors.blue.withOpacity(0.3),
+        child: Icon(
+          note.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+          color: note.isPinned ? Colors.grey : Colors.blue,
+        ),
+      ),
+      secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 16),
         color: Colors.orange.withOpacity(0.3),
@@ -624,6 +698,9 @@ class _NoteListTile extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 )
+              : null,
+          trailing: showDragHandle
+              ? Icon(Icons.drag_handle, color: iconColor)
               : null,
           onTap: onTap,
         ),

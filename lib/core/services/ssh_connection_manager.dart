@@ -65,11 +65,18 @@ class SshConnectionManager {
 
       _isConnected = true;
 
-      // Listen for session close
-      _doneSubscription = _session!.done.asStream().listen((_) {
-        _isConnected = false;
-        _keepAliveTimer?.cancel();
-      });
+      // Listen for session close (only when actually closed by server)
+      _doneSubscription = _session!.done.asStream().listen(
+        (_) {
+          _isConnected = false;
+          _keepAliveTimer?.cancel();
+        },
+        onError: (_) {
+          _isConnected = false;
+          _keepAliveTimer?.cancel();
+        },
+        cancelOnError: false,
+      );
 
       // Start keep-alive timer (send SSH_MSG_IGNORE every 30 seconds)
       _startKeepAlive();
@@ -101,10 +108,13 @@ class SshConnectionManager {
         }
 
         try {
-          // Send SSH keep-alive by writing empty data
-          _session?.write(Uint8List(0));
+          // Send SSH keep-alive by pinging the client
+          // This uses the SSH protocol's keep-alive mechanism
+          await _client?.ping();
         } catch (e) {
+          // If ping fails, connection is dead
           _isConnected = false;
+          _keepAliveTimer?.cancel();
         }
       }
     });

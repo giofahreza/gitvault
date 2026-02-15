@@ -365,6 +365,20 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                   textCapitalization: TextCapitalization.words,
                   enabled: !saving,
                 ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: saving
+                      ? null
+                      : () {
+                          Navigator.pop(ctx);
+                          _deleteEntry(entry);
+                        },
+                  icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+                  label: Text('Delete 2FA', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
               ],
             ),
           ),
@@ -630,7 +644,7 @@ class _TotpCodeCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         onTap: () => _copyCode(context, code),
-        onLongPress: onDelete,
+        onLongPress: onEdit,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -709,12 +723,6 @@ class _TotpCodeCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.edit),
-                    onPressed: onEdit,
-                    tooltip: 'Edit',
                   ),
                 ],
               ),

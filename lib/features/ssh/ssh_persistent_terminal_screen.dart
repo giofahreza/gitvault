@@ -30,6 +30,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
   StreamSubscription? _stdoutSubscription;
   StreamSubscription? _stderrSubscription;
 
+  bool _hasAttachedBefore = false;
+
   // Modifier key states
   bool _ctrlActive = false;
   bool _altActive = false;
@@ -46,7 +48,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _terminal = Terminal(maxLines: 10000);
+    // Use persistent terminal from session wrapper - preserves scrollback like Termux!
+    _terminal = widget.session.terminal;
     _terminalController = TerminalController();
     _focusNode = FocusNode();
     _voiceInputController = TextEditingController();
@@ -102,30 +105,73 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
   }
 
   Future<void> _connectToSession() async {
-    if (!widget.session.isConnected) {
-      _terminal.write('Reconnecting to ${widget.session.credential.host}...\r\n');
+    debugPrint('[Terminal] Attaching to session. isConnected=${widget.session.isConnected}, managerConnected=${widget.session.connectionManager.isConnected}');
+
+    // Only reconnect if truly disconnected
+    if (!widget.session.isConnected || !widget.session.connectionManager.isConnected) {
+      if (_hasAttachedBefore) {
+        _terminal.write('Reconnecting to ${widget.session.credential.host}...\r\n');
+      } else {
+        _terminal.write('Connecting to ${widget.session.credential.host}...\r\n');
+      }
+
       try {
         await widget.session.reconnect();
+        _terminal.write('Connected. Session active.\r\n');
+        _hasAttachedBefore = true;
       } catch (e) {
         _terminal.write('\r\nConnection failed: $e\r\n');
+        _terminal.write('Tap the refresh button in the app bar to reconnect\r\n');
         return;
       }
-    } else {
-      _terminal.write('Connected to ${widget.session.credential.host}\r\n');
+    } else if (!_hasAttachedBefore) {
+      // First time attaching to an already-connected session
+      _terminal.write('Attached to ${widget.session.credential.host}\r\n');
+      _hasAttachedBefore = true;
+    }
+    // If already attached before and still connected, don't show any message
+    // This prevents spam when navigating back to the terminal
+
+    final session = widget.session.connectionManager.session;
+    if (session == null) {
+      _terminal.write('\r\nSession not available. Connection may have timed out.\r\n');
+      _terminal.write('Tap the refresh button in the app bar to reconnect\r\n');
+      return;
     }
 
-    final session = widget.session.connectionManager.session!;
+    debugPrint('[Terminal] Session attached successfully');
 
-    // Pipe terminal output
+    // Subscribe to broadcast streams from session wrapper
+    // These streams persist across terminal screen instances
     _stdoutSubscription?.cancel();
-    _stdoutSubscription = utf8.decoder.bind(session.stdout).listen((data) {
-      _terminal.write(data);
-    });
+    _stdoutSubscription = utf8.decoder.bind(widget.session.stdout).listen(
+      (data) {
+        if (mounted) {
+          _terminal.write(data);
+        }
+      },
+      onError: (e) {
+        if (mounted) {
+          _terminal.write('\r\n[Output error: $e]\r\n');
+        }
+      },
+      cancelOnError: false,
+    );
 
     _stderrSubscription?.cancel();
-    _stderrSubscription = utf8.decoder.bind(session.stderr).listen((data) {
-      _terminal.write(data);
-    });
+    _stderrSubscription = utf8.decoder.bind(widget.session.stderr).listen(
+      (data) {
+        if (mounted) {
+          _terminal.write(data);
+        }
+      },
+      onError: (e) {
+        if (mounted) {
+          _terminal.write('\r\n[Error: $e]\r\n');
+        }
+      },
+      cancelOnError: false,
+    );
 
     // Pipe terminal input with modifier support
     _terminal.onOutput = (data) {
@@ -198,35 +244,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        // Show warning if session is active
-        if (widget.session.isConnected && widget.session.persistent) {
-          final leave = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Leave Session'),
-              content: const Text(
-                'Session will continue running in the background.\n\n'
-                'You can access it from the Sessions screen.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Leave'),
-                ),
-              ],
-            ),
-          );
-          return leave ?? false;
-        }
-        return true;
-      },
-      child: Scaffold(
+    return Scaffold(
         appBar: _buildAppBar(),
         backgroundColor: Colors.black,
         body: GestureDetector(
@@ -279,8 +297,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
           ),
         ),
         drawer: _buildDrawer(),
-      ),
-    );
+      );
   }
 
   PreferredSizeWidget _buildAppBar() {
