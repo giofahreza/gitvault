@@ -82,6 +82,9 @@ class IMEService {
 
       print('IMEService: Decrypting $field for credential $uuid');
 
+      // Ensure repository is initialized before accessing entries
+      await _vaultRepository.initialize();
+
       // Decrypt single entry from vault
       final entry = await _vaultRepository.getEntry(uuid);
       if (entry == null) {

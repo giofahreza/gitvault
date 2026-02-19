@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
  */
 object SecureCredentialBridge {
     private const val TAG = "SecureCredentialBridge"
-    private const val REQUEST_TIMEOUT_MS = 30000L // 30 seconds
+    private const val REQUEST_TIMEOUT_MS = 120000L // 120 seconds
 
     // Pending credential requests with expiration
     private val pendingRequests = ConcurrentHashMap<String, PendingRequest>()

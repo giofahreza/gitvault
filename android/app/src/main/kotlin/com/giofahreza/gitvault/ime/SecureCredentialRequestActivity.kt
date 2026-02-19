@@ -98,7 +98,24 @@ class SecureCredentialRequestActivity : FragmentActivity() {
 
     private fun decryptAndReturnCredential(request: SecureCredentialBridge.PendingRequest) {
         try {
-            // Call MainActivity to decrypt credential via Flutter
+            // Check if Flutter engine is available
+            if (!MainActivity.isEngineAvailable()) {
+                Log.w(TAG, "Flutter engine unavailable, starting MainActivity to initialize it")
+                // Store pending request info for MainActivity to process
+                MainActivity.pendingIMEToken = requestToken
+                MainActivity.pendingIMEUuid = request.uuid
+                MainActivity.pendingIMEField = request.field
+                // Start MainActivity to get Flutter engine running
+                val intent = Intent(this, MainActivity::class.java).apply {
+                    action = MainActivity.ACTION_DECRYPT_FOR_IME
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                startActivity(intent)
+                finish()
+                return
+            }
+
+            // Flutter engine is available - decrypt directly
             MainActivity.decryptCredentialForIME(
                 uuid = request.uuid,
                 field = request.field,

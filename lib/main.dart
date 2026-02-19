@@ -33,6 +33,10 @@ void main() async {
   // Load persisted settings (biometric toggle, clipboard timer)
   await loadPersistedSettings(container);
 
+  // Eagerly initialize IMEService so its method call handler is registered
+  // before any credential fill request arrives from the IME keyboard.
+  container.read(imeServiceProvider);
+
   // Initialize background sync service
   await BackgroundSyncService.initialize();
 

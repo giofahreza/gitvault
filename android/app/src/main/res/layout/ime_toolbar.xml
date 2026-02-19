@@ -66,14 +66,20 @@
         android:textColor="@android:color/darker_gray"
         android:visibility="visible" />
 
-    <!-- Credential list -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/ime_credentials_list"
+    <!-- Credential list (ScrollView + LinearLayout instead of RecyclerView for IME touch compatibility) -->
+    <ScrollView
+        android:id="@+id/ime_credentials_scroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:maxHeight="200dp"
-        android:visibility="gone"
-        android:nestedScrollingEnabled="false"
-        android:descendantFocusability="afterDescendants" />
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/ime_credentials_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+    </ScrollView>
 
 </LinearLayout>

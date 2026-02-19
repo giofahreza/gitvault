@@ -25,10 +25,28 @@ class MainActivity : FlutterFragmentActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val IME_CHANNEL = "com.giofahreza.gitvault/ime"
+        const val ACTION_DECRYPT_FOR_IME = "com.giofahreza.gitvault.DECRYPT_FOR_IME"
+        const val EXTRA_REQUEST_TOKEN = "ime_request_token"
+        const val EXTRA_UUID = "ime_uuid"
+        const val EXTRA_FIELD = "ime_field"
 
         // Static reference to Flutter engine for IME credential requests
         @Volatile
         private var flutterEngineInstance: FlutterEngine? = null
+
+        // Application context for starting activities when engine is null
+        @Volatile
+        var appContext: android.content.Context? = null
+
+        // Pending IME decrypt when engine was null at request time
+        @Volatile
+        var pendingIMEToken: String? = null
+        @Volatile
+        var pendingIMEUuid: String? = null
+        @Volatile
+        var pendingIMEField: String? = null
+
+        fun isEngineAvailable(): Boolean = flutterEngineInstance != null
 
         /**
          * Decrypt credential for IME after biometric authentication.
@@ -43,7 +61,7 @@ class MainActivity : FlutterFragmentActivity() {
         ) {
             val engine = flutterEngineInstance
             if (engine == null) {
-                Log.e(TAG, "Flutter engine not initialized")
+                Log.e(TAG, "Flutter engine not initialized - cannot decrypt credential")
                 callback(null)
                 return
             }
@@ -100,6 +118,7 @@ class MainActivity : FlutterFragmentActivity() {
 
         // Store static reference for IME credential decryption
         flutterEngineInstance = flutterEngine
+        appContext = applicationContext
 
         credentialCacheManager = CredentialCacheManager(this)
 
@@ -185,6 +204,12 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // After engine and channels are set up, process any pending IME decrypt
+        // Delay to allow Flutter/Dart side to initialize its method handlers
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            processPendingIMEDecrypt()
+        }, 1000)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -204,6 +229,45 @@ class MainActivity : FlutterFragmentActivity() {
                 "package" to packageName,
                 "domain" to domain
             ))
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == ACTION_DECRYPT_FOR_IME) {
+            Log.d(TAG, "onNewIntent: decrypt for IME request")
+            processPendingIMEDecrypt()
+        }
+    }
+
+    private fun processPendingIMEDecrypt() {
+        val token = pendingIMEToken ?: return
+        val uuid = pendingIMEUuid ?: return
+        val field = pendingIMEField ?: return
+
+        pendingIMEToken = null
+        pendingIMEUuid = null
+        pendingIMEField = null
+
+        Log.d(TAG, "Processing pending IME decrypt for token $token")
+
+        val request = com.giofahreza.gitvault.ime.SecureCredentialBridge.getRequestDetails(token)
+        if (request == null) {
+            Log.w(TAG, "Pending IME decrypt: request expired or not found")
+            return
+        }
+
+        decryptCredentialForIME(uuid, field) { credential ->
+            Log.d(TAG, "Pending IME decrypt result: ${if (credential != null) "success" else "null"}")
+            com.giofahreza.gitvault.ime.SecureCredentialBridge.deliverResult(token, credential)
+
+            // The credential has been delivered to the IME. Move GitVault to the
+            // background so the target app (e.g. Chrome) regains focus and the IME
+            // can fill the credential into the correct input field.
+            if (!isFinishing) {
+                Log.d(TAG, "IME credential delivered; moving task to back")
+                moveTaskToBack(true)
+            }
         }
     }
 
