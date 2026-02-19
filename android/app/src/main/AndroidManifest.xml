@@ -82,6 +82,15 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:taskAffinity="" />
 
+        <!-- Secure Credential Request Activity (transparent, biometric auth) -->
+        <activity
+            android:name=".ime.SecureCredentialRequestActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

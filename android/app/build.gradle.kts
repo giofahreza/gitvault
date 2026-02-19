@@ -84,10 +84,13 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
     // AndroidX Autofill for inline suggestions
     implementation("androidx.autofill:autofill:1.3.0")
-    // Biometric authentication for IME keyboard
-    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    // Biometric authentication for IME keyboard (use stable version)
+    implementation("androidx.biometric:biometric:1.1.0")
     // JSON serialization for credential metadata cache
     implementation("com.google.code.gson:gson:2.10.1")
     // RecyclerView for IME credential list
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    // Fragment and AppCompat for BiometricPrompt
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
+    implementation("androidx.appcompat:appcompat:1.6.1")
 }

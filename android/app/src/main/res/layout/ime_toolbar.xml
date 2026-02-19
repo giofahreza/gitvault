@@ -37,7 +37,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:layout_marginEnd="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Load Credentials"
             android:src="@android:drawable/ic_menu_upload" />
 
@@ -45,7 +45,7 @@
             android:id="@+id/ime_switch_keyboard"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="@string/ime_switch_keyboard"
             android:src="@android:drawable/ic_input_add" />
     </LinearLayout>
@@ -55,13 +55,13 @@
         android:layout_height="1dp"
         android:background="@android:color/darker_gray" />
 
-    <!-- Message when credentials not loaded -->
+    <!-- Message when no credentials available -->
     <TextView
         android:id="@+id/ime_message"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="24dp"
-        android:text="Tap the upload icon to load credentials"
+        android:text="@string/ime_empty_state"
         android:textAlignment="center"
         android:textColor="@android:color/darker_gray"
         android:visibility="visible" />
@@ -72,6 +72,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:maxHeight="200dp"
-        android:visibility="gone" />
+        android:visibility="gone"
+        android:nestedScrollingEnabled="false"
+        android:descendantFocusability="afterDescendants" />
 
 </LinearLayout>

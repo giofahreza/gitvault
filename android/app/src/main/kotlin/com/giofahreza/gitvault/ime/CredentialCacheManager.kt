@@ -29,7 +29,7 @@ import javax.crypto.spec.GCMParameterSpec
 class CredentialCacheManager(private val context: Context) {
     companion object {
         private const val TAG = "CredentialCacheManager"
-        private const val KEY_ALIAS = "gitvault_ime_key"
+        private const val KEY_ALIAS = "gitvault_ime_key_v2"  // v2: no biometric auth for metadata
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val KEY_SIZE = 256 // AES-256
         private const val GCM_TAG_LENGTH = 128 // bits
@@ -124,9 +124,9 @@ class CredentialCacheManager(private val context: Context) {
 
     /**
      * Read and decrypt metadata from cache.
-     * Requires cipher initialized with BiometricPrompt CryptoObject.
+     * No biometric auth required since metadata only contains titles/URLs.
      */
-    fun readMetadataCache(cipher: Cipher): List<CredentialMetadata> {
+    fun readMetadataCache(cipher: Cipher? = null): List<CredentialMetadata> {
         return try {
             if (!cacheFile.exists()) {
                 Log.d(TAG, "Cache file does not exist")
@@ -161,16 +161,17 @@ class CredentialCacheManager(private val context: Context) {
             val ciphertext: ByteArray = ByteArray(payload.size - offset)
             System.arraycopy(payload, offset, ciphertext, 0, ciphertext.size)
 
-            // Initialize cipher with IV
+            // Create and initialize cipher with IV
+            val decryptCipher = Cipher.getInstance("AES/GCM/NoPadding")
             val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), spec)
+            decryptCipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), spec)
 
             // Include versionCode in AAD
             val aad = "v${getVersionCode()}".toByteArray(Charsets.UTF_8)
-            cipher.updateAAD(aad)
+            decryptCipher.updateAAD(aad)
 
             // Decrypt
-            val plaintext = cipher.doFinal(ciphertext)
+            val plaintext = decryptCipher.doFinal(ciphertext)
             val json = String(plaintext, Charsets.UTF_8)
 
             // Parse JSON
@@ -185,12 +186,13 @@ class CredentialCacheManager(private val context: Context) {
     }
 
     /**
-     * Get cipher initialized for decryption with the KeyStore key.
+     * Get cipher initialized for encryption with a fresh IV.
      * This cipher is suitable for CryptoObject binding with BiometricPrompt.
+     * For IME use, we use encryption cipher to authenticate, then use it for decryption with IV.
      */
-    fun getCipherForDecryption(): Cipher {
+    fun getCipherForAuth(): Cipher {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey())
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         return cipher
     }
 
@@ -275,9 +277,10 @@ class CredentialCacheManager(private val context: Context) {
      * - Key size: 256 bits
      * - Mode: GCM
      * - Padding: NoPadding
-     * - Requires biometric authentication: YES
-     * - Validity duration: -1 (requires auth for EVERY operation)
+     * - Requires biometric authentication: NO (metadata only contains titles/URLs)
      * - Hardware-backed if available
+     *
+     * Note: Actual password encryption uses a separate biometric-protected key.
      */
     private fun generateNewKey(): SecretKey {
         val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE_PROVIDER)
@@ -289,11 +292,9 @@ class CredentialCacheManager(private val context: Context) {
             .setKeySize(KEY_SIZE)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-            // CRITICAL: Require biometric auth for EVERY operation (no 30s window)
-            .setUserAuthenticationRequired(true)
-            .setUserAuthenticationValidityDurationSeconds(-1)
-            // Invalidate key if new fingerprints are enrolled
-            .setInvalidatedByBiometricEnrollment(true)
+            // No biometric auth required for metadata (only titles/URLs, not sensitive)
+            // Actual password encryption uses a separate biometric-protected key
+            .setUserAuthenticationRequired(false)
             .build()
 
         keyGenerator.init(keySpec)

@@ -3,6 +3,7 @@ package com.giofahreza.gitvault.ime
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -30,22 +31,29 @@ class GitVaultIMEAuthActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "onCreate called")
 
         // Transparent theme (no UI)
         // Activity will be invisible, only BiometricPrompt shows
 
-        // Show biometric prompt
-        showBiometricPrompt()
+        try {
+            // Show biometric prompt
+            showBiometricPrompt()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing biometric prompt: ${e.message}", e)
+            authCallback?.invoke(null)
+            finish()
+        }
     }
 
     private fun showBiometricPrompt() {
         val credentialCacheManager = CredentialCacheManager(this)
 
-        // Get cipher for decryption
+        // Get cipher for authentication
         val cipher = try {
-            credentialCacheManager.getCipherForDecryption()
+            credentialCacheManager.getCipherForAuth()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get cipher: ${e.message}")
+            Log.e(TAG, "Failed to get cipher: ${e.message}", e)
             authCallback?.invoke(null)
             finish()
             return
@@ -63,8 +71,8 @@ class GitVaultIMEAuthActivity : FragmentActivity() {
                 super.onAuthenticationSucceeded(result)
                 Log.d(TAG, "Biometric authentication succeeded")
                 // Return the cipher from CryptoObject
-                val decryptionCipher = result.cryptoObject?.cipher
-                authCallback?.invoke(decryptionCipher)
+                val authenticatedCipher = result.cryptoObject?.cipher
+                authCallback?.invoke(authenticatedCipher)
                 finish()
             }
 
@@ -89,7 +97,8 @@ class GitVaultIMEAuthActivity : FragmentActivity() {
             .setSubtitle("Biometric authentication required to fill credentials")
             .setNegativeButtonText("Cancel")
             .setAllowedAuthenticators(
-                0x00000001 or 0x00000002 // BIOMETRIC_STRONG | BIOMETRIC_WEAK
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.BIOMETRIC_WEAK
             )
             .build()
 

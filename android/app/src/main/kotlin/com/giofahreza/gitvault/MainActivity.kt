@@ -24,10 +24,66 @@ import android.util.Log
 class MainActivity : FlutterFragmentActivity() {
     companion object {
         private const val TAG = "MainActivity"
+        private const val IME_CHANNEL = "com.giofahreza.gitvault/ime"
+
+        // Static reference to Flutter engine for IME credential requests
+        @Volatile
+        private var flutterEngineInstance: FlutterEngine? = null
+
+        /**
+         * Decrypt credential for IME after biometric authentication.
+         * Called from SecureCredentialRequestActivity after successful auth.
+         *
+         * SECURITY: Only called after biometric auth passes in SecureCredentialRequestActivity.
+         */
+        fun decryptCredentialForIME(
+            uuid: String,
+            field: String,
+            callback: (String?) -> Unit
+        ) {
+            val engine = flutterEngineInstance
+            if (engine == null) {
+                Log.e(TAG, "Flutter engine not initialized")
+                callback(null)
+                return
+            }
+
+            try {
+                val channel = MethodChannel(engine.dartExecutor.binaryMessenger, IME_CHANNEL)
+
+                channel.invokeMethod(
+                    "getCredentialFieldForIME",
+                    mapOf("uuid" to uuid, "field" to field),
+                    object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            // Result is the decrypted credential string
+                            val credential = result as? String
+
+                            // DO NOT LOG THE ACTUAL CREDENTIAL
+                            Log.d(TAG, "Credential decrypted: ${if (credential != null) "success" else "null"}")
+
+                            callback(credential)
+                        }
+
+                        override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                            Log.e(TAG, "Flutter returned error: $errorCode - $errorMessage")
+                            callback(null)
+                        }
+
+                        override fun notImplemented() {
+                            Log.e(TAG, "Method not implemented in Flutter")
+                            callback(null)
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error decrypting credential: ${e.message}", e)
+                callback(null)
+            }
+        }
     }
 
     private val AUTOFILL_CHANNEL = "com.giofahreza.gitvault/autofill"
-    private val IME_CHANNEL = "com.giofahreza.gitvault/ime"
     private var autofillMethodChannel: MethodChannel? = null
     private var imeMethodChannel: MethodChannel? = null
 
@@ -41,6 +97,9 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Store static reference for IME credential decryption
+        flutterEngineInstance = flutterEngine
 
         credentialCacheManager = CredentialCacheManager(this)
 
@@ -116,6 +175,12 @@ class MainActivity : FlutterFragmentActivity() {
                 "showKeyboardPicker" -> {
                     showKeyboardPicker()
                     result.success(null)
+                }
+                "getCredentialFieldForIME" -> {
+                    // This is called from SecureCredentialRequestActivity
+                    // Flutter will handle the actual decryption
+                    // Just forward the call to Flutter
+                    result.success(null) // Will be handled by Flutter method channel
                 }
                 else -> result.notImplemented()
             }
@@ -211,7 +276,7 @@ class MainActivity : FlutterFragmentActivity() {
                     CredentialMetadata(
                         uuid = obj.get("uuid")?.asString ?: "",
                         title = obj.get("title")?.asString ?: "",
-                        url = obj.get("url")?.asString
+                        url = if (obj.has("url") && !obj.get("url").isJsonNull) obj.get("url").asString else null
                     )
                 )
             }

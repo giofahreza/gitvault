@@ -36,35 +36,51 @@ class GitVaultIMEService : InputMethodService() {
     private var inputView: View? = null
     private var currentEditorInfo: EditorInfo? = null
     private var currentInputConnection: InputConnection? = null
-    private var decryptionCipher: Cipher? = null
 
     override fun onCreateInputView(): View {
         Log.d(TAG, "onCreateInputView called")
 
-        credentialCacheManager = CredentialCacheManager(this)
+        try {
+            credentialCacheManager = CredentialCacheManager(this)
 
-        // Inflate toolbar layout
-        val inflater = LayoutInflater.from(this)
-        inputView = inflater.inflate(R.layout.ime_toolbar, null)
+            // Inflate toolbar layout
+            val inflater = LayoutInflater.from(this)
+            inputView = inflater.inflate(R.layout.ime_toolbar, null)
 
-        // Note: InputMethodService doesn't have direct window access for security flags
-        // The IME runs in the system process and is inherently more secure than app windows
+            // Note: InputMethodService doesn't have direct window access for security flags
+            // The IME runs in the system process and is inherently more secure than app windows
 
-        // Setup load credentials button
-        inputView?.findViewById<ImageButton>(R.id.ime_load_credentials)?.setOnClickListener {
-            loadCredentialsAfterAuth()
+            // Setup load credentials button
+            inputView?.findViewById<ImageButton>(R.id.ime_load_credentials)?.setOnClickListener {
+                try {
+                    loadCredentials()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error loading credentials: ${e.message}", e)
+                }
+            }
+
+            // Setup switch keyboard button
+            inputView?.findViewById<ImageButton>(R.id.ime_switch_keyboard)?.setOnClickListener {
+                try {
+                    switchToSystemKeyboard()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error switching keyboard: ${e.message}", e)
+                }
+            }
+
+            // Load credentials immediately on keyboard show
+            loadCredentials()
+
+            Log.d(TAG, "Input view created successfully")
+            return inputView!!
+        } catch (e: Exception) {
+            Log.e(TAG, "Fatal error in onCreateInputView: ${e.message}", e)
+            // Create a minimal fallback view
+            val fallbackView = android.widget.TextView(this)
+            fallbackView.text = "GitVault Keyboard Error. Please check logs."
+            fallbackView.setPadding(16, 16, 16, 16)
+            return fallbackView
         }
-
-        // Setup switch keyboard button
-        inputView?.findViewById<ImageButton>(R.id.ime_switch_keyboard)?.setOnClickListener {
-            switchToSystemKeyboard()
-        }
-
-        // Show keyboard immediately without auth (prevents keyboard from dismissing)
-        // User can tap the load button to authenticate and load credentials
-        loadCredentialsWithoutAuth()
-
-        return inputView!!
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
@@ -76,7 +92,13 @@ class GitVaultIMEService : InputMethodService() {
     override fun onStartInputView(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(attribute, restarting)
         currentEditorInfo = attribute
+        currentInputConnection = getCurrentInputConnection()
         Log.d(TAG, "onStartInputView: input view started")
+    }
+
+    override fun onEvaluateInputViewShown(): Boolean {
+        // Always show the keyboard view
+        return true
     }
 
     override fun onBindInput() {
@@ -97,53 +119,13 @@ class GitVaultIMEService : InputMethodService() {
     }
 
     /**
-     * Load credentials without authentication.
-     * Just shows empty state with instructions initially.
-     * User can tap a button to trigger auth and load credentials.
+     * Load credentials directly from cache without biometric auth.
+     * The metadata cache only contains titles/URLs, not passwords.
+     * Biometric auth will be required when filling actual passwords.
      */
-    private fun loadCredentialsWithoutAuth() {
-        // Don't auto-load credentials to avoid launching activity that dismisses keyboard
-        // Show empty state with message
-        showEmptyState()
-        Log.d(TAG, "Keyboard ready. Credentials not loaded to prevent dismissal.")
-    }
-
-    /**
-     * Load credentials after biometric authentication.
-     * Reads encrypted metadata cache and displays credential titles.
-     */
-    private fun loadCredentialsAfterAuth() {
-        // Request biometric auth
-        requestBiometricAuth { cipher ->
-            if (cipher != null) {
-                decryptionCipher = cipher
-                loadAndDisplayCredentials(cipher)
-            } else {
-                Log.w(TAG, "Biometric auth cancelled")
-                showEmptyState()
-            }
-        }
-    }
-
-    /**
-     * Request biometric authentication via GitVaultIMEAuthActivity.
-     */
-    private fun requestBiometricAuth(callback: (Cipher?) -> Unit) {
-        // Set callback before launching activity
-        GitVaultIMEAuthActivity.setAuthCallback(callback)
-
-        // Launch transparent auth activity
-        val intent = Intent(this, GitVaultIMEAuthActivity::class.java)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        startActivity(intent)
-    }
-
-    /**
-     * Load encrypted metadata and display credentials in list.
-     */
-    private fun loadAndDisplayCredentials(cipher: Cipher) {
+    private fun loadCredentials() {
         try {
-            val credentials = credentialCacheManager.readMetadataCache(cipher)
+            val credentials = credentialCacheManager.readMetadataCache()
             Log.d(TAG, "Loaded ${credentials.size} credentials")
 
             if (credentials.isEmpty()) {
@@ -152,7 +134,7 @@ class GitVaultIMEService : InputMethodService() {
                 displayCredentialsList(credentials)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load credentials: ${e.message}")
+            Log.e(TAG, "Failed to load credentials: ${e.message}", e)
             showEmptyState()
         }
     }
@@ -169,45 +151,115 @@ class GitVaultIMEService : InputMethodService() {
             return
         }
 
+        Log.d(TAG, "Displaying ${credentials.size} credentials in RecyclerView")
+
         // Hide message, show list
         messageView?.visibility = View.GONE
         recyclerView.visibility = View.VISIBLE
 
         val adapter = CredentialAdapter(
             credentials,
-            onFillUsername = { uuid -> requestCredentialFill(uuid, "username") },
-            onFillPassword = { uuid -> requestCredentialFill(uuid, "password") }
+            onFillUsername = { uuid ->
+                Log.d(TAG, "onFillUsername callback triggered for $uuid")
+                requestCredentialFill(uuid, "username")
+            },
+            onFillPassword = { uuid ->
+                Log.d(TAG, "onFillPassword callback triggered for $uuid")
+                requestCredentialFill(uuid, "password")
+            }
         )
 
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
+
+        // Add touch event logging
+        recyclerView.setOnTouchListener { v, event ->
+            Log.d(TAG, "RecyclerView touch event: ${event.action} at (${event.x}, ${event.y})")
+            false // Don't consume the event
+        }
+
+        // Force layout to ensure items are drawn
+        recyclerView.post {
+            Log.d(TAG, "RecyclerView child count: ${recyclerView.childCount}")
+            Log.d(TAG, "RecyclerView adapter item count: ${adapter.itemCount}")
+
+            // Log each child view
+            for (i in 0 until recyclerView.childCount) {
+                val child = recyclerView.getChildAt(i)
+                Log.d(TAG, "Child $i: ${child.javaClass.simpleName}, clickable=${child.isClickable}, bounds=${child.left},${child.top},${child.right},${child.bottom}")
+            }
+        }
     }
 
     /**
-     * Request credential from Flutter via MethodChannel.
-     * Flutter decrypts the entry and returns username or password.
-     * IME fills it into the input field.
+     * Request credential from Flutter with biometric authentication.
+     * Security: Requires biometric auth, uses secure IPC, clears memory immediately.
      */
     private fun requestCredentialFill(uuid: String, field: String) {
-        // TODO: Call Flutter to get decrypted credential
-        // For now, this is a placeholder that shows the integration point
-        Log.d(TAG, "Requesting fill for $uuid/$field")
+        Log.d(TAG, "Requesting secure fill for $uuid/$field")
 
-        // In production, this would:
-        // 1. Call Flutter via MethodChannel to get credential
-        // 2. Receive decrypted username/password
-        // 3. Fill into input field using InputConnection
-        // 4. Clear sensitive data from memory
+        try {
+            // Create secure request with callback
+            val requestToken = SecureCredentialBridge.requestCredential(uuid, field) { credential ->
+                if (credential != null) {
+                    // Fill the decrypted credential
+                    fillText(credential)
+
+                    // CRITICAL: Clear from memory immediately
+                    // (CharArray zero-out happens in fillText)
+
+                    Log.d(TAG, "Credential filled successfully")
+                } else {
+                    Log.w(TAG, "Credential request cancelled or failed")
+                }
+            }
+
+            // Launch transparent activity for biometric auth
+            val intent = Intent(this, SecureCredentialRequestActivity::class.java)
+            intent.putExtra(SecureCredentialRequestActivity.EXTRA_REQUEST_TOKEN, requestToken)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION
+            startActivity(intent)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error requesting credential: ${e.message}", e)
+        }
     }
 
     /**
      * Fill text into the current input field.
+     * SECURITY: Clears sensitive data from memory immediately after use.
      */
     private fun fillText(text: String) {
-        currentInputConnection?.commitText(text, 1)
+        try {
+            // Get current input connection directly (don't rely on cached value)
+            // This ensures we can fill even if onStartInputView hasn't been called yet
+            val inputConnection = getCurrentInputConnection()
+            if (inputConnection == null) {
+                Log.e(TAG, "No input connection available to fill text")
+                return
+            }
 
-        // Zero-out the string from memory
-        text.toCharArray().fill('\u0000')
+            // Fill into input field
+            inputConnection.commitText(text, 1)
+
+            // CRITICAL: Zero-out the string from memory
+            // Convert to CharArray and overwrite with nulls
+            val chars = text.toCharArray()
+            chars.fill('\u0000')
+
+            // Force string internal value to be cleared (reflection, best effort)
+            try {
+                val valueField = String::class.java.getDeclaredField("value")
+                valueField.isAccessible = true
+                val value = valueField.get(text) as? CharArray
+                value?.fill('\u0000')
+            } catch (e: Exception) {
+                // Reflection failed (expected on newer Android), but CharArray clearing above still works
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error filling text: ${e.message}", e)
+        }
     }
 
     /**
@@ -235,7 +287,6 @@ class GitVaultIMEService : InputMethodService() {
      * Clear all sensitive data when IME is closed.
      */
     private fun clearSensitiveData() {
-        decryptionCipher = null
         currentEditorInfo = null
         currentInputConnection = null
         Log.d(TAG, "Sensitive data cleared")

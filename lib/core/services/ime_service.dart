@@ -20,6 +20,9 @@ class IMEService {
       switch (call.method) {
         case 'getCredentialForIME':
           return await _handleGetCredentialForIME(call.arguments);
+        case 'getCredentialFieldForIME':
+          // Secure biometric flow - returns single field value as String
+          return await _handleGetCredentialFieldForIME(call.arguments);
         default:
           throw PlatformException(
             code: 'UNIMPLEMENTED',
@@ -29,7 +32,7 @@ class IMEService {
     });
   }
 
-  /// Handle credential request from IME.
+  /// Handle credential request from IME (legacy method).
   /// IME sends UUID, we decrypt that single entry and return username or password.
   Future<Map<String, String?>> _handleGetCredentialForIME(
     dynamic arguments,
@@ -59,6 +62,44 @@ class IMEService {
       return {
         'error': e.toString(),
       };
+    }
+  }
+
+  /// Handle secure credential field request (new biometric flow).
+  /// After biometric auth, decrypt and return ONLY the requested field value.
+  /// SECURITY: Returns String directly (not Map) for immediate use and disposal.
+  Future<String?> _handleGetCredentialFieldForIME(
+    dynamic arguments,
+  ) async {
+    try {
+      final uuid = arguments['uuid'] as String?;
+      final field = arguments['field'] as String?; // 'username' or 'password'
+
+      if (uuid == null || field == null) {
+        print('IMEService: Invalid arguments: uuid=$uuid, field=$field');
+        return null;
+      }
+
+      print('IMEService: Decrypting $field for credential $uuid');
+
+      // Decrypt single entry from vault
+      final entry = await _vaultRepository.getEntry(uuid);
+      if (entry == null) {
+        print('IMEService: Credential not found: $uuid');
+        return null;
+      }
+
+      // Return ONLY the requested field value
+      // SECURITY: IME will use immediately and clear from memory
+      final value = field == 'username' ? entry.username : entry.password;
+
+      // DO NOT log the actual value
+      print('IMEService: Credential field retrieved successfully');
+
+      return value;
+    } catch (e) {
+      print('IMEService: Error decrypting credential: $e');
+      return null;
     }
   }
 
