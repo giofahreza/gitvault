@@ -14,12 +14,15 @@ class CredentialCacheService {
     List<VaultEntry> allEntries,
   ) async {
     try {
-      // Extract only metadata: uuid, title, url
+      // Extract only metadata: uuid, title, url, group (first tag), hasTotpSecret, totpSecret
       final metadata = allEntries
           .map((entry) => {
                 'uuid': entry.uuid,
                 'title': entry.title,
                 'url': entry.url,
+                'group': entry.tags.isNotEmpty ? entry.tags.first : null,
+                'hasTotpSecret': entry.totpSecret != null && entry.totpSecret!.isNotEmpty,
+                'totpSecret': entry.totpSecret,
               })
           .toList();
 

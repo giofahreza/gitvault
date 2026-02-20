@@ -195,6 +195,11 @@ class MainActivity : FlutterFragmentActivity() {
                     showKeyboardPicker()
                     result.success(null)
                 }
+                "setThemeMode" -> {
+                    val mode = call.argument<String>("mode") ?: "system"
+                    saveThemeMode(mode)
+                    result.success(null)
+                }
                 "getCredentialFieldForIME" -> {
                     // This is called from SecureCredentialRequestActivity
                     // Flutter will handle the actual decryption
@@ -340,7 +345,10 @@ class MainActivity : FlutterFragmentActivity() {
                     CredentialMetadata(
                         uuid = obj.get("uuid")?.asString ?: "",
                         title = obj.get("title")?.asString ?: "",
-                        url = if (obj.has("url") && !obj.get("url").isJsonNull) obj.get("url").asString else null
+                        url = if (obj.has("url") && !obj.get("url").isJsonNull) obj.get("url").asString else null,
+                        group = if (obj.has("group") && !obj.get("group").isJsonNull) obj.get("group").asString else null,
+                        hasTotpSecret = obj.get("hasTotpSecret")?.asBoolean ?: false,
+                        totpSecret = if (obj.has("totpSecret") && !obj.get("totpSecret").isJsonNull) obj.get("totpSecret").asString else null
                     )
                 )
             }
@@ -355,6 +363,13 @@ class MainActivity : FlutterFragmentActivity() {
             Log.e(TAG, "Error updating credential cache: ${e.message}")
             throw e
         }
+    }
+
+    /** Save theme mode to SharedPreferences so the IME can read it without Flutter. */
+    private fun saveThemeMode(mode: String) {
+        getSharedPreferences("gitvault_ime_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putString("theme_mode", mode).apply()
+        Log.d(TAG, "Theme mode saved: $mode")
     }
 
     /**

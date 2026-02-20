@@ -1,14 +1,15 @@
 package com.giofahreza.gitvault.ime
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.hardware.biometrics.BiometricPrompt
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.CancellationSignal
 import android.util.Log
 import android.util.TypedValue
-import android.view.LayoutInflater
 import android.view.View
+import android.view.LayoutInflater
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.ImageButton
@@ -17,6 +18,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.giofahreza.gitvault.MainActivity
 import com.giofahreza.gitvault.R
+import java.nio.ByteBuffer
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Custom IME keyboard service for GitVault credential filling.
@@ -39,6 +43,31 @@ class GitVaultIMEService : InputMethodService() {
     private var currentEditorInfo: EditorInfo? = null
     private var currentInputConnection: InputConnection? = null
 
+    // Tab state
+    private var showingTotpTab = false
+
+    // ── Dark/light mode helpers ─────────────────────────────────────────────
+
+    private fun isDarkMode(): Boolean {
+        val prefs = getSharedPreferences("gitvault_ime_prefs", android.content.Context.MODE_PRIVATE)
+        return when (prefs.getString("theme_mode", "system")) {
+            "dark" -> true
+            "light" -> false
+            else -> resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        }
+    }
+
+    private fun bgColor(dark: Boolean)      = if (dark) 0xFF1C1B1F.toInt() else android.graphics.Color.WHITE
+    private fun surfaceColor(dark: Boolean) = if (dark) 0xFF2B2930.toInt() else 0xFFF5F0FF.toInt()
+    private fun textColor(dark: Boolean)    = if (dark) android.graphics.Color.WHITE else android.graphics.Color.BLACK
+    private fun subTextColor(dark: Boolean) = if (dark) 0xFFCAC4D0.toInt() else android.graphics.Color.DKGRAY
+    private fun dividerColor(dark: Boolean) = if (dark) 0xFF49454F.toInt() else 0xFFDDDDDD.toInt()
+    private fun tabSelectedBg(dark: Boolean)   = if (dark) 0xFF6650A4.toInt() else 0xFF6750A4.toInt()
+    private fun tabUnselectedBg(dark: Boolean) = if (dark) 0xFF2B2930.toInt() else android.graphics.Color.WHITE
+    private fun tabSelectedText()   = android.graphics.Color.WHITE
+    private fun tabUnselectedText(dark: Boolean) = if (dark) 0xFFD0BCFF.toInt() else 0xFF6750A4.toInt()
+    private fun accentColor(dark: Boolean)  = if (dark) 0xFFD0BCFF.toInt() else 0xFF6750A4.toInt()
+
     // Credential waiting to be filled on next IME rebind to target field
     @Volatile
     private var pendingCredentialToFill: String? = null
@@ -60,8 +89,26 @@ class GitVaultIMEService : InputMethodService() {
             val inflater = LayoutInflater.from(this)
             inputView = inflater.inflate(R.layout.ime_toolbar, null)
 
-            // Note: InputMethodService doesn't have direct window access for security flags
-            // The IME runs in the system process and is inherently more secure than app windows
+            val dark = isDarkMode()
+
+            // Apply theme colors to static views
+            applyTheme(dark)
+
+            // Wire tab click handlers
+            inputView?.findViewById<TextView>(R.id.tab_passwords)?.setOnClickListener {
+                if (showingTotpTab) {
+                    showingTotpTab = false
+                    applyTabSelection(isDarkMode())
+                    loadCredentials()
+                }
+            }
+            inputView?.findViewById<TextView>(R.id.tab_2fa)?.setOnClickListener {
+                if (!showingTotpTab) {
+                    showingTotpTab = true
+                    applyTabSelection(isDarkMode())
+                    loadCredentials()
+                }
+            }
 
             // Setup load credentials button
             inputView?.findViewById<ImageButton>(R.id.ime_load_credentials)?.setOnClickListener {
@@ -84,6 +131,49 @@ class GitVaultIMEService : InputMethodService() {
             fallbackView.text = "GitVault Keyboard Error. Please check logs."
             fallbackView.setPadding(16, 16, 16, 16)
             return fallbackView
+        }
+    }
+
+    /** Apply theme colors to all static views. */
+    private fun applyTheme(dark: Boolean) {
+        val bg = bgColor(dark)
+        val div = dividerColor(dark)
+        inputView?.findViewById<LinearLayout>(R.id.ime_root)
+            ?.setBackgroundColor(bg)
+        inputView?.findViewById<LinearLayout>(R.id.ime_header)
+            ?.setBackgroundColor(bg)
+        inputView?.findViewById<TextView>(R.id.ime_title)
+            ?.setTextColor(textColor(dark))
+        inputView?.findViewById<View>(R.id.ime_title_divider)
+            ?.setBackgroundColor(div)
+        inputView?.findViewById<View>(R.id.ime_divider)
+            ?.setBackgroundColor(div)
+        inputView?.findViewById<TextView>(R.id.ime_message).let { msg ->
+            msg?.setTextColor(subTextColor(dark))
+            msg?.setBackgroundColor(bg)
+        }
+        inputView?.findViewById<ScrollView>(R.id.ime_credentials_scroll)
+            ?.setBackgroundColor(bg)
+        inputView?.findViewById<LinearLayout>(R.id.ime_credentials_list)
+            ?.setBackgroundColor(bg)
+        applyTabSelection(dark)
+    }
+
+    /** Update tab active/inactive colors based on [showingTotpTab]. */
+    private fun applyTabSelection(dark: Boolean) {
+        val tabPasswords = inputView?.findViewById<TextView>(R.id.tab_passwords)
+        val tab2fa       = inputView?.findViewById<TextView>(R.id.tab_2fa)
+
+        if (showingTotpTab) {
+            tabPasswords?.setBackgroundColor(tabUnselectedBg(dark))
+            tabPasswords?.setTextColor(tabUnselectedText(dark))
+            tab2fa?.setBackgroundColor(tabSelectedBg(dark))
+            tab2fa?.setTextColor(tabSelectedText())
+        } else {
+            tabPasswords?.setBackgroundColor(tabSelectedBg(dark))
+            tabPasswords?.setTextColor(tabSelectedText())
+            tab2fa?.setBackgroundColor(tabUnselectedBg(dark))
+            tab2fa?.setTextColor(tabUnselectedText(dark))
         }
     }
 
@@ -172,18 +262,31 @@ class GitVaultIMEService : InputMethodService() {
 
     /**
      * Load credentials directly from cache without biometric auth.
-     * The metadata cache only contains titles/URLs, not passwords.
+     * The metadata cache only contains titles/URLs (and TOTP secrets for 2FA tab).
      * Biometric auth will be required when filling actual passwords.
      */
     private fun loadCredentials() {
         try {
             val credentials = credentialCacheManager.readMetadataCache()
-            Log.d(TAG, "Loaded ${credentials.size} credentials")
+            Log.d(TAG, "Loaded ${credentials.size} credentials, showingTotpTab=$showingTotpTab")
 
-            if (credentials.isEmpty()) {
-                showEmptyState()
+            if (showingTotpTab) {
+                val totpEntries = credentials.filter { it.hasTotpSecret && !it.totpSecret.isNullOrEmpty() }
+                if (totpEntries.isEmpty()) {
+                    val messageView = inputView?.findViewById<TextView>(R.id.ime_message)
+                    messageView?.text = "No 2FA entries available"
+                    showEmptyState()
+                } else {
+                    displayTotpList(totpEntries)
+                }
             } else {
-                displayCredentialsList(credentials)
+                val messageView = inputView?.findViewById<TextView>(R.id.ime_message)
+                messageView?.text = getString(R.string.ime_empty_state)
+                if (credentials.isEmpty()) {
+                    showEmptyState()
+                } else {
+                    displayCredentialsList(credentials)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load credentials: ${e.message}", e)
@@ -192,7 +295,7 @@ class GitVaultIMEService : InputMethodService() {
     }
 
     /**
-     * Display credentials in RecyclerView.
+     * Display password credentials list with dark/light theming and {group} - {title} format.
      */
     private fun displayCredentialsList(credentials: List<CredentialMetadata>) {
         val scrollView = inputView?.findViewById<ScrollView>(R.id.ime_credentials_scroll)
@@ -206,9 +309,12 @@ class GitVaultIMEService : InputMethodService() {
 
         Log.d(TAG, "Displaying ${credentials.size} credentials")
 
+        val dark = isDarkMode()
+
         // Hide message, show list
         messageView?.visibility = View.GONE
         scrollView.visibility = View.VISIBLE
+        scrollView.setBackgroundColor(bgColor(dark))
 
         // Clear existing views
         listContainer.removeAllViews()
@@ -216,6 +322,12 @@ class GitVaultIMEService : InputMethodService() {
         val density = resources.displayMetrics.density
 
         for (credential in credentials) {
+            // Build display name: "{group} - {title}" or just "{title}"
+            val displayName = if (!credential.group.isNullOrEmpty())
+                "${credential.group} - ${credential.title}"
+            else
+                credential.title
+
             // Row container
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -226,6 +338,7 @@ class GitVaultIMEService : InputMethodService() {
                 val pad = (12 * density).toInt()
                 setPadding((16 * density).toInt(), pad, (16 * density).toInt(), pad)
                 gravity = android.view.Gravity.CENTER_VERTICAL
+                setBackgroundColor(bgColor(dark))
             }
 
             // Title + URL column
@@ -236,15 +349,15 @@ class GitVaultIMEService : InputMethodService() {
                 (layoutParams as LinearLayout.LayoutParams).marginEnd = marginEnd
             }
             val titleView = TextView(this).apply {
-                text = credential.title
+                text = displayName
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.BLACK)
+                setTextColor(textColor(dark))
             }
             val urlView = TextView(this).apply {
                 text = credential.url ?: "(no URL)"
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setTextColor(android.graphics.Color.DKGRAY)
+                setTextColor(subTextColor(dark))
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 val topMargin = (2 * density).toInt()
@@ -297,11 +410,185 @@ class GitVaultIMEService : InputMethodService() {
             row.addView(textCol)
             row.addView(usernameBtn)
             row.addView(passwordBtn)
+
+            // Divider
+            val divider = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (1 * density).toInt()
+                )
+                setBackgroundColor(dividerColor(dark))
+            }
+
             listContainer.addView(row)
+            listContainer.addView(divider)
 
             Log.d(TAG, "Added credential row for: ${credential.title}")
         }
     }
+
+    /**
+     * Display 2FA/TOTP list with generated codes and dark/light theming.
+     */
+    private fun displayTotpList(credentials: List<CredentialMetadata>) {
+        val scrollView = inputView?.findViewById<ScrollView>(R.id.ime_credentials_scroll)
+        val listContainer = inputView?.findViewById<LinearLayout>(R.id.ime_credentials_list)
+        val messageView = inputView?.findViewById<TextView>(R.id.ime_message)
+
+        if (listContainer == null || scrollView == null) return
+
+        val dark = isDarkMode()
+
+        messageView?.visibility = View.GONE
+        scrollView.visibility = View.VISIBLE
+        scrollView.setBackgroundColor(bgColor(dark))
+
+        listContainer.removeAllViews()
+
+        val density = resources.displayMetrics.density
+
+        for (credential in credentials) {
+            val secret = credential.totpSecret ?: continue
+            val code = generateTotpCode(secret) ?: "------"
+
+            // Format code as "123 456" for readability
+            val codeDisplay = if (code.length == 6)
+                "${code.substring(0, 3)} ${code.substring(3)}"
+            else code
+
+            val displayName = if (!credential.group.isNullOrEmpty())
+                "${credential.group} - ${credential.title}"
+            else
+                credential.title
+
+            // Row
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                val pad = (10 * density).toInt()
+                setPadding((16 * density).toInt(), pad, (16 * density).toInt(), pad)
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setBackgroundColor(bgColor(dark))
+            }
+
+            // Name + code column
+            val textCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                val marginEnd = (8 * density).toInt()
+                (layoutParams as LinearLayout.LayoutParams).marginEnd = marginEnd
+            }
+
+            val nameView = TextView(this).apply {
+                text = displayName
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextColor(subTextColor(dark))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+
+            val codeView = TextView(this).apply {
+                text = codeDisplay
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(accentColor(dark))
+                letterSpacing = 0.1f
+            }
+
+            textCol.addView(nameView)
+            textCol.addView(codeView)
+
+            // Copy (fill) button — fills the raw code (no space) into the input field
+            val copyBtn = ImageButton(this).apply {
+                val size = (44 * density).toInt()
+                layoutParams = LinearLayout.LayoutParams(size, size)
+                val pad = (8 * density).toInt()
+                setPadding(pad, pad, pad, pad)
+                setImageResource(android.R.drawable.ic_menu_send)
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                isClickable = true
+                isFocusable = false
+                contentDescription = "Fill 2FA code"
+                setOnClickListener {
+                    Log.d(TAG, "Filling TOTP code for ${credential.title}")
+                    fillText(code)
+                }
+            }
+
+            row.addView(textCol)
+            row.addView(copyBtn)
+
+            // Divider
+            val divider = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (1 * density).toInt()
+                )
+                setBackgroundColor(dividerColor(dark))
+            }
+
+            listContainer.addView(row)
+            listContainer.addView(divider)
+        }
+
+        if (listContainer.childCount == 0) {
+            messageView?.text = "No 2FA entries available"
+            messageView?.visibility = View.VISIBLE
+            scrollView.visibility = View.GONE
+        }
+    }
+
+    // ── TOTP generation ─────────────────────────────────────────────────────
+
+    /**
+     * Generate a 6-digit TOTP code using HMAC-SHA1 (RFC 6238).
+     * Time step is 30 seconds.
+     */
+    private fun generateTotpCode(secret: String): String? {
+        return try {
+            val key = base32Decode(secret.replace(" ", "").uppercase())
+            val timeStep = System.currentTimeMillis() / 1000L / 30L
+            val msg = ByteBuffer.allocate(8).putLong(timeStep).array()
+            val mac = Mac.getInstance("HmacSHA1")
+            mac.init(SecretKeySpec(key, "HmacSHA1"))
+            val hash = mac.doFinal(msg)
+            val offset = hash[hash.size - 1].toInt() and 0x0f
+            val code = ((hash[offset].toInt() and 0x7f) shl 24) or
+                       ((hash[offset + 1].toInt() and 0xff) shl 16) or
+                       ((hash[offset + 2].toInt() and 0xff) shl 8) or
+                       (hash[offset + 3].toInt() and 0xff)
+            String.format("%06d", code % 1_000_000)
+        } catch (e: Exception) {
+            Log.e(TAG, "TOTP generation failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Decode a Base32-encoded string into a byte array. */
+    private fun base32Decode(input: String): ByteArray {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        val cleaned = input.trimEnd('=')
+        var bits = 0
+        var bitsCount = 0
+        val result = mutableListOf<Byte>()
+        for (c in cleaned) {
+            val idx = alphabet.indexOf(c)
+            if (idx < 0) continue
+            bits = (bits shl 5) or idx
+            bitsCount += 5
+            if (bitsCount >= 8) {
+                bitsCount -= 8
+                result.add((bits shr bitsCount).toByte())
+                bits = bits and ((1 shl bitsCount) - 1)
+            }
+        }
+        return result.toByteArray()
+    }
+
+    // ── Credential fill ──────────────────────────────────────────────────────
 
     /**
      * Request credential fill with biometric authentication.

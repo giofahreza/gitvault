@@ -134,6 +134,14 @@ class IMEService {
     }
   }
 
+  /// Sync theme mode to IME SharedPreferences so the keyboard uses correct colors.
+  static Future<void> setThemeMode(String mode) async {
+    try {
+      await const MethodChannel('com.giofahreza.gitvault/ime')
+          .invokeMethod('setThemeMode', {'mode': mode});
+    } catch (_) {}
+  }
+
   /// Invoke credential retrieval from Flutter side.
   /// Used by IME to request decrypted credentials on demand.
   Future<Map<String, String?>> getCredential(

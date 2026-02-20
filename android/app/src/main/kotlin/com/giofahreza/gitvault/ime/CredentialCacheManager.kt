@@ -326,5 +326,8 @@ class CredentialCacheManager(private val context: Context) {
 data class CredentialMetadata(
     val uuid: String,
     val title: String,
-    val url: String?
+    val url: String?,
+    val group: String? = null,
+    val hasTotpSecret: Boolean = false,
+    val totpSecret: String? = null
 )

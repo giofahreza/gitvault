@@ -9,6 +9,7 @@ import '../../core/crypto/crypto_manager.dart';
 import '../../core/providers/providers.dart';
 import '../../core/services/background_sync_service.dart';
 import '../../core/services/github_service.dart';
+import '../../core/services/ime_service.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/constants.dart';
 import '../../utils/mnemonic_helper.dart';
@@ -524,6 +525,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (value) {
               ref.read(themeModeProvider.notifier).state = value!;
               ref.read(keyStorageProvider).setThemeMode(value.toStorageString());
+              IMEService.setThemeMode(value.toStorageString());
               Navigator.pop(ctx);
             },
           ),
@@ -534,6 +536,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (value) {
               ref.read(themeModeProvider.notifier).state = value!;
               ref.read(keyStorageProvider).setThemeMode(value.toStorageString());
+              IMEService.setThemeMode(value.toStorageString());
               Navigator.pop(ctx);
             },
           ),
@@ -545,6 +548,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (value) {
               ref.read(themeModeProvider.notifier).state = value!;
               ref.read(keyStorageProvider).setThemeMode(value.toStorageString());
+              IMEService.setThemeMode(value.toStorageString());
               Navigator.pop(ctx);
             },
           ),
