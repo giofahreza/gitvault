@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../data/repositories/vault_repository.dart';
@@ -40,7 +42,7 @@ class BackgroundSyncService {
   /// Enable background sync with specified interval
   static Future<void> enableBackgroundSync({
     int intervalMinutes = _defaultInterval,
-    bool requireWifi = true,
+    bool requireWifi = false,
     bool requireCharging = false,
   }) async {
     if (_settingsBox == null) await initialize();
@@ -90,7 +92,8 @@ class BackgroundSyncService {
     return intervalStr != null ? int.parse(intervalStr) : _defaultInterval;
   }
 
-  /// Trigger immediate sync (one-time)
+  /// Trigger immediate sync (one-time) via WorkManager.
+  /// For a truly immediate sync in the foreground, use [performSyncNow] instead.
   static Future<void> triggerImmediateSync() async {
     await Workmanager().registerOneOffTask(
       'immediate_sync',
@@ -100,6 +103,71 @@ class BackgroundSyncService {
       ),
       existingWorkPolicy: ExistingWorkPolicy.replace,
     );
+  }
+
+  /// Perform sync RIGHT NOW in the current (main) isolate.
+  /// Unlike [triggerImmediateSync], this does not go through WorkManager —
+  /// it runs the sync logic directly and returns the result.
+  static Future<SyncResult> performSyncNow() async {
+    if (_settingsBox == null) await initialize();
+
+    final keyStorage = KeyStorage();
+    await keyStorage.initialize();
+
+    final token = await keyStorage.getGitHubToken();
+    final owner = await keyStorage.getRepoOwner();
+    final repo = await keyStorage.getRepoName();
+
+    if (token == null || owner == null || repo == null) {
+      throw Exception('GitHub credentials not configured. Please set up GitHub sync in settings.');
+    }
+
+    final rootKey = await keyStorage.getRootKey();
+    if (rootKey == null) {
+      throw Exception('No root key found. Please unlock the vault first.');
+    }
+
+    final cryptoManager = CryptoManager();
+    final githubService = GitHubService(
+      accessToken: token,
+      repoOwner: owner,
+      repoName: repo,
+    );
+
+    final vaultRepository = VaultRepository(
+      cryptoManager: cryptoManager,
+      keyStorage: keyStorage,
+    );
+    final notesRepository = NotesRepository(
+      cryptoManager: cryptoManager,
+      keyStorage: keyStorage,
+    );
+    final sshRepository = SshRepository(
+      cryptoManager: cryptoManager,
+      keyStorage: keyStorage,
+    );
+
+    final syncEngine = SyncEngine(
+      vaultRepository: vaultRepository,
+      notesRepository: notesRepository,
+      sshRepository: sshRepository,
+      githubService: githubService,
+      cryptoManager: cryptoManager,
+      keyStorage: keyStorage,
+    );
+
+    await syncEngine.initialize();
+
+    try {
+      final result = await syncEngine.sync();
+      await _recordSyncResult(success: true);
+      return result;
+    } catch (e) {
+      await _recordSyncResult(success: false, error: e.toString());
+      rethrow;
+    } finally {
+      githubService.dispose();
+    }
   }
 
   /// Update sync interval based on battery level (adaptive sync)
@@ -136,7 +204,7 @@ class BackgroundSyncService {
     }
   }
 
-  /// Record sync result
+  /// Record sync result (only works in main isolate where _settingsBox is open)
   static Future<void> _recordSyncResult({
     required bool success,
     String? error,
@@ -147,6 +215,8 @@ class BackgroundSyncService {
     await _settingsBox!.put('last_sync_success', success.toString());
     if (error != null) {
       await _settingsBox!.put('last_sync_error', error);
+    } else {
+      await _settingsBox!.delete('last_sync_error');
     }
 
     // Update consecutive failures
@@ -188,11 +258,18 @@ class BackgroundSyncService {
 }
 
 /// Background task callback dispatcher
-/// This runs in an isolate, so it needs its own initialization
+/// This runs in an isolated Dart VM — all static state is reset.
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
+      // Enable Flutter plugin registration in this background isolate
+      DartPluginRegistrant.ensureInitialized();
+
+      // Initialize Hive with the correct app storage path
+      final appDir = await getApplicationDocumentsDirectory();
+      Hive.init(appDir.path);
+
       // Check connectivity first
       final connectivityManager = ConnectivityManager();
       final isConnected = await connectivityManager.hasInternetConnection();
@@ -211,42 +288,34 @@ void callbackDispatcher() {
         return Future.value(true);
       }
 
-      // Initialize Hive (use init() for background isolates)
-      Hive.init(null);
+      // Read GitHub credentials from KeyStorage box ('secure_keys')
+      // NOTE: must match KeyStorage._boxName and its key constants exactly
+      final secureBox = await Hive.openBox<String>('secure_keys');
+      final token = secureBox.get('gitvault_github_token');
+      final owner = secureBox.get('gitvault_repo_owner');
+      final repo = secureBox.get('gitvault_repo_name');
 
-      // Get sync settings from Hive
-      final settingsBox = await Hive.openBox<String>('sync_settings');
-      final username = settingsBox.get('github_username');
-      final repo = settingsBox.get('github_repo');
-      final token = settingsBox.get('github_token');
-
-      if (username == null || repo == null || token == null) {
+      if (token == null || owner == null || repo == null) {
         debugPrint('[BackgroundSync] GitHub credentials not configured');
-        await BackgroundSyncService._recordSyncResult(
-          success: false,
-          error: 'GitHub credentials not configured',
-        );
+        await _recordInIsolate(appDir.path, success: false, error: 'GitHub credentials not configured');
         return Future.value(true);
       }
 
-      // Initialize services
+      // Initialize KeyStorage (reuses the already-open 'secure_keys' box)
       final keyStorage = KeyStorage();
       await keyStorage.initialize();
 
       final rootKey = await keyStorage.getRootKey();
       if (rootKey == null) {
         debugPrint('[BackgroundSync] No root key found');
-        await BackgroundSyncService._recordSyncResult(
-          success: false,
-          error: 'No root key found',
-        );
+        await _recordInIsolate(appDir.path, success: false, error: 'No root key found');
         return Future.value(true);
       }
 
       final cryptoManager = CryptoManager();
       final githubService = GitHubService(
         accessToken: token,
-        repoOwner: username,
+        repoOwner: owner,
         repoName: repo,
       );
 
@@ -280,7 +349,7 @@ void callbackDispatcher() {
 
       debugPrint('[BackgroundSync] Sync completed: pulled=${result.pulled}, pushed=${result.pushed}');
 
-      await BackgroundSyncService._recordSyncResult(success: true);
+      await _recordInIsolate(appDir.path, success: true);
 
       // Clean up
       githubService.dispose();
@@ -290,13 +359,36 @@ void callbackDispatcher() {
       debugPrint('[BackgroundSync] Sync failed: $e');
       debugPrint('[BackgroundSync] Stack trace: $stackTrace');
 
-      await BackgroundSyncService._recordSyncResult(
-        success: false,
-        error: e.toString(),
-      );
+      try {
+        final appDir = await getApplicationDocumentsDirectory();
+        await _recordInIsolate(appDir.path, success: false, error: e.toString());
+      } catch (_) {}
 
       // Return true to avoid excessive retries
       return Future.value(true);
     }
   });
+}
+
+/// Record sync result inside the background isolate.
+/// Cannot use BackgroundSyncService._recordSyncResult because static state is reset.
+Future<void> _recordInIsolate(String hivePath, {required bool success, String? error}) async {
+  try {
+    final box = await Hive.openBox<String>('background_sync_settings');
+    await box.put('last_sync', DateTime.now().toIso8601String());
+    await box.put('last_sync_success', success.toString());
+    if (error != null) {
+      await box.put('last_sync_error', error);
+    } else {
+      await box.delete('last_sync_error');
+    }
+    final failures = int.parse(box.get('consecutive_failures') ?? '0');
+    if (success) {
+      await box.put('consecutive_failures', '0');
+    } else {
+      await box.put('consecutive_failures', (failures + 1).toString());
+    }
+  } catch (e) {
+    debugPrint('[BackgroundSync] Failed to record result: $e');
+  }
 }

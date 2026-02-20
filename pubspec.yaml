@@ -56,6 +56,8 @@ dependencies:
   # --- BACKGROUND SERVICES & BATTERY OPTIMIZATION ---
   # For background sync tasks
   workmanager: ^0.5.2
+  # For getting app directory path (needed in background isolate)
+  path_provider: ^2.1.0
   # For checking connectivity status
   connectivity_plus: ^6.0.0
   # For battery optimization

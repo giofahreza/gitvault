@@ -7,8 +7,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/auth/biometric_auth.dart';
 import '../../core/crypto/crypto_manager.dart';
 import '../../core/providers/providers.dart';
+import '../../core/services/background_sync_service.dart';
 import '../../core/services/github_service.dart';
 import '../../data/repositories/sync_engine.dart';
+import '../../utils/constants.dart';
 import '../../utils/mnemonic_helper.dart';
 import '../device_linking/link_device_screen.dart';
 import 'background_sync_settings.dart';
@@ -1073,19 +1075,18 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
                         await github.verifyRepository();
 
                         // Check if repo has existing vault data
-                        final indexBytes = await github.downloadFile('vault_index.enc');
+                        final indexBytes = await github.downloadFile(Constants.indexFile);
                         final hasExistingData = indexBytes != null;
-
-                        // Check if local vault is empty
-                        final vaultRepo = ref.read(vaultRepositoryProvider);
-                        await vaultRepo.initialize();
-                        final localEntries = await vaultRepo.getAllEntries();
-                        final hasLocalData = localEntries.isNotEmpty;
 
                         github.dispose();
 
-                        // If repo has data but local is empty, prompt for recovery or wipe
-                        if (hasExistingData && !hasLocalData) {
+                        final keyStorage = ref.read(keyStorageProvider);
+                        await keyStorage.initialize();
+                        final hasRootKey = await keyStorage.hasRootKey();
+
+                        // If repo has existing data and device has NO root key yet,
+                        // must ask for recovery phrase.
+                        if (hasExistingData && !hasRootKey) {
                           setState(() => validating = false);
                           Navigator.pop(ctx);
 
@@ -1102,8 +1103,6 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
                         }
 
                         // Save credentials
-                        final keyStorage = ref.read(keyStorageProvider);
-                        await keyStorage.initialize();
                         await keyStorage.storeGitHubCredentials(
                           token: token,
                           repoOwner: owner,
@@ -1112,15 +1111,66 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
 
                         if (context.mounted) {
                           Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('GitHub sync configured successfully'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
+
+                          if (hasExistingData && hasRootKey) {
+                            // Device already has a root key (e.g. set up as new) —
+                            // auto-sync to pull vault data from GitHub using that key.
+                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Row(
+                                  children: [
+                                    SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                                    SizedBox(width: 12),
+                                    Text('Syncing vault from GitHub...'),
+                                  ],
+                                ),
+                                duration: Duration(minutes: 2),
+                              ),
+                            );
+
+                            try {
+                              final result = await BackgroundSyncService.performSyncNow();
+                              if (context.mounted) {
+                                ref.invalidate(vaultRepositoryProvider);
+                                ref.invalidate(notesRepositoryProvider);
+                                ref.invalidate(sshRepositoryProvider);
+                                ref.invalidate(archivedNotesProvider);
+
+                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'GitHub sync configured! Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
+                                    ),
+                                    backgroundColor: Colors.green,
+                                    duration: const Duration(seconds: 5),
+                                  ),
+                                );
+                              }
+                            } catch (syncError) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('GitHub configured, but sync failed: $syncError'),
+                                    backgroundColor: Colors.orange,
+                                    duration: const Duration(seconds: 6),
+                                  ),
+                                );
+                              }
+                            }
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('GitHub sync configured successfully'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
                         }
 
-                        // Refresh connection status (after checking mounted)
+                        // Refresh connection status
                         if (mounted) {
                           await _checkConnection();
                         }
@@ -1318,15 +1368,60 @@ void _showEnterRecoveryCodeDialog(
 
                       if (context.mounted) {
                         Navigator.pop(ctx);
+
+                        // Refresh vault setup state so home screen unlocks
+                        ref.invalidate(isVaultSetupProvider);
+
+                        // Show syncing progress snackbar
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Recovery phrase saved. Click "Sync Now" to restore vault data.'),
-                            backgroundColor: Colors.green,
+                            content: Row(
+                              children: [
+                                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                                SizedBox(width: 12),
+                                Text('Syncing vault from GitHub...'),
+                              ],
+                            ),
+                            duration: Duration(minutes: 2),
                           ),
                         );
 
-                        // Trigger sync to download vault data
-                        ref.invalidate(isVaultSetupProvider);
+                        try {
+                          final result = await BackgroundSyncService.performSyncNow();
+
+                          if (context.mounted) {
+                            ref.invalidate(vaultRepositoryProvider);
+                            ref.invalidate(notesRepositoryProvider);
+                            ref.invalidate(sshRepositoryProvider);
+                            ref.invalidate(archivedNotesProvider);
+
+                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Vault restored! Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from GitHub.',
+                                ),
+                                backgroundColor: Colors.green,
+                                duration: const Duration(seconds: 5),
+                              ),
+                            );
+                          }
+                        } catch (syncError) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Recovery phrase saved, but sync failed: $syncError\n'
+                                  'Try "Sync Now" in Settings → Background Sync.',
+                                ),
+                                backgroundColor: Colors.orange,
+                                duration: const Duration(seconds: 6),
+                              ),
+                            );
+                          }
+                        }
                       }
                     } catch (e) {
                       setState(() => validating = false);

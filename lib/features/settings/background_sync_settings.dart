@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/providers/providers.dart';
 import '../../core/services/background_sync_service.dart';
 import '../../core/services/battery_optimization_manager.dart';
 import '../../core/services/connectivity_manager.dart';
@@ -15,9 +16,10 @@ class BackgroundSyncSettings extends ConsumerStatefulWidget {
 class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings> {
   bool _isEnabled = false;
   int _syncInterval = 60;
-  bool _requireWifi = true;
+  bool _requireWifi = false;
   bool _requireCharging = false;
   bool _isLoading = true;
+  bool _isSyncing = false;
 
   Map<String, dynamic>? _syncStats;
   BatteryOptimizationStatus? _batteryStatus;
@@ -124,16 +126,59 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
   }
 
   Future<void> _triggerManualSync() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Triggering sync...')),
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+            SizedBox(width: 12),
+            Text('Syncing with GitHub...'),
+          ],
+        ),
+        duration: Duration(minutes: 2),
+      ),
     );
 
-    await BackgroundSyncService.triggerImmediateSync();
+    try {
+      final result = await BackgroundSyncService.performSyncNow();
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sync scheduled')),
-      );
+      if (mounted) {
+        // Invalidate repository providers — this cascades to invalidate all
+        // list providers (vaultEntriesProvider, notesProvider, etc.) and forces
+        // fresh repository instances so newly synced Hive data is always read.
+        ref.invalidate(vaultRepositoryProvider);
+        ref.invalidate(notesRepositoryProvider);
+        ref.invalidate(sshRepositoryProvider);
+        ref.invalidate(archivedNotesProvider);
+
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sync complete — pushed: ${result.pushed}, pulled: ${result.pulled}${result.conflicts > 0 ? ", conflicts: ${result.conflicts}" : ""}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        await _loadSettings();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sync failed: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        await _loadSettings();
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
     }
   }
 
@@ -196,7 +241,7 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
                       children: [
                         SwitchListTile(
                           title: const Text('WiFi Only'),
-                          subtitle: const Text('Sync only when connected to WiFi'),
+                          subtitle: const Text('When off, syncs on WiFi or mobile data'),
                           value: _requireWifi,
                           onChanged: _updateWifiRequirement,
                         ),
@@ -225,9 +270,11 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
 
                 // Manual Sync Button
                 ElevatedButton.icon(
-                  onPressed: _triggerManualSync,
-                  icon: const Icon(Icons.sync),
-                  label: const Text('Sync Now'),
+                  onPressed: _isSyncing ? null : _triggerManualSync,
+                  icon: _isSyncing
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.sync),
+                  label: Text(_isSyncing ? 'Syncing...' : 'Sync Now'),
                 ),
               ],
             ),

@@ -37,7 +37,6 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
 
   // Terminal settings
   double _fontSize = 12.0;
-  bool _showKeyboard = true;
 
   // Gesture detection
   static const _volumeKeyChannel = MethodChannel('com.giofahreza.gitvault/volume_keys');
@@ -73,8 +72,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Reconnect if needed
-      if (!widget.session.isConnected) {
+      // Reconnect if needed (reconnect() is a no-op if already connecting)
+      if (!widget.session.isConnected && !widget.session.isConnecting) {
         widget.session.reconnect();
       }
     }
@@ -102,10 +101,23 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
   }
 
   Future<void> _connectToSession() async {
-    debugPrint('[Terminal] Attaching to session. isConnected=${widget.session.isConnected}, managerConnected=${widget.session.connectionManager.isConnected}');
+    debugPrint('[Terminal] Attaching to session. isConnected=${widget.session.isConnected}, managerConnected=${widget.session.connectionManager.isConnected}, isConnecting=${widget.session.isConnecting}');
 
-    // Only reconnect if truly disconnected
-    if (!widget.session.isConnected || !widget.session.connectionManager.isConnected) {
+    // If a connection is already in progress (started by createSession), wait for it
+    if (widget.session.isConnecting) {
+      if (!_hasAttachedBefore) {
+        _terminal.write('Connecting to ${widget.session.credential.host}...\r\n');
+        _hasAttachedBefore = true;
+      }
+      try {
+        await widget.session.stateStream.firstWhere(
+          (s) => s == SshSessionState.connected ||
+                 s == SshSessionState.error ||
+                 s == SshSessionState.disconnected,
+        );
+      } catch (_) {}
+    } else if (!widget.session.isConnected || !widget.session.connectionManager.isConnected) {
+      // Only reconnect if truly disconnected (not just connecting)
       if (_hasAttachedBefore) {
         _terminal.write('Reconnecting to ${widget.session.credential.host}...\r\n');
       } else {
@@ -118,7 +130,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
         _hasAttachedBefore = true;
       } catch (e) {
         _terminal.write('\r\nConnection failed: $e\r\n');
-        _terminal.write('Tap the refresh button in the app bar to reconnect\r\n');
+        _terminal.write('Tap the reconnect button in the toolbar to retry\r\n');
         return;
       }
     } else if (!_hasAttachedBefore) {
@@ -132,7 +144,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     final session = widget.session.connectionManager.session;
     if (session == null) {
       _terminal.write('\r\nSession not available. Connection may have timed out.\r\n');
-      _terminal.write('Tap the refresh button in the app bar to reconnect\r\n');
+      _terminal.write('Tap the reconnect button in the toolbar to retry\r\n');
       return;
     }
 
@@ -244,21 +256,15 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: _buildAppBar(),
-        backgroundColor: Colors.black,
-        body: GestureDetector(
-          // Double tap to toggle keyboard
-          onDoubleTap: () {
-            setState(() => _showKeyboard = !_showKeyboard);
-          },
-          // Long press for context menu
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: GestureDetector(
           onLongPress: _showContextMenu,
           child: Column(
             children: [
               Expanded(
                 child: GestureDetector(
                   onTap: () => _terminalFocusNode.requestFocus(),
-                  // Pinch to zoom font size
                   onScaleUpdate: (details) {
                     setState(() {
                       _fontSize = (_fontSize * details.scale).clamp(8.0, 24.0);
@@ -275,175 +281,10 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
                   ),
                 ),
               ),
-              if (_showKeyboard && widget.session.isConnected)
-                _buildKeyboardToolbar(Theme.of(context).colorScheme),
+              _buildKeyboardToolbar(Theme.of(context).colorScheme),
             ],
           ),
         ),
-        drawer: _buildDrawer(),
-      );
-  }
-
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      toolbarHeight: 40,
-      title: Row(
-        children: [
-          StreamBuilder<SshSessionState>(
-            stream: widget.session.stateStream,
-            initialData: widget.session.isConnected ? SshSessionState.connected : SshSessionState.disconnected,
-            builder: (context, snapshot) {
-              final state = snapshot.data ?? SshSessionState.disconnected;
-
-              if (state == SshSessionState.connecting) {
-                return const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                );
-              } else if (state == SshSessionState.connected) {
-                return const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.circle, color: Colors.green, size: 10),
-                );
-              } else {
-                return IconButton(
-                  icon: const Icon(Icons.refresh),
-                  tooltip: 'Reconnect',
-                  onPressed: _connectToSession,
-                  iconSize: 18,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                );
-              }
-            },
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              widget.session.credential.label,
-              style: const TextStyle(fontSize: 13),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.keyboard_alt_outlined),
-          tooltip: 'Switch Keyboard',
-          onPressed: _showKeyboardPicker,
-          iconSize: 18,
-        ),
-        IconButton(
-          icon: Icon(_showKeyboard ? Icons.keyboard_hide : Icons.keyboard),
-          tooltip: _showKeyboard ? 'Hide Toolbar' : 'Show Toolbar',
-          onPressed: () {
-            setState(() => _showKeyboard = !_showKeyboard);
-          },
-          iconSize: 18,
-        ),
-        IconButton(
-          icon: const Icon(Icons.more_vert),
-          onPressed: _showContextMenu,
-          iconSize: 18,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDrawer() {
-    return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          DrawerHeader(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.session.credential.label,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${widget.session.credential.username}@${widget.session.credential.host}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  'Session: ${_formatDuration(widget.session.duration)}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.text_fields),
-            title: Text('Font Size: ${_fontSize.toStringAsFixed(1)}'),
-            subtitle: Slider(
-              value: _fontSize,
-              min: 8,
-              max: 24,
-              divisions: 16,
-              label: _fontSize.toStringAsFixed(1),
-              onChanged: (value) {
-                setState(() => _fontSize = value);
-              },
-            ),
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.content_paste),
-            title: const Text('Paste from Clipboard'),
-            onTap: _pasteFromClipboard,
-          ),
-          ListTile(
-            leading: const Icon(Icons.select_all),
-            title: const Text('Select All'),
-            onTap: () {
-              _terminalController.setSelection(
-                _terminal.buffer.createAnchor(0, 0),
-                _terminal.buffer.createAnchor(
-                  _terminal.viewWidth - 1,
-                  _terminal.viewHeight - 1,
-                ),
-              );
-              Navigator.pop(context);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.cleaning_services),
-            title: const Text('Clear Terminal'),
-            onTap: () {
-              _terminal.buffer.clear();
-              Navigator.pop(context);
-            },
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('Session Info'),
-            onTap: () => _showSessionInfo(),
-          ),
-        ],
       ),
     );
   }
@@ -453,52 +294,105 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
       color: colorScheme.surfaceContainerHighest,
       child: SafeArea(
         top: false,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-          child: Row(
-            children: [
-              // Paste
-              _buildKey('Paste', _pasteFromClipboard, colorScheme),
-              _buildKey('Copy', _copySelection, colorScheme),
-              _buildDivider(colorScheme),
+        child: SizedBox(
+          height: 44,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // ── Navigation ────────────────────────────────────────────
+                _buildIconKey(Icons.more_vert, _showContextMenu, colorScheme),
+                // Connection status
+                StreamBuilder<SshSessionState>(
+                  stream: widget.session.stateStream,
+                  initialData: widget.session.isConnected
+                      ? SshSessionState.connected
+                      : SshSessionState.disconnected,
+                  builder: (context, snapshot) {
+                    final state = snapshot.data ?? SshSessionState.disconnected;
+                    if (state == SshSessionState.connecting) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                      );
+                    } else if (state == SshSessionState.connected) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(Icons.circle, color: Colors.green, size: 10),
+                      );
+                    } else {
+                      return _buildIconKey(Icons.refresh, _connectToSession, colorScheme);
+                    }
+                  },
+                ),
+                // Session label
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Text(
+                    '${widget.session.credential.username}@${widget.session.credential.host}',
+                    style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
+                    maxLines: 1,
+                  ),
+                ),
+                // ── Keys (only when connected) ────────────────────────────
+                if (widget.session.isConnected) ...[
+                  _buildDivider(colorScheme),
+                  _buildKey('Paste', _pasteFromClipboard, colorScheme),
+                  _buildKey('Copy', _copySelection, colorScheme),
+                  _buildDivider(colorScheme),
+                  _buildToggleKey('Ctrl', _ctrlActive, () {
+                    setState(() => _ctrlActive = !_ctrlActive);
+                  }, colorScheme),
+                  _buildToggleKey('Alt', _altActive, () {
+                    setState(() => _altActive = !_altActive);
+                  }, colorScheme),
+                  _buildDivider(colorScheme),
+                  _buildKey('Esc', () => _sendRaw([0x1B]), colorScheme),
+                  _buildKey('Tab', () => _sendRaw([0x09]), colorScheme),
+                  _buildDivider(colorScheme),
+                  _buildKey('↑', () => _sendRaw([0x1B, 0x5B, 0x41]), colorScheme),
+                  _buildKey('↓', () => _sendRaw([0x1B, 0x5B, 0x42]), colorScheme),
+                  _buildKey('←', () => _sendRaw([0x1B, 0x5B, 0x44]), colorScheme),
+                  _buildKey('→', () => _sendRaw([0x1B, 0x5B, 0x43]), colorScheme),
+                  _buildDivider(colorScheme),
+                  _buildKey('Home', () => _sendRaw([0x1B, 0x5B, 0x48]), colorScheme),
+                  _buildKey('End', () => _sendRaw([0x1B, 0x5B, 0x46]), colorScheme),
+                  _buildKey('PgUp', () => _sendRaw([0x1B, 0x5B, 0x35, 0x7E]), colorScheme),
+                  _buildKey('PgDn', () => _sendRaw([0x1B, 0x5B, 0x36, 0x7E]), colorScheme),
+                  _buildDivider(colorScheme),
+                  _buildKey('|', () => _sendKey('|'), colorScheme),
+                  _buildKey('/', () => _sendKey('/'), colorScheme),
+                  _buildKey('\\', () => _sendKey('\\'), colorScheme),
+                  _buildKey('~', () => _sendKey('~'), colorScheme),
+                  _buildKey('-', () => _sendKey('-'), colorScheme),
+                  _buildKey('_', () => _sendKey('_'), colorScheme),
+                  _buildDivider(colorScheme),
+                ],
+                // ── End actions ────────────────────────────────────────────
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-              // Modifiers
-              _buildToggleKey('Ctrl', _ctrlActive, () {
-                setState(() => _ctrlActive = !_ctrlActive);
-              }, colorScheme),
-              _buildToggleKey('Alt', _altActive, () {
-                setState(() => _altActive = !_altActive);
-              }, colorScheme),
-              _buildDivider(colorScheme),
-
-              // Special keys
-              _buildKey('Esc', () => _sendRaw([0x1B]), colorScheme),
-              _buildKey('Tab', () => _sendRaw([0x09]), colorScheme),
-              _buildDivider(colorScheme),
-
-              // Arrows
-              _buildKey('↑', () => _sendRaw([0x1B, 0x5B, 0x41]), colorScheme),
-              _buildKey('↓', () => _sendRaw([0x1B, 0x5B, 0x42]), colorScheme),
-              _buildKey('←', () => _sendRaw([0x1B, 0x5B, 0x44]), colorScheme),
-              _buildKey('→', () => _sendRaw([0x1B, 0x5B, 0x43]), colorScheme),
-              _buildDivider(colorScheme),
-
-              // Navigation
-              _buildKey('Home', () => _sendRaw([0x1B, 0x5B, 0x48]), colorScheme),
-              _buildKey('End', () => _sendRaw([0x1B, 0x5B, 0x46]), colorScheme),
-              _buildKey('PgUp', () => _sendRaw([0x1B, 0x5B, 0x35, 0x7E]), colorScheme),
-              _buildKey('PgDn', () => _sendRaw([0x1B, 0x5B, 0x36, 0x7E]), colorScheme),
-              _buildDivider(colorScheme),
-
-              // Symbols
-              _buildKey('|', () => _sendKey('|'), colorScheme),
-              _buildKey('/', () => _sendKey('/'), colorScheme),
-              _buildKey('\\', () => _sendKey('\\'), colorScheme),
-              _buildKey('~', () => _sendKey('~'), colorScheme),
-              _buildKey('-', () => _sendKey('-'), colorScheme),
-              _buildKey('_', () => _sendKey('_'), colorScheme),
-            ],
+  Widget _buildIconKey(IconData icon, VoidCallback onTap, ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Material(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Icon(icon, size: 18, color: colorScheme.onSurface),
           ),
         ),
       ),
@@ -626,6 +520,14 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
               },
             ),
             ListTile(
+              leading: const Icon(Icons.text_fields),
+              title: Text('Font Size: ${_fontSize.toStringAsFixed(1)}'),
+              onTap: () {
+                Navigator.pop(context);
+                _showFontSizeDialog();
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.info_outline),
               title: const Text('Session Info'),
               onTap: () {
@@ -635,6 +537,42 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showFontSizeDialog() {
+    double tempSize = _fontSize;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Font Size'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(tempSize.toStringAsFixed(1)),
+              Slider(
+                value: tempSize,
+                min: 8,
+                max: 24,
+                divisions: 16,
+                label: tempSize.toStringAsFixed(1),
+                onChanged: (v) => setDialogState(() => tempSize = v),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              setState(() => _fontSize = tempSize);
+              Navigator.pop(context);
+            },
+            child: const Text('Apply'),
+          ),
+        ],
       ),
     );
   }

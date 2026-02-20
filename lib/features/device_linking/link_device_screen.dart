@@ -5,6 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/providers/providers.dart';
 import '../../core/crypto/blind_handshake.dart';
+import '../../core/services/background_sync_service.dart';
 
 /// Screen for linking a new device via QR code + PIN
 class LinkDeviceScreen extends ConsumerStatefulWidget {
@@ -67,6 +68,7 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
   LinkingPayload? _payload;
   bool _loading = true;
   String? _error;
+  bool _hasGitHub = false;
 
   @override
   void initState() {
@@ -79,6 +81,8 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
       final keyStorage = ref.read(keyStorageProvider);
       final blindHandshake = ref.read(blindHandshakeProvider);
 
+      await keyStorage.initialize();
+
       final rootKey = await keyStorage.getRootKey();
       if (rootKey == null) {
         setState(() {
@@ -88,18 +92,23 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
         return;
       }
 
-      // Only transfer root key, not GitHub credentials
-      // User must manually set up GitHub sync on each device
+      // Read GitHub credentials from this device so they transfer to the new device
+      final githubToken = await keyStorage.getGitHubToken() ?? '';
+      final repoOwner = await keyStorage.getRepoOwner() ?? '';
+      final repoName = await keyStorage.getRepoName() ?? '';
+      final hasGitHub = githubToken.isNotEmpty && repoOwner.isNotEmpty && repoName.isNotEmpty;
+
       final payload = await blindHandshake.generateLinkingPayload(
         rootKey: rootKey,
-        githubToken: '',
-        repoOwner: '',
-        repoName: '',
+        githubToken: githubToken,
+        repoOwner: repoOwner,
+        repoName: repoName,
       );
 
       if (mounted) {
         setState(() {
           _payload = payload;
+          _hasGitHub = hasGitHub;
           _loading = false;
         });
       }
@@ -154,7 +163,44 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
                 'Scan this QR code on your new device',
                 style: TextStyle(fontSize: 18),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
+
+              // Show what will be transferred
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: _hasGitHub
+                      ? colorScheme.secondaryContainer
+                      : colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _hasGitHub ? Icons.cloud_done : Icons.cloud_off,
+                      size: 18,
+                      color: _hasGitHub
+                          ? colorScheme.onSecondaryContainer
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _hasGitHub
+                          ? 'GitHub sync config will transfer automatically'
+                          : 'GitHub sync not configured on this device',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _hasGitHub
+                            ? colorScheme.onSecondaryContainer
+                            : colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -198,7 +244,7 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
               const SizedBox(height: 24),
               OutlinedButton.icon(
                 onPressed: () {
-                  setState(() { _loading = true; _error = null; _payload = null; });
+                  setState(() { _loading = true; _error = null; _payload = null; _hasGitHub = false; });
                   _generatePayload();
                 },
                 icon: const Icon(Icons.refresh),
@@ -224,6 +270,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
   final _pinController = TextEditingController();
   String? _scannedData;
   bool _linking = false;
+  String _statusMessage = '';
 
   @override
   void dispose() {
@@ -276,10 +323,31 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
               style: const TextStyle(fontSize: 24, letterSpacing: 8),
             ),
             const SizedBox(height: 24),
+            if (_linking && _statusMessage.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Text(
+                        _statusMessage,
+                        style: TextStyle(color: colorScheme.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             FilledButton(
               onPressed: _linking ? null : _verifyAndLink,
               child: _linking
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Text('Link Device'),
             ),
             const SizedBox(height: 16),
@@ -301,11 +369,15 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       return;
     }
 
-    setState(() => _linking = true);
+    setState(() {
+      _linking = true;
+      _statusMessage = 'Verifying PIN...';
+    });
 
     try {
       final blindHandshake = ref.read(blindHandshakeProvider);
       final keyStorage = ref.read(keyStorageProvider);
+      await keyStorage.initialize();
 
       // Decrypt QR data with PIN
       final linkingData = await blindHandshake.decryptLinkingPayload(
@@ -313,59 +385,126 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
         pin: _pinController.text,
       );
 
-      // Store only the root key on this device (not GitHub credentials)
-      // User must manually set up GitHub sync on each device if desired
+      // Store root key
+      setState(() => _statusMessage = 'Storing encryption key...');
       await keyStorage.storeRootKey(linkingData.rootKey);
+
+      // Auto-configure GitHub if credentials were included in the payload
+      final hasGitHub = linkingData.githubToken.isNotEmpty &&
+          linkingData.repoOwner.isNotEmpty &&
+          linkingData.repoName.isNotEmpty;
+
+      if (hasGitHub) {
+        setState(() => _statusMessage = 'Configuring GitHub sync...');
+        await keyStorage.storeGitHubCredentials(
+          token: linkingData.githubToken,
+          repoOwner: linkingData.repoOwner,
+          repoName: linkingData.repoName,
+        );
+      }
 
       // Register this device with a name
       await keyStorage.storeLocalDeviceName('Linked Device');
 
-      // Refresh setup state
+      // Refresh state so the vault is accessible
       ref.invalidate(isVaultSetupProvider);
       ref.invalidate(vaultEntriesProvider);
 
-      if (mounted) {
-        // Prompt for device name
-        final nameController = TextEditingController(text: 'Linked Device');
-        final deviceName = await showDialog<String>(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Name This Device'),
-            content: TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Device Name',
-                hintText: 'e.g., My Pixel, Work Phone',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-              textCapitalization: TextCapitalization.words,
+      if (!mounted) return;
+
+      // Prompt for device name
+      final nameController = TextEditingController(text: 'Linked Device');
+      final deviceName = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Name This Device'),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(
+              labelText: 'Device Name',
+              hintText: 'e.g., My Pixel, Work Phone',
+              border: OutlineInputBorder(),
             ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, nameController.text.trim()),
-                child: const Text('Save'),
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, nameController.text.trim()),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted) return;
+
+      if (deviceName != null && deviceName.isNotEmpty) {
+        await keyStorage.storeLocalDeviceName(deviceName);
+      }
+
+      // If GitHub was configured, run an immediate sync to pull vault data
+      if (hasGitHub) {
+        setState(() => _statusMessage = 'Syncing vault from GitHub...');
+
+        try {
+          final result = await BackgroundSyncService.performSyncNow();
+
+          if (mounted) {
+            // Invalidate repository providers — cascades to all list providers
+            // and forces fresh instances so newly synced Hive data is read.
+            ref.invalidate(vaultRepositoryProvider);
+            ref.invalidate(notesRepositoryProvider);
+            ref.invalidate(sshRepositoryProvider);
+            ref.invalidate(archivedNotesProvider);
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Device linked! GitHub sync configured automatically. '
+                  'Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 5),
               ),
-            ],
+            );
+          }
+        } catch (syncError) {
+          // Sync failure is non-fatal — device is still linked and GitHub is configured
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Device linked! GitHub sync configured, but initial sync failed: $syncError\n'
+                  'You can sync manually from Settings.',
+                ),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 6),
+              ),
+            );
+          }
+        }
+      } else {
+        // No GitHub credentials on source device
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Device linked! The source device has no GitHub sync configured. '
+              'Set it up in Settings → GitHub Sync.',
+            ),
+            duration: Duration(seconds: 5),
           ),
         );
+      }
 
-        if (deviceName != null && deviceName.isNotEmpty) {
-          await keyStorage.storeLocalDeviceName(deviceName);
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Device linked successfully! Set up GitHub sync in Settings to sync your vault.')),
-          );
-          Navigator.of(context).pop();
-        }
+      if (mounted) {
+        Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _linking = false);
-        String message = 'Linking failed';
+        setState(() { _linking = false; _statusMessage = ''; });
+        String message;
         if (e.toString().contains('expired')) {
           message = 'Code expired. Ask the other device to generate a new one.';
         } else if (e.toString().contains('MAC') || e.toString().contains('Decryption')) {

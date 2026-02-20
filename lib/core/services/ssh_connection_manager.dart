@@ -11,6 +11,7 @@ class SshConnectionManager {
   SSHSession? _session;
   Timer? _keepAliveTimer;
   bool _isConnected = false;
+  bool _isConnecting = false;
   final BatteryOptimizationManager _batteryManager = BatteryOptimizationManager();
 
   late StreamSubscription<void> _doneSubscription;
@@ -18,12 +19,14 @@ class SshConnectionManager {
   SshConnectionManager({required this.credential});
 
   bool get isConnected => _isConnected && _client != null;
+  bool get isConnecting => _isConnecting;
   SSHSession? get session => _session;
   SSHClient? get client => _client;
 
   /// Connect to SSH server with automatic keep-alive
   Future<void> connect() async {
-    if (_isConnected && _client != null) return;
+    if ((_isConnected && _client != null) || _isConnecting) return;
+    _isConnecting = true;
 
     try {
       final socket = await SSHSocket.connect(
@@ -83,6 +86,8 @@ class SshConnectionManager {
     } catch (e) {
       _isConnected = false;
       rethrow;
+    } finally {
+      _isConnecting = false;
     }
   }
 

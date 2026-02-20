@@ -289,6 +289,7 @@ class SshSessionWrapper {
   }
 
   bool get isConnected => _isConnected;
+  bool get isConnecting => _connectionManager.isConnecting;
   SshConnectionManager get connectionManager => _connectionManager;
 
   /// Connect to SSH server
@@ -349,9 +350,9 @@ class SshSessionWrapper {
     _stateController.add(SshSessionState.disconnected);
   }
 
-  /// Reconnect if disconnected
+  /// Reconnect if disconnected (no-op if already connected or connecting)
   Future<void> reconnect() async {
-    if (!_isConnected) {
+    if (!_isConnected && !_connectionManager.isConnecting) {
       await connect();
     }
   }
