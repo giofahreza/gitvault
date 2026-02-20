@@ -36,18 +36,9 @@
             android:id="@+id/ime_load_credentials"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:layout_marginEnd="8dp"
             android:background="@android:color/transparent"
             android:contentDescription="Load Credentials"
-            android:src="@android:drawable/ic_menu_upload" />
-
-        <ImageButton
-            android:id="@+id/ime_switch_keyboard"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/ime_switch_keyboard"
-            android:src="@android:drawable/ic_input_add" />
+            android:src="@android:drawable/ic_popup_sync" />
     </LinearLayout>
 
     <View
@@ -70,8 +61,7 @@
     <ScrollView
         android:id="@+id/ime_credentials_scroll"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:maxHeight="200dp"
+        android:layout_height="130dp"
         android:visibility="gone">
 
         <LinearLayout

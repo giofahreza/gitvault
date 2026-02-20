@@ -24,8 +24,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     with WidgetsBindingObserver {
   late final Terminal _terminal;
   late final TerminalController _terminalController;
-  late final FocusNode _focusNode;
-  late final TextEditingController _voiceInputController;
+  late final FocusNode _terminalFocusNode;
 
   StreamSubscription? _stdoutSubscription;
   StreamSubscription? _stderrSubscription;
@@ -42,6 +41,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
 
   // Gesture detection
   static const _volumeKeyChannel = MethodChannel('com.giofahreza.gitvault/volume_keys');
+  static const _imeChannel = MethodChannel('com.giofahreza.gitvault/ime');
 
   @override
   void initState() {
@@ -51,9 +51,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     // Use persistent terminal from session wrapper - preserves scrollback like Termux!
     _terminal = widget.session.terminal;
     _terminalController = TerminalController();
-    _focusNode = FocusNode();
-    _voiceInputController = TextEditingController();
-    _voiceInputController.addListener(_handleVoiceInput);
+    _terminalFocusNode = FocusNode();
 
     // Set up volume key listener
     _setupVolumeKeys();
@@ -68,8 +66,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     _stdoutSubscription?.cancel();
     _stderrSubscription?.cancel();
     _terminalController.dispose();
-    _focusNode.dispose();
-    _voiceInputController.dispose();
+    _terminalFocusNode.dispose();
     super.dispose();
   }
 
@@ -209,6 +206,10 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     _terminal.onResize = (width, height, pixelWidth, pixelHeight) {
       session.resizeTerminal(width, height);
     };
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _terminalFocusNode.requestFocus();
+    });
   }
 
   void _sendRaw(List<int> bytes) {
@@ -234,12 +235,10 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     _sendRaw(utf8.encode(key));
   }
 
-  void _handleVoiceInput() {
-    final text = _voiceInputController.text;
-    if (text.isNotEmpty && widget.session.isConnected) {
-      _sendRaw([...utf8.encode(text), 0x0A]);
-      _voiceInputController.clear();
-    }
+  Future<void> _showKeyboardPicker() async {
+    try {
+      await _imeChannel.invokeMethod('showKeyboardPicker');
+    } catch (_) {}
   }
 
   @override
@@ -254,45 +253,30 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
           },
           // Long press for context menu
           onLongPress: _showContextMenu,
-          child: Stack(
+          child: Column(
             children: [
-              Column(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => _focusNode.requestFocus(),
-                      // Pinch to zoom font size
-                      onScaleUpdate: (details) {
-                        setState(() {
-                          _fontSize = (_fontSize * details.scale).clamp(8.0, 24.0);
-                        });
-                      },
-                      child: TerminalView(
-                        _terminal,
-                        controller: _terminalController,
-                        textStyle: TerminalStyle(
-                          fontSize: _fontSize,
-                          fontFamily: 'JetBrainsMonoNerd',
-                        ),
-                      ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _terminalFocusNode.requestFocus(),
+                  // Pinch to zoom font size
+                  onScaleUpdate: (details) {
+                    setState(() {
+                      _fontSize = (_fontSize * details.scale).clamp(8.0, 24.0);
+                    });
+                  },
+                  child: TerminalView(
+                    _terminal,
+                    controller: _terminalController,
+                    focusNode: _terminalFocusNode,
+                    textStyle: TerminalStyle(
+                      fontSize: _fontSize,
+                      fontFamily: 'JetBrainsMonoNerd',
                     ),
                   ),
-                  if (_showKeyboard && widget.session.isConnected)
-                    _buildKeyboardToolbar(Theme.of(context).colorScheme),
-                ],
-              ),
-              // Hidden text field for voice input
-              Positioned(
-                top: -1000,
-                left: -1000,
-                child: TextField(
-                  focusNode: _focusNode,
-                  controller: _voiceInputController,
-                  autofocus: widget.session.isConnected,
-                  autocorrect: false,
-                  enableSuggestions: false,
                 ),
               ),
+              if (_showKeyboard && widget.session.isConnected)
+                _buildKeyboardToolbar(Theme.of(context).colorScheme),
             ],
           ),
         ),
@@ -329,7 +313,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
                 return IconButton(
                   icon: const Icon(Icons.refresh),
                   tooltip: 'Reconnect',
-                  onPressed: () => widget.session.reconnect(),
+                  onPressed: _connectToSession,
                   iconSize: 18,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
@@ -350,8 +334,14 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
       ),
       actions: [
         IconButton(
+          icon: const Icon(Icons.keyboard_alt_outlined),
+          tooltip: 'Switch Keyboard',
+          onPressed: _showKeyboardPicker,
+          iconSize: 18,
+        ),
+        IconButton(
           icon: Icon(_showKeyboard ? Icons.keyboard_hide : Icons.keyboard),
-          tooltip: _showKeyboard ? 'Hide Keyboard' : 'Show Keyboard',
+          tooltip: _showKeyboard ? 'Hide Toolbar' : 'Show Toolbar',
           onPressed: () {
             setState(() => _showKeyboard = !_showKeyboard);
           },

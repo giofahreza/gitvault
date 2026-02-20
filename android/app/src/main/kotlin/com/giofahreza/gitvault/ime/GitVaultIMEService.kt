@@ -72,15 +72,6 @@ class GitVaultIMEService : InputMethodService() {
                 }
             }
 
-            // Setup switch keyboard button
-            inputView?.findViewById<ImageButton>(R.id.ime_switch_keyboard)?.setOnClickListener {
-                try {
-                    switchToSystemKeyboard()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error switching keyboard: ${e.message}", e)
-                }
-            }
-
             // Load credentials immediately on keyboard show
             loadCredentials()
 
@@ -606,15 +597,6 @@ class GitVaultIMEService : InputMethodService() {
         pendingCredentialToFill = null
         pendingFillTargetPackage = null
         Log.d(TAG, "IME service destroyed, pending credential cleared")
-    }
-
-    /**
-     * Switch back to system keyboard.
-     */
-    private fun switchToSystemKeyboard() {
-        val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-            as android.view.inputmethod.InputMethodManager
-        imm.switchToNextInputMethod(null, false)
     }
 
     /**

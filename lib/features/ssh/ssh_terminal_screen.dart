@@ -21,13 +21,14 @@ class SshTerminalScreen extends StatefulWidget {
 class _SshTerminalScreenState extends State<SshTerminalScreen> {
   late final Terminal _terminal;
   late final TerminalController _terminalController;
-  late final FocusNode _focusNode;
-  late final TextEditingController _voiceInputController;
+  late final FocusNode _terminalFocusNode;
   late final SshConnectionManager _connectionManager;
   bool _isConnecting = true;
   bool _isConnected = false;
   StreamSubscription? _stdoutSubscription;
   StreamSubscription? _stderrSubscription;
+
+  static const _imeChannel = MethodChannel('com.giofahreza.gitvault/ime');
 
   // Modifier key toggle states
   bool _ctrlActive = false;
@@ -38,11 +39,8 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     super.initState();
     _terminal = Terminal(maxLines: 10000);
     _terminalController = TerminalController();
-    _focusNode = FocusNode();
-    _voiceInputController = TextEditingController();
+    _terminalFocusNode = FocusNode();
     _connectionManager = SshConnectionManager(credential: widget.credential);
-    // Listen for voice input and send to terminal
-    _voiceInputController.addListener(_handleVoiceInput);
     _connect();
   }
 
@@ -51,8 +49,7 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     _stdoutSubscription?.cancel();
     _stderrSubscription?.cancel();
     _terminalController.dispose();
-    _focusNode.dispose();
-    _voiceInputController.dispose();
+    _terminalFocusNode.dispose();
     _connectionManager.disconnect();
     super.dispose();
   }
@@ -137,6 +134,9 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
           _isConnecting = false;
           _isConnected = true;
         });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _terminalFocusNode.requestFocus();
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -192,14 +192,10 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     _sendRaw(utf8.encode(key));
   }
 
-  /// Handle voice input from Google Keyboard
-  void _handleVoiceInput() {
-    final text = _voiceInputController.text;
-    if (text.isNotEmpty && _isConnected) {
-      // Send the voice input text followed by newline
-      _sendRaw([...utf8.encode(text), 0x0A]); // 0x0A is Enter
-      _voiceInputController.clear();
-    }
+  Future<void> _showKeyboardPicker() async {
+    try {
+      await _imeChannel.invokeMethod('showKeyboardPicker');
+    } catch (_) {}
   }
 
   @override
@@ -250,6 +246,15 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
                 ),
               ),
               IconButton(
+                icon: const Icon(Icons.keyboard),
+                tooltip: 'Switch Keyboard',
+                onPressed: _showKeyboardPicker,
+                iconSize: 18,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: () => Navigator.pop(context),
                 iconSize: 18,
@@ -260,40 +265,25 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
           ),
         ),
         backgroundColor: Colors.black,
-        body: Stack(
+        body: Column(
           children: [
-            Column(
-              children: [
-                // Terminal view (takes full remaining space)
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _focusNode.requestFocus(),
-                    child: TerminalView(
-                      _terminal,
-                      controller: _terminalController,
-                      textStyle: const TerminalStyle(
-                        fontSize: 11,
-                        fontFamily: 'JetBrainsMonoNerd',
-                      ),
-                    ),
+            // Terminal view (takes full remaining space)
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _terminalFocusNode.requestFocus(),
+                child: TerminalView(
+                  _terminal,
+                  controller: _terminalController,
+                  focusNode: _terminalFocusNode,
+                  textStyle: const TerminalStyle(
+                    fontSize: 11,
+                    fontFamily: 'JetBrainsMonoNerd',
                   ),
                 ),
-                // Custom keyboard toolbar (only when connected)
-                if (_isConnected) _buildKeyboardToolbar(colorScheme),
-              ],
-            ),
-            // Hidden text field for voice input capture
-            Positioned(
-              top: -1000,
-              left: -1000,
-              child: TextField(
-                focusNode: _focusNode,
-                controller: _voiceInputController,
-                autofocus: _isConnected,
-                autocorrect: false,
-                enableSuggestions: false,
               ),
             ),
+            // Custom keyboard toolbar (only when connected)
+            if (_isConnected) _buildKeyboardToolbar(colorScheme),
           ],
         ),
       ),
