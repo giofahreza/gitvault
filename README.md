@@ -312,7 +312,14 @@ cd android && ./gradlew assembleRelease
 
 ## License
 
-[Add your license here]
+MIT License — open source with attribution required.
+
+Copyright (c) 2025 **[Giofahreza](https://github.com/giofahreza)**
+Original repository: <https://github.com/giofahreza/gitvault>
+
+You are free to use, fork, modify, and distribute this software. Any fork or
+derivative work must visibly credit the original author and link back to the
+original repository. See [`LICENSE`](LICENSE) for the full terms.
 
 ---
 
