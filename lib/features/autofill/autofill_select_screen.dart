@@ -92,34 +92,25 @@ class _AutofillSelectScreenState extends ConsumerState<AutofillSelectScreen> {
     }
   }
 
+  Future<void> _cancel() async {
+    final autofillService = ref.read(autofillServiceProvider);
+    await autofillService.cancelAutofill();
+  }
+
   Future<void> _selectEntry(VaultEntry entry) async {
     try {
-      // Provide credentials to autofill system
+      // Provide credentials to autofill system — MainActivity.setAutofillResult()
+      // will call finish(), so we don't need to pop manually.
       final autofillService = ref.read(autofillServiceProvider);
       await autofillService.provideAutofillData(
         username: entry.username,
         password: entry.password,
       );
-
-      // Close the screen - MainActivity will handle the rest
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.of(context).pop();
-      }
     } catch (e) {
       print('AutofillSelectScreen: Error providing autofill data: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            action: SnackBarAction(
-              label: 'Close',
-              onPressed: () {
-                if (Navigator.canPop(context)) {
-                  Navigator.of(context).pop();
-                }
-              },
-            ),
-          ),
+          SnackBar(content: Text('Error: $e')),
         );
       }
     }
@@ -133,12 +124,7 @@ class _AutofillSelectScreenState extends ConsumerState<AutofillSelectScreen> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: () {
-            // Close the autofill flow and return to system
-            if (mounted && Navigator.canPop(context)) {
-              Navigator.of(context).pop();
-            }
-          },
+          onPressed: _cancel,
         ),
       ),
       body: _buildBody(),
@@ -193,7 +179,7 @@ class _AutofillSelectScreenState extends ConsumerState<AutofillSelectScreen> {
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: _cancel,
             icon: const Icon(Icons.close),
             label: const Text('Cancel'),
           ),

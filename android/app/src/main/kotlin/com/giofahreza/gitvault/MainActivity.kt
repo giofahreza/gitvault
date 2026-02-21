@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.autofill.AutofillManager
 import android.service.autofill.Dataset
-import android.service.autofill.FillResponse
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
@@ -47,6 +46,11 @@ class MainActivity : FlutterFragmentActivity() {
         var pendingIMEField: String? = null
 
         fun isEngineAvailable(): Boolean = flutterEngineInstance != null
+
+        // Pending autofill request stored on cold start for Flutter to poll
+        @Volatile var pendingAutofillPackage: String? = null
+        @Volatile var pendingAutofillDomain: String? = null
+        @Volatile var hasPendingAutofill: Boolean = false
 
         /**
          * Decrypt credential for IME after biometric authentication.
@@ -141,11 +145,31 @@ class MainActivity : FlutterFragmentActivity() {
                     val enabled = isAutofillServiceEnabled()
                     result.success(enabled)
                 }
+                "getPendingAutofillRequest" -> {
+                    if (hasPendingAutofill) {
+                        val data = mapOf(
+                            "package" to pendingAutofillPackage,
+                            "domain" to pendingAutofillDomain
+                        )
+                        hasPendingAutofill = false
+                        pendingAutofillPackage = null
+                        pendingAutofillDomain = null
+                        Log.d(TAG, "Delivering pending autofill request to Flutter")
+                        result.success(data)
+                    } else {
+                        result.success(null)
+                    }
+                }
                 "provideAutofillData" -> {
                     val username = call.argument<String>("username")
                     val password = call.argument<String>("password")
                     setAutofillResult(username, password)
                     result.success(true)
+                }
+                "cancelAutofill" -> {
+                    setResult(Activity.RESULT_CANCELED)
+                    finish()
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }
@@ -225,15 +249,18 @@ class MainActivity : FlutterFragmentActivity() {
             val packageName = intent?.getStringExtra("autofill_package")
             val domain = intent?.getStringExtra("autofill_domain")
 
-            // Extract autofill IDs from intent
+            // Extract autofill IDs from intent (needed for setAutofillResult later)
+            @Suppress("DEPRECATION")
             pendingUsernameId = intent?.getParcelableExtra("username_id")
+            @Suppress("DEPRECATION")
             pendingPasswordId = intent?.getParcelableExtra("password_id")
 
-            // Notify Flutter that autofill is requested
-            autofillMethodChannel?.invokeMethod("autofillRequested", mapOf(
-                "package" to packageName,
-                "domain" to domain
-            ))
+            // Store for Flutter to poll — avoids cold-start timing race where
+            // the Dart isolate hasn't registered its method handler yet.
+            pendingAutofillPackage = packageName
+            pendingAutofillDomain = domain
+            hasPendingAutofill = true
+            Log.d(TAG, "Autofill request stored for Flutter poll: pkg=$packageName, domain=$domain")
         }
     }
 
@@ -315,14 +342,12 @@ class MainActivity : FlutterFragmentActivity() {
             )
         }
 
-        // Create the response with the dataset
-        val fillResponse = FillResponse.Builder()
-            .addDataset(datasetBuilder.build())
-            .build()
-
-        // Return the filled response
+        // For dataset-level authentication (Dataset.setAuthentication), the reply must be
+        // the Dataset directly — NOT wrapped in FillResponse.
+        // Wrapping in FillResponse causes the framework to show the fill UI again instead
+        // of filling the fields directly.
         val replyIntent = Intent().apply {
-            putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, fillResponse)
+            putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, datasetBuilder.build())
         }
 
         setResult(Activity.RESULT_OK, replyIntent)

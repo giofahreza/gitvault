@@ -5,7 +5,7 @@ import 'autofill_request_handler.dart';
 
 /// Manages system autofill integration
 class AutofillService {
-  static const _channel = MethodChannel('com.example.gitvault/autofill');
+  static const _channel = MethodChannel('com.giofahreza.gitvault/autofill');
   final VaultRepository _vaultRepository;
   final GlobalKey<NavigatorState>? navigatorKey;
 
@@ -51,6 +51,30 @@ class AutofillService {
     } on PlatformException catch (e) {
       throw AutofillException('Failed to check autofill status: ${e.message}');
     }
+  }
+
+  /// Pull any pending autofill request stored by native on cold start.
+  /// Called after app authentication succeeds to avoid cold-start timing race.
+  Future<Map<String, String?>?> getPendingAutofillRequest() async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'getPendingAutofillRequest',
+      );
+      if (result == null) return null;
+      return {
+        'package': result['package'] as String?,
+        'domain': result['domain'] as String?,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Cancel autofill — finish the auth activity with RESULT_CANCELED
+  Future<void> cancelAutofill() async {
+    try {
+      await _channel.invokeMethod('cancelAutofill');
+    } catch (_) {}
   }
 
   /// Provide autofill data back to the system

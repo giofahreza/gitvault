@@ -149,6 +149,22 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
     }
   }
 
+  /// Poll native side for pending autofill request (cold-start case).
+  /// Called fire-and-forget after every successful auth path.
+  Future<void> _pollPendingAutofill() async {
+    try {
+      final autofillService = ref.read(autofillServiceProvider);
+      final pending = await autofillService.getPendingAutofillRequest();
+      if (pending != null && mounted) {
+        AutofillRequestHandler.instance.setPendingRequest(
+          packageName: pending['package'],
+          domain: pending['domain'],
+        );
+        setState(() {}); // trigger rebuild to show AutofillSelectScreen
+      }
+    } catch (_) {}
+  }
+
   Future<void> _attemptBiometric() async {
     final biometricEnabled = ref.read(biometricEnabledProvider);
     if (!biometricEnabled) {
@@ -160,6 +176,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
         return;
       }
       setState(() { _authenticated = true; _checking = false; });
+      _pollPendingAutofill();
       return;
     }
 
@@ -176,6 +193,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           return;
         }
         setState(() { _authenticated = true; _checking = false; });
+        _pollPendingAutofill();
         return;
       }
 
@@ -188,6 +206,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           return;
         }
         setState(() { _authenticated = true; _checking = false; });
+        _pollPendingAutofill();
         return;
       }
 
@@ -199,6 +218,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
       if (mounted) {
         if (result) {
           setState(() { _authenticated = true; _checking = false; });
+          _pollPendingAutofill();
         } else {
           // Biometric failed — offer PIN fallback
           final pinAuth = ref.read(pinAuthProvider);
@@ -218,21 +238,17 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
       if (mounted) {
         final pinAuth = ref.read(pinAuthProvider);
         final hasPIN = await pinAuth.isPinSetup();
-        setState(() {
-          _checking = false;
-          if (hasPIN) {
-            _showPinEntry = true;
-          } else {
-            _authenticated = true;
-          }
-        });
+        if (hasPIN) {
+          setState(() { _checking = false; _showPinEntry = true; });
+        } else {
+          setState(() { _authenticated = true; _checking = false; });
+          _pollPendingAutofill();
+        }
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _authenticated = true;
-          _checking = false;
-        });
+        setState(() { _authenticated = true; _checking = false; });
+        _pollPendingAutofill();
       }
     }
   }
@@ -261,6 +277,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
       return _PinEntryScreen(
         onSuccess: () {
           setState(() { _authenticated = true; _showPinEntry = false; });
+          _pollPendingAutofill();
         },
         onRetryBiometric: () {
           setState(() { _checking = true; _showPinEntry = false; _error = null; });

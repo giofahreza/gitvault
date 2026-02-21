@@ -77,83 +77,48 @@ class GitVaultAutofillService : AutofillService() {
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
         ).intentSender
 
-        // Build a dataset with inline presentation if supported
+        // Build the dataset requiring authentication (real credentials come from auth result)
         val datasetBuilder = Dataset.Builder()
 
-        // Create presentation
+        // Label: show domain or app name so user knows what they're filling
+        val label = webDomain ?: packageName?.substringAfterLast('.') ?: "App"
         val presentation = RemoteViews(this.packageName, android.R.layout.simple_list_item_1).apply {
-            setTextViewText(android.R.id.text1, "GitVault - Test")
+            setTextViewText(android.R.id.text1, "GitVault — $label")
         }
 
-        // TEST: Create dummy values to test if UI shows
-        val testUsername = AutofillValue.forText("test@example.com")
-        val testPassword = AutofillValue.forText("testpassword123")
-
         if (supportsInline) {
-            // Create inline presentation for keyboard (Android 11+)
-            val inlinePresentation = createInlinePresentation("GitVault Test", inlineSuggestionsRequest!!)
-
-            // If inline presentation was successfully created and IME supports it
+            val inlinePresentation = createInlinePresentation("GitVault — $label", inlineSuggestionsRequest!!)
             if (inlinePresentation != null) {
-                Log.d(TAG, "Using inline presentation with test values")
-                // Add username field with both presentations
+                Log.d(TAG, "Using inline presentation with auth")
                 if (parsedStructure.usernameId != null) {
                     datasetBuilder.setValue(
-                        parsedStructure.usernameId,
-                        testUsername,
-                        presentation,
-                        inlinePresentation
+                        parsedStructure.usernameId, null, presentation, inlinePresentation
                     )
                 }
-
-                // Add password field with both presentations
                 if (parsedStructure.passwordId != null) {
                     datasetBuilder.setValue(
-                        parsedStructure.passwordId,
-                        testPassword,
-                        presentation,
-                        inlinePresentation
+                        parsedStructure.passwordId, null, presentation, inlinePresentation
                     )
                 }
             } else {
-                // IME doesn't support v1 inline UI, fall back to regular presentation
                 if (parsedStructure.usernameId != null) {
-                    datasetBuilder.setValue(
-                        parsedStructure.usernameId,
-                        testUsername,
-                        presentation
-                    )
+                    datasetBuilder.setValue(parsedStructure.usernameId, null, presentation)
                 }
-
                 if (parsedStructure.passwordId != null) {
-                    datasetBuilder.setValue(
-                        parsedStructure.passwordId,
-                        testPassword,
-                        presentation
-                    )
+                    datasetBuilder.setValue(parsedStructure.passwordId, null, presentation)
                 }
             }
         } else {
-            // Fallback for Android 10 and below
             if (parsedStructure.usernameId != null) {
-                datasetBuilder.setValue(
-                    parsedStructure.usernameId,
-                    testUsername,
-                    presentation
-                )
+                datasetBuilder.setValue(parsedStructure.usernameId, null, presentation)
             }
-
             if (parsedStructure.passwordId != null) {
-                datasetBuilder.setValue(
-                    parsedStructure.passwordId,
-                    testPassword,
-                    presentation
-                )
+                datasetBuilder.setValue(parsedStructure.passwordId, null, presentation)
             }
         }
 
-        // TEST: Remove authentication to see if that's blocking the UI
-        // datasetBuilder.setAuthentication(authIntentSender)
+        // Require authentication — MainActivity will show AutofillSelectScreen
+        datasetBuilder.setAuthentication(authIntentSender)
 
         // Build response with the dataset
         val responseBuilder = FillResponse.Builder()
