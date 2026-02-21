@@ -187,7 +187,7 @@ class GitVaultAutofillService : AutofillService() {
         }
 
         // Set subtitle
-        builder.setSubtitle("Tap to unlock")
+        builder.setSubtitle("GitVault — Tap to fill")
 
         // Set content description for accessibility
         builder.setContentDescription("GitVault - Password Manager")
@@ -266,17 +266,34 @@ class GitVaultAutofillService : AutofillService() {
                     val text = viewNode.text?.toString()?.lowercase() ?: ""
                     val idEntry = viewNode.idEntry?.lowercase() ?: ""
 
+                    // inputType-based detection as additional signal
+                    val inputType = viewNode.inputType
+                    val typeClass = inputType and android.text.InputType.TYPE_MASK_CLASS
+                    val typeVariation = inputType and android.text.InputType.TYPE_MASK_VARIATION
+                    val isTextClass = typeClass == android.text.InputType.TYPE_CLASS_TEXT
+                    val isPasswordInputType = isTextClass && (
+                        typeVariation == android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                        typeVariation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                        typeVariation == android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                    )
+                    val isEmailInputType = isTextClass && (
+                        typeVariation == android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+                        typeVariation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
+                    )
+
                     when {
                         (hint.contains("user") || hint.contains("email") ||
                          text.contains("user") || text.contains("email") ||
-                         idEntry.contains("user") || idEntry.contains("email")) &&
+                         idEntry.contains("user") || idEntry.contains("email") ||
+                         isEmailInputType) &&
                         autofillType == View.AUTOFILL_TYPE_TEXT -> {
                             if (usernameId == null) {
                                 usernameId = viewNode.autofillId
                                 username = viewNode.autofillValue?.textValue?.toString()
                             }
                         }
-                        (hint.contains("pass") || text.contains("pass") || idEntry.contains("pass")) &&
+                        (hint.contains("pass") || text.contains("pass") || idEntry.contains("pass") ||
+                         isPasswordInputType) &&
                         autofillType == View.AUTOFILL_TYPE_TEXT -> {
                             if (passwordId == null) {
                                 passwordId = viewNode.autofillId

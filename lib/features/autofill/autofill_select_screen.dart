@@ -3,6 +3,59 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/vault_entry.dart';
 import '../../core/providers/providers.dart';
 
+/// Extract the registered domain from a URL string (strips www.).
+String? _extractDomain(String? url) {
+  if (url == null || url.isEmpty) return null;
+  try {
+    final uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
+    return uri.host.replaceFirst('www.', '');
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Filter vault entries that match the given autofill package/domain context.
+List<VaultEntry> filterForAutofill(
+  List<VaultEntry> entries,
+  String? packageName,
+  String? domain,
+) {
+  return entries.where((entry) {
+    final title = entry.title.toLowerCase();
+    final notes = (entry.notes ?? '').toLowerCase();
+    final entryUrl = (entry.url ?? '').toLowerCase();
+
+    if (domain != null && domain.isNotEmpty) {
+      final domainLower = domain.toLowerCase();
+      // Precise: compare extracted domains
+      final entryDomain = _extractDomain(entry.url);
+      if (entryDomain != null &&
+          (domainLower.contains(entryDomain) || entryDomain.contains(domainLower))) {
+        return true;
+      }
+      // Fallback: substring matching on title / notes / url
+      if (title.contains(domainLower) ||
+          notes.contains(domainLower) ||
+          entryUrl.contains(domainLower)) {
+        return true;
+      }
+    }
+
+    if (packageName != null && packageName.isNotEmpty) {
+      final packageLower = packageName.toLowerCase();
+      // Check both directions: title in package (e.g. "google" in "com.google.android.gm")
+      // and package in title/notes (for entries that store the full package name)
+      if (title.contains(packageLower) ||
+          packageLower.contains(title) ||
+          notes.contains(packageLower)) {
+        return true;
+      }
+    }
+
+    return false;
+  }).toList();
+}
+
 class AutofillSelectScreen extends ConsumerStatefulWidget {
   final String? packageName;
   final String? domain;
@@ -52,31 +105,8 @@ class _AutofillSelectScreenState extends ConsumerState<AutofillSelectScreen> {
 
       final entries = await vaultRepository.getAllEntries();
 
-      // Filter matching entries
-      final matching = entries.where((entry) {
-        final title = entry.title.toLowerCase();
-        final notes = (entry.notes ?? '').toLowerCase();
-        final url = (entry.url ?? '').toLowerCase();
-
-        if (widget.domain != null) {
-          final domainLower = widget.domain!.toLowerCase();
-          if (title.contains(domainLower) ||
-              notes.contains(domainLower) ||
-              url.contains(domainLower)) {
-            return true;
-          }
-        }
-
-        if (widget.packageName != null) {
-          final packageLower = widget.packageName!.toLowerCase();
-          if (title.contains(packageLower) ||
-              notes.contains(packageLower)) {
-            return true;
-          }
-        }
-
-        return false;
-      }).toList();
+      // Filter matching entries using shared helper
+      final matching = filterForAutofill(entries, widget.packageName, widget.domain);
 
       setState(() {
         _matchingEntries = matching;

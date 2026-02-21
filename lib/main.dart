@@ -10,6 +10,7 @@ import 'core/services/github_service.dart';
 import 'core/services/background_sync_service.dart';
 import 'core/services/persistent_ssh_service.dart';
 import 'core/theme/app_theme.dart';
+import 'data/models/vault_entry.dart';
 import 'data/repositories/sync_engine.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/vault/vault_screen.dart';
@@ -18,6 +19,59 @@ import 'features/ssh/ssh_screen.dart';
 import 'features/notes/notes_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/autofill/autofill_select_screen.dart';
+
+/// Extract the registered domain from a URL string (strips www.).
+String? _extractDomain(String? url) {
+  if (url == null || url.isEmpty) return null;
+  try {
+    final uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
+    return uri.host.replaceFirst('www.', '');
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Filter vault entries that match the given autofill package/domain context.
+List<VaultEntry> _filterForAutofill(
+  List<VaultEntry> entries,
+  String? packageName,
+  String? domain,
+) {
+  return entries.where((entry) {
+    final title = entry.title.toLowerCase();
+    final notes = (entry.notes ?? '').toLowerCase();
+    final entryUrl = (entry.url ?? '').toLowerCase();
+
+    if (domain != null && domain.isNotEmpty) {
+      final domainLower = domain.toLowerCase();
+      // Precise: compare extracted domains
+      final entryDomain = _extractDomain(entry.url);
+      if (entryDomain != null &&
+          (domainLower.contains(entryDomain) || entryDomain.contains(domainLower))) {
+        return true;
+      }
+      // Fallback: substring matching on title / notes / url
+      if (title.contains(domainLower) ||
+          notes.contains(domainLower) ||
+          entryUrl.contains(domainLower)) {
+        return true;
+      }
+    }
+
+    if (packageName != null && packageName.isNotEmpty) {
+      final packageLower = packageName.toLowerCase();
+      // Check both directions: title in package (e.g. "google" in "com.google.android.gm")
+      // and package in title/notes (for entries that store the full package name)
+      if (title.contains(packageLower) ||
+          packageLower.contains(title) ||
+          notes.contains(packageLower)) {
+        return true;
+      }
+    }
+
+    return false;
+  }).toList();
+}
 
 // Global navigator key for autofill navigation
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -155,7 +209,28 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
     try {
       final autofillService = ref.read(autofillServiceProvider);
       final pending = await autofillService.getPendingAutofillRequest();
-      if (pending != null && mounted) {
+      if (pending == null || !mounted) return;
+
+      // Attempt to auto-select when exactly one credential matches.
+      try {
+        final vaultRepository = ref.read(vaultRepositoryProvider);
+        await vaultRepository.initialize();
+        final entries = await vaultRepository.getAllEntries();
+        final matches = _filterForAutofill(entries, pending['package'], pending['domain']);
+        if (matches.length == 1) {
+          // Single match — fill directly without showing the picker.
+          await autofillService.provideAutofillData(
+            username: matches.first.username,
+            password: matches.first.password,
+          );
+          return;
+        }
+      } catch (_) {
+        // If filtering fails, fall through to show picker normally.
+      }
+
+      // 0 or multiple matches — show the picker.
+      if (mounted) {
         AutofillRequestHandler.instance.setPendingRequest(
           packageName: pending['package'],
           domain: pending['domain'],

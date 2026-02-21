@@ -282,10 +282,11 @@ class GitVaultIMEService : InputMethodService() {
             } else {
                 val messageView = inputView?.findViewById<TextView>(R.id.ime_message)
                 messageView?.text = getString(R.string.ime_empty_state)
-                if (credentials.isEmpty()) {
+                val passwordEntries = credentials.filter { !it.hasTotpSecret || it.totpSecret.isNullOrEmpty() }
+                if (passwordEntries.isEmpty()) {
                     showEmptyState()
                 } else {
-                    displayCredentialsList(credentials)
+                    displayCredentialsList(passwordEntries)
                 }
             }
         } catch (e: Exception) {
