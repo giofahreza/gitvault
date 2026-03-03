@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -34,7 +35,8 @@ class _SshScreenState extends ConsumerState<SshScreen> {
                 tooltip: 'Active Sessions',
                 onPressed: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SshSessionsScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => const SshSessionsScreen()),
                   );
                 },
               ),
@@ -91,7 +93,8 @@ class _SshScreenState extends ConsumerState<SshScreen> {
             Text(
               'No SSH credentials yet.\nTap + to add one.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: colorScheme.onSurfaceVariant),
+              style:
+                  TextStyle(fontSize: 16, color: colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -117,14 +120,15 @@ class _SshScreenState extends ConsumerState<SshScreen> {
 
     // Check if there's already an active session for this credential
     final existingSessions = sshService.getAllSessions();
-    final existingSession = existingSessions.where(
-      (s) => s.credential.uuid == credential.uuid
-    ).firstOrNull;
+    final existingSession = existingSessions
+        .where((s) => s.credential.uuid == credential.uuid)
+        .firstOrNull;
 
-    final session = existingSession ?? await sshService.createSession(
-      credential: credential,
-      persistent: true,
-    );
+    final session = existingSession ??
+        await sshService.createSession(
+          credential: credential,
+          persistent: true,
+        );
 
     if (mounted) {
       Navigator.of(context).push(
@@ -165,9 +169,12 @@ class _SshScreenState extends ConsumerState<SshScreen> {
         title: const Text('Delete SSH Credential'),
         content: Text('Delete "${credential.label}"? This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete'),
           ),
@@ -205,6 +212,15 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
   bool _pinging = false;
 
   Future<void> _pingHost() async {
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ping is not available on web browser.'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _pinging = true);
 
     try {
@@ -220,7 +236,8 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${widget.credential.host}:${widget.credential.port} reachable (${stopwatch.elapsedMilliseconds}ms)'),
+            content: Text(
+                '${widget.credential.host}:${widget.credential.port} reachable (${stopwatch.elapsedMilliseconds}ms)'),
             backgroundColor: Colors.green,
           ),
         );
@@ -229,7 +246,8 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${widget.credential.host}:${widget.credential.port} unreachable'),
+            content: Text(
+                '${widget.credential.host}:${widget.credential.port} unreachable'),
             backgroundColor: Colors.red,
           ),
         );
@@ -257,7 +275,8 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
             : Icon(Icons.terminal, color: colorScheme.onPrimaryContainer),
       ),
       title: Text(widget.credential.label),
-      subtitle: Text('${widget.credential.username}@${widget.credential.host}:${widget.credential.port}'),
+      subtitle: Text(
+          '${widget.credential.username}@${widget.credential.host}:${widget.credential.port}'),
       trailing: PopupMenuButton<String>(
         onSelected: (value) {
           switch (value) {
@@ -315,7 +334,8 @@ class _SshCredentialDialog extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<_SshCredentialDialog> createState() => _SshCredentialDialogState();
+  ConsumerState<_SshCredentialDialog> createState() =>
+      _SshCredentialDialogState();
 }
 
 class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
@@ -332,13 +352,20 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
   @override
   void initState() {
     super.initState();
-    _labelController = TextEditingController(text: widget.credential?.label ?? '');
-    _hostController = TextEditingController(text: widget.credential?.host ?? '');
-    _portController = TextEditingController(text: (widget.credential?.port ?? 22).toString());
-    _usernameController = TextEditingController(text: widget.credential?.username ?? '');
-    _passwordController = TextEditingController(text: widget.credential?.password ?? '');
-    _privateKeyController = TextEditingController(text: widget.credential?.privateKey ?? '');
-    _passphraseController = TextEditingController(text: widget.credential?.passphrase ?? '');
+    _labelController =
+        TextEditingController(text: widget.credential?.label ?? '');
+    _hostController =
+        TextEditingController(text: widget.credential?.host ?? '');
+    _portController =
+        TextEditingController(text: (widget.credential?.port ?? 22).toString());
+    _usernameController =
+        TextEditingController(text: widget.credential?.username ?? '');
+    _passwordController =
+        TextEditingController(text: widget.credential?.password ?? '');
+    _privateKeyController =
+        TextEditingController(text: widget.credential?.privateKey ?? '');
+    _passphraseController =
+        TextEditingController(text: widget.credential?.passphrase ?? '');
     _authType = widget.credential?.authType ?? SshAuthType.password;
   }
 
@@ -488,7 +515,10 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : Text(isEditing ? 'Save' : 'Add'),
         ),
       ],
@@ -523,7 +553,8 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
         _hostController.text.trim().isEmpty ||
         _usernameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in Label, Host, and Username')),
+        const SnackBar(
+            content: Text('Please fill in Label, Host, and Username')),
       );
       return;
     }

@@ -30,7 +30,12 @@ class BackgroundSyncService {
 
   /// Initialize background sync service
   static Future<void> initialize() async {
-    _settingsBox = await Hive.openBox<String>(_settingsBoxName);
+    _settingsBox ??= await Hive.openBox<String>(_settingsBoxName);
+
+    if (kIsWeb) {
+      // Workmanager is not available on web.
+      return;
+    }
 
     // Initialize WorkManager
     await Workmanager().initialize(
@@ -53,13 +58,17 @@ class BackgroundSyncService {
     await _settingsBox!.put('require_wifi', requireWifi.toString());
     await _settingsBox!.put('require_charging', requireCharging.toString());
 
+    if (kIsWeb) return;
+
     // Schedule periodic sync
     await Workmanager().registerPeriodicTask(
       _taskName,
       _taskName,
-      frequency: Duration(minutes: intervalMinutes.clamp(_minInterval, _maxInterval)),
+      frequency:
+          Duration(minutes: intervalMinutes.clamp(_minInterval, _maxInterval)),
       constraints: Constraints(
-        networkType: requireWifi ? NetworkType.unmetered : NetworkType.connected,
+        networkType:
+            requireWifi ? NetworkType.unmetered : NetworkType.connected,
         requiresBatteryNotLow: true,
         requiresCharging: requireCharging,
         requiresDeviceIdle: false,
@@ -76,6 +85,7 @@ class BackgroundSyncService {
     if (_settingsBox == null) await initialize();
 
     await _settingsBox!.put('enabled', 'false');
+    if (kIsWeb) return;
     await Workmanager().cancelByUniqueName(_taskName);
   }
 
@@ -95,6 +105,8 @@ class BackgroundSyncService {
   /// Trigger immediate sync (one-time) via WorkManager.
   /// For a truly immediate sync in the foreground, use [performSyncNow] instead.
   static Future<void> triggerImmediateSync() async {
+    if (kIsWeb) return;
+
     await Workmanager().registerOneOffTask(
       'immediate_sync',
       _taskName,
@@ -119,7 +131,8 @@ class BackgroundSyncService {
     final repo = await keyStorage.getRepoName();
 
     if (token == null || owner == null || repo == null) {
-      throw Exception('GitHub credentials not configured. Please set up GitHub sync in settings.');
+      throw Exception(
+          'GitHub credentials not configured. Please set up GitHub sync in settings.');
     }
 
     final rootKey = await keyStorage.getRootKey();
@@ -172,6 +185,8 @@ class BackgroundSyncService {
 
   /// Update sync interval based on battery level (adaptive sync)
   static Future<void> updateAdaptiveInterval() async {
+    if (kIsWeb) return;
+
     final batteryManager = BatteryOptimizationManager();
     final batteryLevel = await batteryManager.getBatteryLevel();
     final isCharging = await batteryManager.isCharging();
@@ -226,7 +241,8 @@ class BackgroundSyncService {
     if (success) {
       await _settingsBox!.put('consecutive_failures', '0');
     } else {
-      await _settingsBox!.put('consecutive_failures', (failureCount + 1).toString());
+      await _settingsBox!
+          .put('consecutive_failures', (failureCount + 1).toString());
 
       // If too many failures, increase interval
       if (failureCount > 3) {
@@ -252,7 +268,8 @@ class BackgroundSyncService {
       'last_sync': await getLastSyncTime(),
       'last_success': _settingsBox!.get('last_sync_success') == 'true',
       'last_error': _settingsBox!.get('last_sync_error'),
-      'consecutive_failures': int.parse(_settingsBox!.get('consecutive_failures') ?? '0'),
+      'consecutive_failures':
+          int.parse(_settingsBox!.get('consecutive_failures') ?? '0'),
     };
   }
 }
@@ -297,7 +314,8 @@ void callbackDispatcher() {
 
       if (token == null || owner == null || repo == null) {
         debugPrint('[BackgroundSync] GitHub credentials not configured');
-        await _recordInIsolate(appDir.path, success: false, error: 'GitHub credentials not configured');
+        await _recordInIsolate(appDir.path,
+            success: false, error: 'GitHub credentials not configured');
         return Future.value(true);
       }
 
@@ -308,7 +326,8 @@ void callbackDispatcher() {
       final rootKey = await keyStorage.getRootKey();
       if (rootKey == null) {
         debugPrint('[BackgroundSync] No root key found');
-        await _recordInIsolate(appDir.path, success: false, error: 'No root key found');
+        await _recordInIsolate(appDir.path,
+            success: false, error: 'No root key found');
         return Future.value(true);
       }
 
@@ -347,7 +366,8 @@ void callbackDispatcher() {
       debugPrint('[BackgroundSync] Starting sync...');
       final result = await syncEngine.sync();
 
-      debugPrint('[BackgroundSync] Sync completed: pulled=${result.pulled}, pushed=${result.pushed}');
+      debugPrint(
+          '[BackgroundSync] Sync completed: pulled=${result.pulled}, pushed=${result.pushed}');
 
       await _recordInIsolate(appDir.path, success: true);
 
@@ -361,7 +381,8 @@ void callbackDispatcher() {
 
       try {
         final appDir = await getApplicationDocumentsDirectory();
-        await _recordInIsolate(appDir.path, success: false, error: e.toString());
+        await _recordInIsolate(appDir.path,
+            success: false, error: e.toString());
       } catch (_) {}
 
       // Return true to avoid excessive retries
@@ -372,7 +393,8 @@ void callbackDispatcher() {
 
 /// Record sync result inside the background isolate.
 /// Cannot use BackgroundSyncService._recordSyncResult because static state is reset.
-Future<void> _recordInIsolate(String hivePath, {required bool success, String? error}) async {
+Future<void> _recordInIsolate(String hivePath,
+    {required bool success, String? error}) async {
   try {
     final box = await Hive.openBox<String>('background_sync_settings');
     await box.put('last_sync', DateTime.now().toIso8601String());

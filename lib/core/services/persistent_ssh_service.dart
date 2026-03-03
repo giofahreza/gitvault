@@ -11,11 +11,13 @@ import 'ssh_connection_manager.dart';
 /// Persistent SSH session service - Just like Termux!
 /// Keeps SSH sessions alive in background with notifications and wake locks
 class PersistentSshService {
-  static final PersistentSshService _instance = PersistentSshService._internal();
+  static final PersistentSshService _instance =
+      PersistentSshService._internal();
   factory PersistentSshService() => _instance;
   PersistentSshService._internal();
 
-  final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
   final Map<String, SshSessionWrapper> _activeSessions = {};
   bool _initialized = false;
   int _notificationIdCounter = 100;
@@ -23,6 +25,12 @@ class PersistentSshService {
   /// Initialize the persistent SSH service
   Future<void> initialize() async {
     if (_initialized) return;
+
+    if (kIsWeb) {
+      await _restoreSessions();
+      _initialized = true;
+      return;
+    }
 
     // Initialize notifications
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -44,7 +52,8 @@ class PersistentSshService {
     );
 
     await _notifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
 
     // Restore saved sessions
@@ -60,7 +69,8 @@ class PersistentSshService {
   }) async {
     if (!_initialized) await initialize();
 
-    final sessionId = '${credential.uuid}_${DateTime.now().millisecondsSinceEpoch}';
+    final sessionId =
+        '${credential.uuid}_${DateTime.now().millisecondsSinceEpoch}';
     final notificationId = _notificationIdCounter++;
 
     final wrapper = SshSessionWrapper(
@@ -71,13 +81,14 @@ class PersistentSshService {
     );
 
     _activeSessions[sessionId] = wrapper;
-    debugPrint('[PersistentSSH] Added session $sessionId to active sessions (total: ${_activeSessions.length})');
+    debugPrint(
+        '[PersistentSSH] Added session $sessionId to active sessions (total: ${_activeSessions.length})');
 
     // Connect
     await wrapper.connect();
 
     // Show notification if persistent
-    if (persistent) {
+    if (persistent && !kIsWeb) {
       await _showSessionNotification(wrapper);
       await WakelockPlus.enable();
     }
@@ -108,7 +119,7 @@ class PersistentSshService {
     _activeSessions.remove(sessionId);
 
     // Cancel notification
-    if (session.persistent) {
+    if (session.persistent && !kIsWeb) {
       await _notifications.cancel(session.notificationId);
     }
 
@@ -116,7 +127,7 @@ class PersistentSshService {
     await _removeSavedSession(sessionId);
 
     // Disable wake lock if no more sessions
-    if (_activeSessions.isEmpty) {
+    if (_activeSessions.isEmpty && !kIsWeb) {
       await WakelockPlus.disable();
     }
 
@@ -163,7 +174,10 @@ class PersistentSshService {
   }
 
   /// Update notification (e.g., when data is transferred)
-  Future<void> updateSessionNotification(SshSessionWrapper session, {String? subtitle}) async {
+  Future<void> updateSessionNotification(SshSessionWrapper session,
+      {String? subtitle}) async {
+    if (kIsWeb) return;
+
     final notification = AndroidNotificationDetails(
       'ssh_sessions',
       'SSH Sessions',

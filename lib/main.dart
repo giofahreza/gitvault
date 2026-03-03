@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -47,7 +48,8 @@ List<VaultEntry> _filterForAutofill(
       // Precise: compare extracted domains
       final entryDomain = _extractDomain(entry.url);
       if (entryDomain != null &&
-          (domainLower.contains(entryDomain) || entryDomain.contains(domainLower))) {
+          (domainLower.contains(entryDomain) ||
+              entryDomain.contains(domainLower))) {
         return true;
       }
       // Fallback: substring matching on title / notes / url
@@ -87,15 +89,29 @@ void main() async {
   // Load persisted settings (biometric toggle, clipboard timer)
   await loadPersistedSettings(container);
 
-  // Eagerly initialize IMEService so its method call handler is registered
-  // before any credential fill request arrives from the IME keyboard.
-  container.read(imeServiceProvider);
+  final isMobile = !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
-  // Initialize background sync service
-  await BackgroundSyncService.initialize();
+  // Eagerly initialize IME only on Android where the keyboard integration exists.
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    container.read(imeServiceProvider);
+  }
 
-  // Initialize persistent SSH service
-  await PersistentSshService().initialize();
+  if (isMobile) {
+    // Guard mobile-only services so web startup cannot fail on missing plugins.
+    try {
+      await BackgroundSyncService.initialize();
+    } catch (e) {
+      debugPrint('[Startup] Background sync init skipped: $e');
+    }
+
+    try {
+      await PersistentSshService().initialize();
+    } catch (e) {
+      debugPrint('[Startup] Persistent SSH init skipped: $e');
+    }
+  }
 
   runApp(
     UncontrolledProviderScope(
@@ -216,7 +232,8 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
         final vaultRepository = ref.read(vaultRepositoryProvider);
         await vaultRepository.initialize();
         final entries = await vaultRepository.getAllEntries();
-        final matches = _filterForAutofill(entries, pending['package'], pending['domain']);
+        final matches =
+            _filterForAutofill(entries, pending['package'], pending['domain']);
         if (matches.length == 1) {
           // Single match — fill directly without showing the picker.
           await autofillService.provideAutofillData(
@@ -247,10 +264,16 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
       final pinAuth = ref.read(pinAuthProvider);
       final hasPIN = await pinAuth.isPinSetup();
       if (hasPIN) {
-        setState(() { _showPinEntry = true; _checking = false; });
+        setState(() {
+          _showPinEntry = true;
+          _checking = false;
+        });
         return;
       }
-      setState(() { _authenticated = true; _checking = false; });
+      setState(() {
+        _authenticated = true;
+        _checking = false;
+      });
       _pollPendingAutofill();
       return;
     }
@@ -264,10 +287,16 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
         final pinAuth = ref.read(pinAuthProvider);
         final hasPIN = await pinAuth.isPinSetup();
         if (hasPIN) {
-          setState(() { _showPinEntry = true; _checking = false; });
+          setState(() {
+            _showPinEntry = true;
+            _checking = false;
+          });
           return;
         }
-        setState(() { _authenticated = true; _checking = false; });
+        setState(() {
+          _authenticated = true;
+          _checking = false;
+        });
         _pollPendingAutofill();
         return;
       }
@@ -277,10 +306,16 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
         final pinAuth = ref.read(pinAuthProvider);
         final hasPIN = await pinAuth.isPinSetup();
         if (hasPIN) {
-          setState(() { _showPinEntry = true; _checking = false; });
+          setState(() {
+            _showPinEntry = true;
+            _checking = false;
+          });
           return;
         }
-        setState(() { _authenticated = true; _checking = false; });
+        setState(() {
+          _authenticated = true;
+          _checking = false;
+        });
         _pollPendingAutofill();
         return;
       }
@@ -292,7 +327,10 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
 
       if (mounted) {
         if (result) {
-          setState(() { _authenticated = true; _checking = false; });
+          setState(() {
+            _authenticated = true;
+            _checking = false;
+          });
           _pollPendingAutofill();
         } else {
           // Biometric failed — offer PIN fallback
@@ -314,15 +352,24 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
         final pinAuth = ref.read(pinAuthProvider);
         final hasPIN = await pinAuth.isPinSetup();
         if (hasPIN) {
-          setState(() { _checking = false; _showPinEntry = true; });
+          setState(() {
+            _checking = false;
+            _showPinEntry = true;
+          });
         } else {
-          setState(() { _authenticated = true; _checking = false; });
+          setState(() {
+            _authenticated = true;
+            _checking = false;
+          });
           _pollPendingAutofill();
         }
       }
     } catch (e) {
       if (mounted) {
-        setState(() { _authenticated = true; _checking = false; });
+        setState(() {
+          _authenticated = true;
+          _checking = false;
+        });
         _pollPendingAutofill();
       }
     }
@@ -338,7 +385,8 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
 
     if (_authenticated) {
       // Check for pending autofill request and show autofill screen directly
-      final pendingRequest = AutofillRequestHandler.instance.consumePendingRequest();
+      final pendingRequest =
+          AutofillRequestHandler.instance.consumePendingRequest();
       if (pendingRequest != null) {
         return AutofillSelectScreen(
           packageName: pendingRequest['packageName'],
@@ -351,11 +399,18 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
     if (_showPinEntry) {
       return _PinEntryScreen(
         onSuccess: () {
-          setState(() { _authenticated = true; _showPinEntry = false; });
+          setState(() {
+            _authenticated = true;
+            _showPinEntry = false;
+          });
           _pollPendingAutofill();
         },
         onRetryBiometric: () {
-          setState(() { _checking = true; _showPinEntry = false; _error = null; });
+          setState(() {
+            _checking = true;
+            _showPinEntry = false;
+            _error = null;
+          });
           _attemptBiometric();
         },
       );
@@ -369,7 +424,8 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.lock, size: 64, color: Theme.of(context).colorScheme.primary),
+              Icon(Icons.lock,
+                  size: 64, color: Theme.of(context).colorScheme.primary),
               const SizedBox(height: 24),
               const Text(
                 'GitVault is Locked',
@@ -378,13 +434,17 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
               const SizedBox(height: 8),
               Text(
                 _error ?? 'Authenticate to continue',
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
               FilledButton.icon(
                 onPressed: () {
-                  setState(() { _checking = true; _error = null; });
+                  setState(() {
+                    _checking = true;
+                    _error = null;
+                  });
                   _attemptBiometric();
                 },
                 icon: const Icon(Icons.fingerprint),
@@ -483,9 +543,12 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
                       height: 16,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: filled ? colorScheme.primary : Colors.transparent,
+                        color:
+                            filled ? colorScheme.primary : Colors.transparent,
                         border: Border.all(
-                          color: _error != null ? colorScheme.error : colorScheme.primary,
+                          color: _error != null
+                              ? colorScheme.error
+                              : colorScheme.primary,
                           width: 2,
                         ),
                       ),
@@ -494,7 +557,8 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!, style: TextStyle(color: colorScheme.error, fontSize: 14)),
+                  Text(_error!,
+                      style: TextStyle(color: colorScheme.error, fontSize: 14)),
                 ],
                 const SizedBox(height: 32),
                 // Numeric keypad
@@ -547,7 +611,8 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
               child: ElevatedButton(
                 onPressed: () => _onDigitPressed(key),
                 style: ElevatedButton.styleFrom(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
                 child: Text(key, style: const TextStyle(fontSize: 24)),
               ),

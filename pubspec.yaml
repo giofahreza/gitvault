@@ -98,4 +98,9 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: false
+  web:
+    generate: true
+    image_path: "assets/icon/gitvault_new.jpeg"
+    background_color: "#121212"
+    theme_color: "#121212"
   image_path: "assets/icon/gitvault_new.jpeg"
