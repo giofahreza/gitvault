@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -47,6 +49,20 @@ class _LinkDeviceScreenState extends ConsumerState<LinkDeviceScreen> {
               },
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              _isSource
+                  ? 'Show QR from your existing device. The new device can scan it or paste a transfer code.'
+                  : 'On the new device, scan the QR or paste the transfer code from your existing device.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           Expanded(
             child: _isSource ? const _ShowQRView() : const _ScanQRView(),
           ),
@@ -69,6 +85,7 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
   bool _loading = true;
   String? _error;
   bool _hasGitHub = false;
+  bool _showTransferCode = false;
 
   @override
   void initState() {
@@ -241,10 +258,81 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
                 'This code expires in 5 minutes',
                 style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
               ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'No camera on the new device?',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Copy this transfer code and paste it on the new device.',
+                      style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: () async {
+                            await Clipboard.setData(ClipboardData(text: payload.qrData));
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Transfer code copied')),
+                            );
+                          },
+                          icon: const Icon(Icons.copy),
+                          label: const Text('Copy Code'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => setState(() => _showTransferCode = !_showTransferCode),
+                          icon: Icon(_showTransferCode ? Icons.visibility_off : Icons.visibility),
+                          label: Text(_showTransferCode ? 'Hide Code' : 'Show Code'),
+                        ),
+                      ],
+                    ),
+                    if (_showTransferCode) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: colorScheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: colorScheme.outlineVariant),
+                        ),
+                        constraints: const BoxConstraints(maxHeight: 140),
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            payload.qrData,
+                            style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
               const SizedBox(height: 24),
               OutlinedButton.icon(
                 onPressed: () {
-                  setState(() { _loading = true; _error = null; _payload = null; _hasGitHub = false; });
+                  setState(() {
+                    _loading = true;
+                    _error = null;
+                    _payload = null;
+                    _hasGitHub = false;
+                    _showTransferCode = false;
+                  });
                   _generatePayload();
                 },
                 icon: const Icon(Icons.refresh),
@@ -258,6 +346,8 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
   }
 }
 
+enum _LinkInputMethod { scan, paste }
+
 /// View for scanning QR code on the new device
 class _ScanQRView extends ConsumerStatefulWidget {
   const _ScanQRView();
@@ -268,32 +358,148 @@ class _ScanQRView extends ConsumerStatefulWidget {
 
 class _ScanQRViewState extends ConsumerState<_ScanQRView> {
   final _pinController = TextEditingController();
+  final _codeController = TextEditingController();
   String? _scannedData;
+  late _LinkInputMethod _inputMethod;
   bool _linking = false;
   String _statusMessage = '';
 
   @override
+  void initState() {
+    super.initState();
+    _inputMethod = kIsWeb ? _LinkInputMethod.paste : _LinkInputMethod.scan;
+  }
+
+  @override
   void dispose() {
     _pinController.dispose();
+    _codeController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (_scannedData == null) {
-      return MobileScanner(
-        onDetect: (capture) {
-          final List<Barcode> barcodes = capture.barcodes;
-          for (final barcode in barcodes) {
-            if (barcode.rawValue != null) {
-              setState(() => _scannedData = barcode.rawValue);
-              break;
-            }
-          }
-        },
-      );
+      return _buildCaptureStep(context);
     }
 
+    return _buildPinStep(context);
+  }
+
+  Widget _buildCaptureStep(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          SegmentedButton<_LinkInputMethod>(
+            segments: const [
+              ButtonSegment(
+                value: _LinkInputMethod.scan,
+                icon: Icon(Icons.qr_code_scanner),
+                label: Text('Scan QR'),
+              ),
+              ButtonSegment(
+                value: _LinkInputMethod.paste,
+                icon: Icon(Icons.paste),
+                label: Text('Paste Code'),
+              ),
+            ],
+            selected: {_inputMethod},
+            onSelectionChanged: (selected) {
+              setState(() => _inputMethod = selected.first);
+            },
+          ),
+          const SizedBox(height: 16),
+          if (_inputMethod == _LinkInputMethod.scan) ...[
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: MobileScanner(
+                  onDetect: (capture) {
+                    for (final barcode in capture.barcodes) {
+                      if (barcode.rawValue != null) {
+                        setState(() => _scannedData = barcode.rawValue);
+                        break;
+                      }
+                    }
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Scan the QR shown on your existing device.',
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+            TextButton.icon(
+              onPressed: () => setState(() => _inputMethod = _LinkInputMethod.paste),
+              icon: const Icon(Icons.paste),
+              label: const Text('Use Transfer Code Instead'),
+            ),
+          ] else ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Paste transfer code',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'On the existing device, open Link Device and tap "Copy Code".',
+                    style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _codeController,
+                    minLines: 4,
+                    maxLines: 6,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    decoration: const InputDecoration(
+                      hintText: 'Paste transfer code here',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _pasteFromClipboard,
+                        icon: const Icon(Icons.content_paste),
+                        label: const Text('Paste from Clipboard'),
+                      ),
+                      FilledButton(
+                        onPressed: _acceptManualCode,
+                        child: const Text('Continue'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'This is the same data as the QR code.',
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+            const Spacer(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPinStep(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Center(
       child: SingleChildScrollView(
@@ -352,13 +558,42 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
             ),
             const SizedBox(height: 16),
             TextButton(
-              onPressed: _linking ? null : () => setState(() => _scannedData = null),
-              child: const Text('Scan Again'),
+              onPressed: _linking
+                  ? null
+                  : () => setState(() {
+                        _scannedData = null;
+                        _pinController.clear();
+                      }),
+              child: const Text('Use Another Code'),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim();
+    if (text == null || text.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Clipboard is empty')),
+      );
+      return;
+    }
+    setState(() => _codeController.text = text);
+  }
+
+  void _acceptManualCode() {
+    final code = _codeController.text.trim();
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please paste transfer code first')),
+      );
+      return;
+    }
+    setState(() => _scannedData = code);
   }
 
   Future<void> _verifyAndLink() async {
@@ -446,43 +681,54 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
 
       // If GitHub was configured, run an immediate sync to pull vault data
       if (hasGitHub) {
-        setState(() => _statusMessage = 'Syncing vault from GitHub...');
-
-        try {
-          final result = await BackgroundSyncService.performSyncNow();
-
-          if (mounted) {
-            // Invalidate repository providers — cascades to all list providers
-            // and forces fresh instances so newly synced Hive data is read.
-            ref.invalidate(vaultRepositoryProvider);
-            ref.invalidate(notesRepositoryProvider);
-            ref.invalidate(sshRepositoryProvider);
-            ref.invalidate(archivedNotesProvider);
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Device linked! GitHub sync configured automatically. '
-                  'Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
-                ),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 5),
+        if (kIsWeb) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Device linked and GitHub sync configured. Run sync manually from Settings on web.',
               ),
-            );
-          }
-        } catch (syncError) {
-          // Sync failure is non-fatal — device is still linked and GitHub is configured
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Device linked! GitHub sync configured, but initial sync failed: $syncError\n'
-                  'You can sync manually from Settings.',
+              duration: Duration(seconds: 5),
+            ),
+          );
+        } else {
+          setState(() => _statusMessage = 'Syncing vault from GitHub...');
+
+          try {
+            final result = await BackgroundSyncService.performSyncNow();
+
+            if (mounted) {
+              // Invalidate repository providers — cascades to all list providers
+              // and forces fresh instances so newly synced Hive data is read.
+              ref.invalidate(vaultRepositoryProvider);
+              ref.invalidate(notesRepositoryProvider);
+              ref.invalidate(sshRepositoryProvider);
+              ref.invalidate(archivedNotesProvider);
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Device linked! GitHub sync configured automatically. '
+                    'Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 5),
                 ),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 6),
-              ),
-            );
+              );
+            }
+          } catch (syncError) {
+            // Sync failure is non-fatal — device is still linked and GitHub is configured
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Device linked! GitHub sync configured, but initial sync failed: $syncError\n'
+                    'You can sync manually from Settings.',
+                  ),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 6),
+                ),
+              );
+            }
           }
         }
       } else {
