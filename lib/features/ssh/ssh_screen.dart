@@ -116,6 +116,20 @@ class _SshScreenState extends ConsumerState<SshScreen> {
   }
 
   Future<void> _connectSsh(SshCredential credential) async {
+    if (kIsWeb) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Web SSH needs an SSH-over-WebSocket proxy. Direct TCP SSH is not supported in browsers.',
+            ),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
     final sshService = PersistentSshService();
 
     // Check if there's already an active session for this credential
@@ -124,18 +138,29 @@ class _SshScreenState extends ConsumerState<SshScreen> {
         .where((s) => s.credential.uuid == credential.uuid)
         .firstOrNull;
 
-    final session = existingSession ??
-        await sshService.createSession(
-          credential: credential,
-          persistent: true,
-        );
+    try {
+      final session = existingSession ??
+          await sshService.createSession(
+            credential: credential,
+            persistent: true,
+          );
 
-    if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => SshPersistentTerminalScreen(session: session),
-        ),
-      );
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SshPersistentTerminalScreen(session: session),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('SSH connection failed: $e'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 

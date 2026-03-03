@@ -17,11 +17,12 @@ class SshPersistentTerminalScreen extends StatefulWidget {
   const SshPersistentTerminalScreen({super.key, required this.session});
 
   @override
-  State<SshPersistentTerminalScreen> createState() => _SshPersistentTerminalScreenState();
+  State<SshPersistentTerminalScreen> createState() =>
+      _SshPersistentTerminalScreenState();
 }
 
-class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScreen>
-    with WidgetsBindingObserver {
+class _SshPersistentTerminalScreenState
+    extends State<SshPersistentTerminalScreen> with WidgetsBindingObserver {
   late final Terminal _terminal;
   late final TerminalController _terminalController;
   late final FocusNode _terminalFocusNode;
@@ -39,7 +40,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
   double _fontSize = 12.0;
 
   // Gesture detection
-  static const _volumeKeyChannel = MethodChannel('com.giofahreza.gitvault/volume_keys');
+  static const _volumeKeyChannel =
+      MethodChannel('com.giofahreza.gitvault/volume_keys');
   static const _imeChannel = MethodChannel('com.giofahreza.gitvault/ime');
 
   @override
@@ -101,27 +103,33 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
   }
 
   Future<void> _connectToSession() async {
-    debugPrint('[Terminal] Attaching to session. isConnected=${widget.session.isConnected}, managerConnected=${widget.session.connectionManager.isConnected}, isConnecting=${widget.session.isConnecting}');
+    debugPrint(
+        '[Terminal] Attaching to session. isConnected=${widget.session.isConnected}, managerConnected=${widget.session.connectionManager.isConnected}, isConnecting=${widget.session.isConnecting}');
 
     // If a connection is already in progress (started by createSession), wait for it
     if (widget.session.isConnecting) {
       if (!_hasAttachedBefore) {
-        _terminal.write('Connecting to ${widget.session.credential.host}...\r\n');
+        _terminal
+            .write('Connecting to ${widget.session.credential.host}...\r\n');
         _hasAttachedBefore = true;
       }
       try {
         await widget.session.stateStream.firstWhere(
-          (s) => s == SshSessionState.connected ||
-                 s == SshSessionState.error ||
-                 s == SshSessionState.disconnected,
+          (s) =>
+              s == SshSessionState.connected ||
+              s == SshSessionState.error ||
+              s == SshSessionState.disconnected,
         );
       } catch (_) {}
-    } else if (!widget.session.isConnected || !widget.session.connectionManager.isConnected) {
+    } else if (!widget.session.isConnected ||
+        !widget.session.connectionManager.isConnected) {
       // Only reconnect if truly disconnected (not just connecting)
       if (_hasAttachedBefore) {
-        _terminal.write('Reconnecting to ${widget.session.credential.host}...\r\n');
+        _terminal
+            .write('Reconnecting to ${widget.session.credential.host}...\r\n');
       } else {
-        _terminal.write('Connecting to ${widget.session.credential.host}...\r\n');
+        _terminal
+            .write('Connecting to ${widget.session.credential.host}...\r\n');
       }
 
       try {
@@ -143,7 +151,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
 
     final session = widget.session.connectionManager.session;
     if (session == null) {
-      _terminal.write('\r\nSession not available. Connection may have timed out.\r\n');
+      _terminal.write(
+          '\r\nSession not available. Connection may have timed out.\r\n');
       _terminal.write('Tap the reconnect button in the toolbar to retry\r\n');
       return;
     }
@@ -247,6 +256,32 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     _sendRaw(utf8.encode(key));
   }
 
+  KeyEventResult _handleTerminalKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    final hasShortcutModifier = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    if (!hasShortcutModifier) return KeyEventResult.ignored;
+
+    final key = event.logicalKey;
+
+    if (key == LogicalKeyboardKey.keyV) {
+      unawaited(_pasteFromClipboard());
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.keyC || key == LogicalKeyboardKey.keyX) {
+      if (_terminalController.selection != null) {
+        _copySelection();
+        return KeyEventResult.handled;
+      }
+      // No selection: let terminal receive Ctrl+C / Ctrl+X.
+      return KeyEventResult.ignored;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
   Future<void> _showKeyboardPicker() async {
     try {
       await _imeChannel.invokeMethod('showKeyboardPicker');
@@ -274,6 +309,7 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
                     _terminal,
                     controller: _terminalController,
                     focusNode: _terminalFocusNode,
+                    onKeyEvent: _handleTerminalKeyEvent,
                     textStyle: TerminalStyle(
                       fontSize: _fontSize,
                       fontFamily: 'JetBrainsMonoNerd',
@@ -315,15 +351,20 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
                     if (state == SshSessionState.connecting) {
                       return const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                        child: SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 2)),
                       );
                     } else if (state == SshSessionState.connected) {
                       return const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: Icon(Icons.circle, color: Colors.green, size: 10),
+                        child:
+                            Icon(Icons.circle, color: Colors.green, size: 10),
                       );
                     } else {
-                      return _buildIconKey(Icons.refresh, _connectToSession, colorScheme);
+                      return _buildIconKey(
+                          Icons.refresh, _connectToSession, colorScheme);
                     }
                   },
                 ),
@@ -332,7 +373,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
                   padding: const EdgeInsets.only(right: 4),
                   child: Text(
                     '${widget.session.credential.username}@${widget.session.credential.host}',
-                    style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
+                    style:
+                        TextStyle(fontSize: 12, color: colorScheme.onSurface),
                     maxLines: 1,
                   ),
                 ),
@@ -352,15 +394,23 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
                   _buildKey('Esc', () => _sendRaw([0x1B]), colorScheme),
                   _buildKey('Tab', () => _sendRaw([0x09]), colorScheme),
                   _buildDivider(colorScheme),
-                  _buildKey('↑', () => _sendRaw([0x1B, 0x5B, 0x41]), colorScheme),
-                  _buildKey('↓', () => _sendRaw([0x1B, 0x5B, 0x42]), colorScheme),
-                  _buildKey('←', () => _sendRaw([0x1B, 0x5B, 0x44]), colorScheme),
-                  _buildKey('→', () => _sendRaw([0x1B, 0x5B, 0x43]), colorScheme),
+                  _buildKey(
+                      '↑', () => _sendRaw([0x1B, 0x5B, 0x41]), colorScheme),
+                  _buildKey(
+                      '↓', () => _sendRaw([0x1B, 0x5B, 0x42]), colorScheme),
+                  _buildKey(
+                      '←', () => _sendRaw([0x1B, 0x5B, 0x44]), colorScheme),
+                  _buildKey(
+                      '→', () => _sendRaw([0x1B, 0x5B, 0x43]), colorScheme),
                   _buildDivider(colorScheme),
-                  _buildKey('Home', () => _sendRaw([0x1B, 0x5B, 0x48]), colorScheme),
-                  _buildKey('End', () => _sendRaw([0x1B, 0x5B, 0x46]), colorScheme),
-                  _buildKey('PgUp', () => _sendRaw([0x1B, 0x5B, 0x35, 0x7E]), colorScheme),
-                  _buildKey('PgDn', () => _sendRaw([0x1B, 0x5B, 0x36, 0x7E]), colorScheme),
+                  _buildKey(
+                      'Home', () => _sendRaw([0x1B, 0x5B, 0x48]), colorScheme),
+                  _buildKey(
+                      'End', () => _sendRaw([0x1B, 0x5B, 0x46]), colorScheme),
+                  _buildKey('PgUp', () => _sendRaw([0x1B, 0x5B, 0x35, 0x7E]),
+                      colorScheme),
+                  _buildKey('PgDn', () => _sendRaw([0x1B, 0x5B, 0x36, 0x7E]),
+                      colorScheme),
                   _buildDivider(colorScheme),
                   _buildKey('|', () => _sendKey('|'), colorScheme),
                   _buildKey('/', () => _sendKey('/'), colorScheme),
@@ -379,7 +429,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     );
   }
 
-  Widget _buildIconKey(IconData icon, VoidCallback onTap, ColorScheme colorScheme) {
+  Widget _buildIconKey(
+      IconData icon, VoidCallback onTap, ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Material(
@@ -426,7 +477,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
     );
   }
 
-  Widget _buildToggleKey(String label, bool active, VoidCallback onTap, ColorScheme colorScheme) {
+  Widget _buildToggleKey(
+      String label, bool active, VoidCallback onTap, ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Material(
@@ -564,7 +616,9 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
               setState(() => _fontSize = tempSize);
@@ -590,7 +644,8 @@ class _SshPersistentTerminalScreenState extends State<SshPersistentTerminalScree
             _buildInfoRow('Port', widget.session.credential.port.toString()),
             _buildInfoRow('Username', widget.session.credential.username),
             _buildInfoRow('Duration', _formatDuration(widget.session.duration)),
-            _buildInfoRow('Status', widget.session.isConnected ? 'Connected' : 'Disconnected'),
+            _buildInfoRow('Status',
+                widget.session.isConnected ? 'Connected' : 'Disconnected'),
           ],
         ),
         actions: [

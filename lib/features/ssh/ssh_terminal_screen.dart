@@ -68,7 +68,8 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
       _isConnected = false;
     });
 
-    _terminal.write('Connecting to ${widget.credential.host}:${widget.credential.port}...\r\n');
+    _terminal.write(
+        'Connecting to ${widget.credential.host}:${widget.credential.port}...\r\n');
 
     try {
       await _connectionManager.connect();
@@ -192,6 +193,58 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     _sendRaw(utf8.encode(key));
   }
 
+  KeyEventResult _handleTerminalKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    final hasShortcutModifier = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    if (!hasShortcutModifier) return KeyEventResult.ignored;
+
+    final key = event.logicalKey;
+
+    if (key == LogicalKeyboardKey.keyV) {
+      unawaited(_pasteFromClipboard());
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.keyC || key == LogicalKeyboardKey.keyX) {
+      if (_terminalController.selection != null) {
+        _copySelectionToClipboard(clearSelection: true);
+        return KeyEventResult.handled;
+      }
+      // No selection: let terminal receive Ctrl+C / Ctrl+X.
+      return KeyEventResult.ignored;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data?.text != null && data!.text!.isNotEmpty) {
+      _sendRaw(utf8.encode(data.text!));
+    }
+  }
+
+  void _copySelectionToClipboard({bool clearSelection = true}) {
+    final selection = _terminalController.selection;
+    if (selection == null) return;
+
+    final text = _terminal.buffer.getText(selection);
+    if (text.isEmpty) return;
+
+    Clipboard.setData(ClipboardData(text: text));
+    if (clearSelection) {
+      _terminalController.clearSelection();
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Copied to clipboard'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
   Future<void> _showKeyboardPicker() async {
     try {
       await _imeChannel.invokeMethod('showKeyboardPicker');
@@ -275,6 +328,7 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
                   _terminal,
                   controller: _terminalController,
                   focusNode: _terminalFocusNode,
+                  onKeyEvent: _handleTerminalKeyEvent,
                   textStyle: const TerminalStyle(
                     fontSize: 11,
                     fontFamily: 'JetBrainsMonoNerd',
@@ -301,28 +355,8 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
           child: Row(
             children: [
               // Copy & Paste
-              _buildKey('Paste', () async {
-                final data = await Clipboard.getData(Clipboard.kTextPlain);
-                if (data?.text != null && data!.text!.isNotEmpty) {
-                  _sendRaw(utf8.encode(data.text!));
-                }
-              }, colorScheme),
-              _buildKey('Copy', () {
-                final selection = _terminalController.selection;
-                if (selection != null) {
-                  final text = _terminal.buffer.getText(selection);
-                  if (text.isNotEmpty) {
-                    Clipboard.setData(ClipboardData(text: text));
-                    _terminalController.clearSelection();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Copied to clipboard'),
-                        duration: Duration(seconds: 1),
-                      ),
-                    );
-                  }
-                }
-              }, colorScheme),
+              _buildKey('Paste', _pasteFromClipboard, colorScheme),
+              _buildKey('Copy', _copySelectionToClipboard, colorScheme),
 
               _buildDivider(colorScheme),
 
@@ -343,18 +377,25 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
               _buildDivider(colorScheme),
 
               // Arrow keys
-              _buildKey('\u2191', () => _sendRaw([0x1B, 0x5B, 0x41]), colorScheme), // Up
-              _buildKey('\u2193', () => _sendRaw([0x1B, 0x5B, 0x42]), colorScheme), // Down
-              _buildKey('\u2190', () => _sendRaw([0x1B, 0x5B, 0x44]), colorScheme), // Left
-              _buildKey('\u2192', () => _sendRaw([0x1B, 0x5B, 0x43]), colorScheme), // Right
+              _buildKey('\u2191', () => _sendRaw([0x1B, 0x5B, 0x41]),
+                  colorScheme), // Up
+              _buildKey('\u2193', () => _sendRaw([0x1B, 0x5B, 0x42]),
+                  colorScheme), // Down
+              _buildKey('\u2190', () => _sendRaw([0x1B, 0x5B, 0x44]),
+                  colorScheme), // Left
+              _buildKey('\u2192', () => _sendRaw([0x1B, 0x5B, 0x43]),
+                  colorScheme), // Right
 
               _buildDivider(colorScheme),
 
               // Common shortcuts
-              _buildKey('Home', () => _sendRaw([0x1B, 0x5B, 0x48]), colorScheme),
+              _buildKey(
+                  'Home', () => _sendRaw([0x1B, 0x5B, 0x48]), colorScheme),
               _buildKey('End', () => _sendRaw([0x1B, 0x5B, 0x46]), colorScheme),
-              _buildKey('PgUp', () => _sendRaw([0x1B, 0x5B, 0x35, 0x7E]), colorScheme),
-              _buildKey('PgDn', () => _sendRaw([0x1B, 0x5B, 0x36, 0x7E]), colorScheme),
+              _buildKey('PgUp', () => _sendRaw([0x1B, 0x5B, 0x35, 0x7E]),
+                  colorScheme),
+              _buildKey('PgDn', () => _sendRaw([0x1B, 0x5B, 0x36, 0x7E]),
+                  colorScheme),
 
               _buildDivider(colorScheme),
 
@@ -399,7 +440,8 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     );
   }
 
-  Widget _buildToggleKey(String label, bool active, VoidCallback onTap, ColorScheme colorScheme) {
+  Widget _buildToggleKey(
+      String label, bool active, VoidCallback onTap, ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Material(

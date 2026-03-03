@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:dartssh2/dartssh2.dart';
 import '../../../data/models/ssh_credential.dart';
 import 'battery_optimization_manager.dart';
@@ -12,7 +12,8 @@ class SshConnectionManager {
   Timer? _keepAliveTimer;
   bool _isConnected = false;
   bool _isConnecting = false;
-  final BatteryOptimizationManager _batteryManager = BatteryOptimizationManager();
+  final BatteryOptimizationManager _batteryManager =
+      BatteryOptimizationManager();
 
   late StreamSubscription<void> _doneSubscription;
 
@@ -29,6 +30,13 @@ class SshConnectionManager {
     _isConnecting = true;
 
     try {
+      if (kIsWeb) {
+        throw UnsupportedError(
+          'Direct SSH from web browser is not supported (no raw TCP sockets). '
+          'Use Android app, or provide an SSH-over-WebSocket proxy.',
+        );
+      }
+
       final socket = await SSHSocket.connect(
         credential.host,
         credential.port,
@@ -103,7 +111,8 @@ class SshConnectionManager {
 
     final intervalSeconds = await _batteryManager.getSshKeepAliveInterval();
 
-    _keepAliveTimer = Timer.periodic(Duration(seconds: intervalSeconds), (_) async {
+    _keepAliveTimer =
+        Timer.periodic(Duration(seconds: intervalSeconds), (_) async {
       if (_isConnected && _client != null) {
         // Re-check battery status periodically
         final canKeepAlive = await _batteryManager.shouldEnableSshKeepAlive();
