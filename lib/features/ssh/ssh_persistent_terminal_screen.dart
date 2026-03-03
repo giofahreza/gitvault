@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 import '../../core/services/persistent_ssh_service.dart';
+import 'terminal_clipboard_shortcuts.dart';
 
 /// Enhanced SSH Terminal Screen with Termux-like features
 /// - Persistent sessions with notifications
@@ -257,29 +258,12 @@ class _SshPersistentTerminalScreenState
   }
 
   KeyEventResult _handleTerminalKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-
-    final hasShortcutModifier = HardwareKeyboard.instance.isControlPressed ||
-        HardwareKeyboard.instance.isMetaPressed;
-    if (!hasShortcutModifier) return KeyEventResult.ignored;
-
-    final key = event.logicalKey;
-
-    if (key == LogicalKeyboardKey.keyV) {
-      unawaited(_pasteFromClipboard());
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.keyC || key == LogicalKeyboardKey.keyX) {
-      if (_terminalController.selection != null) {
-        _copySelection();
-        return KeyEventResult.handled;
-      }
-      // No selection: let terminal receive Ctrl+C / Ctrl+X.
-      return KeyEventResult.ignored;
-    }
-
-    return KeyEventResult.ignored;
+    return handleTerminalClipboardShortcuts(
+      event: event,
+      hasSelection: _terminalController.selection != null,
+      onPaste: _pasteFromClipboard,
+      onCopySelection: _copySelection,
+    );
   }
 
   Future<void> _showKeyboardPicker() async {

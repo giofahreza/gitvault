@@ -1,10 +1,10 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../core/providers/providers.dart';
+import '../../core/services/ssh_platform/ssh_platform_support.dart';
 import '../../data/models/ssh_credential.dart';
 import '../../core/services/persistent_ssh_service.dart';
 import 'ssh_persistent_terminal_screen.dart';
@@ -116,13 +116,12 @@ class _SshScreenState extends ConsumerState<SshScreen> {
   }
 
   Future<void> _connectSsh(SshCredential credential) async {
-    if (kIsWeb) {
+    final unsupportedReason = sshTransportUnsupportedReason();
+    if (unsupportedReason != null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Web SSH needs an SSH-over-WebSocket proxy. Direct TCP SSH is not supported in browsers.',
-            ),
+          SnackBar(
+            content: Text(unsupportedReason),
             duration: Duration(seconds: 4),
           ),
         );
@@ -237,7 +236,7 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
   bool _pinging = false;
 
   Future<void> _pingHost() async {
-    if (kIsWeb) {
+    if (sshTransportUnsupportedReason() != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Ping is not available on web browser.'),

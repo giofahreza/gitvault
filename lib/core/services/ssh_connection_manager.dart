@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:dartssh2/dartssh2.dart';
 import '../../../data/models/ssh_credential.dart';
 import 'battery_optimization_manager.dart';
+import 'ssh_platform/ssh_platform_support.dart';
 
 /// Manages persistent SSH connections with battery-aware keep-alive
 class SshConnectionManager {
@@ -30,12 +30,7 @@ class SshConnectionManager {
     _isConnecting = true;
 
     try {
-      if (kIsWeb) {
-        throw UnsupportedError(
-          'Direct SSH from web browser is not supported (no raw TCP sockets). '
-          'Use Android app, or provide an SSH-over-WebSocket proxy.',
-        );
-      }
+      ensureSshTransportSupported();
 
       final socket = await SSHSocket.connect(
         credential.host,
