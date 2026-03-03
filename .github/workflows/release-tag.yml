@@ -18,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
 
     steps:
       - name: Checkout
@@ -38,32 +43,11 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Validate Android signing secrets
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: |
-          missing=0
-          for var in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS; do
-            if [ -z "${!var}" ]; then
-              echo "::error::Missing required secret: $var"
-              missing=1
-            fi
-          done
+      - name: Generate model code
+        run: flutter pub run build_runner build --delete-conflicting-outputs
 
-          # ANDROID_KEY_PASSWORD can be omitted and will fallback to keystore password.
-          if [ "$missing" -eq 1 ]; then
-            exit 1
-          fi
-
-      - name: Configure Android signing
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      - name: Configure Android signing (if secrets exist)
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' }}
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
 
@@ -73,6 +57,14 @@ jobs:
             echo "keyAlias=$ANDROID_KEY_ALIAS"
             echo "storeFile=upload-keystore.jks"
           } > android/key.properties
+
+      - name: Android signing mode
+        run: |
+          if [ -f android/key.properties ]; then
+            echo "Release signing configured from repository secrets."
+          else
+            echo "::warning::Android signing secrets are not configured. Falling back to debug signing (as defined in android/app/build.gradle.kts)."
+          fi
 
       - name: Build universal APK
         run: flutter build apk --release
@@ -144,6 +136,9 @@ jobs:
 
       - name: Flutter pub get
         run: flutter pub get
+
+      - name: Generate model code
+        run: flutter pub run build_runner build --delete-conflicting-outputs
 
       - name: Build Flutter web
         run: |
