@@ -624,7 +624,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   }
 }
 
-/// Main screen with bottom navigation between Vault and Settings
+/// Main screen with adaptive navigation for compact and wide layouts.
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
@@ -633,6 +633,9 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
+  static const double _railBreakpoint = 720;
+  static const double _extendedRailBreakpoint = 1100;
+
   int _currentIndex = 2; // Default to Notes tab
 
   final _screens = const [
@@ -643,41 +646,88 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     SettingsScreen(),
   ];
 
+  static const _destinations = [
+    _AppDestination(icon: Icons.password, label: 'Passwords'),
+    _AppDestination(icon: Icons.security, label: '2FA Codes'),
+    _AppDestination(icon: Icons.note, label: 'Notes'),
+    _AppDestination(icon: Icons.terminal, label: 'SSH'),
+    _AppDestination(icon: Icons.settings, label: 'Settings'),
+  ];
+
+  void _selectDestination(int index) {
+    setState(() => _currentIndex = index);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.password),
-            label: 'Passwords',
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useRail = constraints.maxWidth >= _railBreakpoint;
+
+        if (!useRail) {
+          return Scaffold(
+            body: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: _selectDestination,
+              destinations: [
+                for (final destination in _destinations)
+                  NavigationDestination(
+                    icon: Icon(destination.icon),
+                    label: destination.label,
+                  ),
+              ],
+            ),
+          );
+        }
+
+        final useExtendedRail =
+            constraints.maxWidth >= _extendedRailBreakpoint;
+
+        return Scaffold(
+          body: Row(
+            children: [
+              SafeArea(
+                child: NavigationRail(
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: _selectDestination,
+                  extended: useExtendedRail,
+                  labelType:
+                      useExtendedRail ? null : NavigationRailLabelType.all,
+                  minExtendedWidth: 200,
+                  destinations: [
+                    for (final destination in _destinations)
+                      NavigationRailDestination(
+                        icon: Icon(destination.icon),
+                        label: Text(destination.label),
+                      ),
+                  ],
+                ),
+              ),
+              const VerticalDivider(width: 1, thickness: 1),
+              Expanded(
+                child: IndexedStack(
+                  index: _currentIndex,
+                  children: _screens,
+                ),
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.security),
-            label: '2FA Codes',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.note),
-            label: 'Notes',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.terminal),
-            label: 'SSH',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
+}
+
+class _AppDestination {
+  final IconData icon;
+  final String label;
+
+  const _AppDestination({
+    required this.icon,
+    required this.label,
+  });
 }
