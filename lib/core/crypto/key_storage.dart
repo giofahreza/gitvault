@@ -19,6 +19,7 @@ class KeyStorage {
   static const String _themeModeKey = 'gitvault_theme_mode';
   static const String _pinHashKey = 'gitvault_pin_hash';
   static const String _pinSaltKey = 'gitvault_pin_salt';
+  static const String _pinLengthKey = 'gitvault_pin_length';
   static const String _autoSyncIntervalKey = 'gitvault_auto_sync_interval';
   static const String _localDeviceNameKey = 'gitvault_local_device_name';
   static const String _deviceRegistryKey = 'gitvault_device_registry';
@@ -179,11 +180,18 @@ class KeyStorage {
     return value ?? 'system';
   }
 
-  /// Stores PIN hash and salt
-  Future<void> storePinHash(String hash, String salt) async {
+  /// Stores PIN hash, salt, and length
+  Future<void> storePinHash(
+    String hash,
+    String salt, {
+    int? length,
+  }) async {
     _ensureInitialized();
     await _box.put(_pinHashKey, hash);
     await _box.put(_pinSaltKey, salt);
+    if (length != null) {
+      await _box.put(_pinLengthKey, length.toString());
+    }
   }
 
   /// Retrieves PIN hash
@@ -198,6 +206,20 @@ class KeyStorage {
     return _box.get(_pinSaltKey);
   }
 
+  /// Retrieves PIN length if available
+  Future<int?> getPinLength() async {
+    _ensureInitialized();
+    final value = _box.get(_pinLengthKey);
+    if (value == null) return null;
+    return int.tryParse(value);
+  }
+
+  /// Stores PIN length for legacy PINs after successful verification
+  Future<void> storePinLength(int length) async {
+    _ensureInitialized();
+    await _box.put(_pinLengthKey, length.toString());
+  }
+
   /// Checks if PIN is configured
   Future<bool> hasPinSetup() async {
     _ensureInitialized();
@@ -209,6 +231,7 @@ class KeyStorage {
     _ensureInitialized();
     await _box.delete(_pinHashKey);
     await _box.delete(_pinSaltKey);
+    await _box.delete(_pinLengthKey);
   }
 
   /// Stores auto-sync interval in minutes (0 = off)

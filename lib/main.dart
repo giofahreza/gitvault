@@ -473,39 +473,129 @@ class _PinEntryScreen extends ConsumerStatefulWidget {
 }
 
 class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
+  static const int _minPinLength = 4;
+  static const int _maxPinLength = 6;
+  static const Map<LogicalKeyboardKey, String> _digitKeys = {
+    LogicalKeyboardKey.digit0: '0',
+    LogicalKeyboardKey.digit1: '1',
+    LogicalKeyboardKey.digit2: '2',
+    LogicalKeyboardKey.digit3: '3',
+    LogicalKeyboardKey.digit4: '4',
+    LogicalKeyboardKey.digit5: '5',
+    LogicalKeyboardKey.digit6: '6',
+    LogicalKeyboardKey.digit7: '7',
+    LogicalKeyboardKey.digit8: '8',
+    LogicalKeyboardKey.digit9: '9',
+    LogicalKeyboardKey.numpad0: '0',
+    LogicalKeyboardKey.numpad1: '1',
+    LogicalKeyboardKey.numpad2: '2',
+    LogicalKeyboardKey.numpad3: '3',
+    LogicalKeyboardKey.numpad4: '4',
+    LogicalKeyboardKey.numpad5: '5',
+    LogicalKeyboardKey.numpad6: '6',
+    LogicalKeyboardKey.numpad7: '7',
+    LogicalKeyboardKey.numpad8: '8',
+    LogicalKeyboardKey.numpad9: '9',
+  };
+  static final RegExp _digitPattern = RegExp(r'^\d$');
+
+  late final FocusNode _focusNode;
   String _pin = '';
   String? _error;
   bool _verifying = false;
+  int? _pinLength;
 
-  Future<void> _onDigitPressed(String digit) async {
-    if (_verifying || _pin.length >= 6) return;
+  bool get _canSubmitPin =>
+      !_verifying &&
+      _pin.length >= _minPinLength &&
+      _pin.length <= _maxPinLength;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode();
+    _loadPinLength();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.requestFocus();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPinLength() async {
+    final pinLength = await ref.read(pinAuthProvider).getPinLength();
+    if (!mounted) return;
+
+    if (pinLength != null &&
+        pinLength >= _minPinLength &&
+        pinLength <= _maxPinLength) {
+      setState(() => _pinLength = pinLength);
+    }
+  }
+
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return;
+
+    final key = event.logicalKey;
+    final digit = _digitForKey(key);
+    if (digit != null) {
+      _onDigitPressed(digit);
+      return;
+    }
+
+    if (key == LogicalKeyboardKey.backspace ||
+        key == LogicalKeyboardKey.delete) {
+      _onBackspace();
+      return;
+    }
+
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      _submitPin();
+    }
+  }
+
+  String? _digitForKey(LogicalKeyboardKey key) {
+    final mappedDigit = _digitKeys[key];
+    if (mappedDigit != null) return mappedDigit;
+
+    final label = key.keyLabel;
+    if (label.length == 1 && _digitPattern.hasMatch(label)) {
+      return label;
+    }
+    return null;
+  }
+
+  void _onDigitPressed(String digit) {
+    if (_verifying || _pin.length >= _maxPinLength) return;
+    if (!_focusNode.hasFocus) {
+      _focusNode.requestFocus();
+    }
 
     setState(() {
       _pin += digit;
       _error = null;
     });
 
-    // Auto-verify when 4-6 digits entered (try at 4, 5, 6)
-    if (_pin.length >= 4) {
-      setState(() => _verifying = true);
-      final pinAuth = ref.read(pinAuthProvider);
-      final valid = await pinAuth.verifyPin(_pin);
-      if (valid) {
-        widget.onSuccess();
-      } else if (_pin.length >= 6) {
-        setState(() {
-          _pin = '';
-          _error = 'Wrong PIN. Try again.';
-          _verifying = false;
-        });
-      } else {
-        setState(() => _verifying = false);
-      }
+    final pinLength = _pinLength;
+    if ((pinLength != null && _pin.length == pinLength) ||
+        (pinLength == null && _pin.length == _maxPinLength)) {
+      _verifyPin();
     }
   }
 
   void _onBackspace() {
     if (_pin.isNotEmpty && !_verifying) {
+      if (!_focusNode.hasFocus) {
+        _focusNode.requestFocus();
+      }
       setState(() {
         _pin = _pin.substring(0, _pin.length - 1);
         _error = null;
@@ -513,63 +603,118 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     }
   }
 
+  void _submitPin() {
+    if (_verifying) return;
+
+    if (_pin.length < _minPinLength) {
+      setState(() => _error = 'PIN must be at least 4 digits.');
+      return;
+    }
+
+    _verifyPin();
+  }
+
+  Future<void> _verifyPin() async {
+    if (!_canSubmitPin) return;
+
+    final enteredPin = _pin;
+    setState(() {
+      _verifying = true;
+      _error = null;
+    });
+
+    final pinAuth = ref.read(pinAuthProvider);
+    final valid = await pinAuth.verifyPin(enteredPin);
+    if (!mounted) return;
+
+    if (valid) {
+      widget.onSuccess();
+      return;
+    }
+
+    setState(() {
+      _pin = '';
+      _error = 'Wrong PIN. Try again.';
+      _verifying = false;
+    });
+    _focusNode.requestFocus();
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.lock, size: 48, color: colorScheme.primary),
-                const SizedBox(height: 16),
-                const Text(
-                  'Enter PIN',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 24),
-                // PIN dots
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(6, (i) {
-                    final filled = i < _pin.length;
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color:
-                            filled ? colorScheme.primary : Colors.transparent,
-                        border: Border.all(
-                          color: _error != null
-                              ? colorScheme.error
-                              : colorScheme.primary,
-                          width: 2,
+      body: KeyboardListener(
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: _handleKeyEvent,
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.lock, size: 48, color: colorScheme.primary),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Enter PIN',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 24),
+                  // PIN dots
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(6, (i) {
+                      final filled = i < _pin.length;
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 8),
+                        width: 16,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: filled
+                              ? colorScheme.primary
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: _error != null
+                                ? colorScheme.error
+                                : colorScheme.primary,
+                            width: 2,
+                          ),
                         ),
+                      );
+                    }),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: colorScheme.error,
+                        fontSize: 14,
                       ),
-                    );
-                  }),
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_error!,
-                      style: TextStyle(color: colorScheme.error, fontSize: 14)),
+                    ),
+                  ] else if (_verifying) ...[
+                    const SizedBox(height: 12),
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ],
+                  const SizedBox(height: 32),
+                  // Numeric keypad
+                  ..._buildKeypad(colorScheme),
+                  const SizedBox(height: 16),
+                  TextButton.icon(
+                    onPressed: widget.onRetryBiometric,
+                    icon: const Icon(Icons.fingerprint),
+                    label: const Text('Use Biometrics'),
+                  ),
                 ],
-                const SizedBox(height: 32),
-                // Numeric keypad
-                ..._buildKeypad(colorScheme),
-                const SizedBox(height: 16),
-                TextButton.icon(
-                  onPressed: widget.onRetryBiometric,
-                  icon: const Icon(Icons.fingerprint),
-                  label: const Text('Use Biometrics'),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -578,11 +723,11 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   }
 
   List<Widget> _buildKeypad(ColorScheme colorScheme) {
-    final rows = [
+    const rows = [
       ['1', '2', '3'],
       ['4', '5', '6'],
       ['7', '8', '9'],
-      ['', '0', 'del'],
+      ['done', '0', 'del'],
     ];
 
     return rows.map((row) {
@@ -591,15 +736,22 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: row.map((key) {
-            if (key.isEmpty) {
-              return const SizedBox(width: 72, height: 56);
+            if (key == 'done') {
+              return SizedBox(
+                width: 72,
+                height: 56,
+                child: TextButton(
+                  onPressed: _canSubmitPin ? _submitPin : null,
+                  child: const Icon(Icons.check),
+                ),
+              );
             }
             if (key == 'del') {
               return SizedBox(
                 width: 72,
                 height: 56,
                 child: TextButton(
-                  onPressed: _onBackspace,
+                  onPressed: _verifying ? null : _onBackspace,
                   child: const Icon(Icons.backspace_outlined),
                 ),
               );
@@ -609,10 +761,11 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
               height: 56,
               margin: const EdgeInsets.symmetric(horizontal: 8),
               child: ElevatedButton(
-                onPressed: () => _onDigitPressed(key),
+                onPressed: _verifying ? null : () => _onDigitPressed(key),
                 style: ElevatedButton.styleFrom(
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: Text(key, style: const TextStyle(fontSize: 24)),
               ),

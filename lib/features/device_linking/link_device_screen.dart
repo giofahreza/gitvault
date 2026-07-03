@@ -524,6 +524,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
                 counterText: '',
               ),
               keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               maxLength: 6,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 24, letterSpacing: 8),

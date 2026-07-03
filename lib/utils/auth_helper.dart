@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/providers/providers.dart';
@@ -121,11 +122,14 @@ class _PinVerifyDialogState extends ConsumerState<_PinVerifyDialog> {
           TextField(
             controller: _pinController,
             keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 6,
             obscureText: true,
             autofocus: true,
             decoration: InputDecoration(
               labelText: 'PIN',
               border: const OutlineInputBorder(),
+              counterText: '',
               errorText: _error,
             ),
             onSubmitted: (_) => _verify(),
