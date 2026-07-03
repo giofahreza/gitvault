@@ -475,28 +475,6 @@ class _PinEntryScreen extends ConsumerStatefulWidget {
 class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   static const int _minPinLength = 4;
   static const int _maxPinLength = 6;
-  static const Map<LogicalKeyboardKey, String> _digitKeys = {
-    LogicalKeyboardKey.digit0: '0',
-    LogicalKeyboardKey.digit1: '1',
-    LogicalKeyboardKey.digit2: '2',
-    LogicalKeyboardKey.digit3: '3',
-    LogicalKeyboardKey.digit4: '4',
-    LogicalKeyboardKey.digit5: '5',
-    LogicalKeyboardKey.digit6: '6',
-    LogicalKeyboardKey.digit7: '7',
-    LogicalKeyboardKey.digit8: '8',
-    LogicalKeyboardKey.digit9: '9',
-    LogicalKeyboardKey.numpad0: '0',
-    LogicalKeyboardKey.numpad1: '1',
-    LogicalKeyboardKey.numpad2: '2',
-    LogicalKeyboardKey.numpad3: '3',
-    LogicalKeyboardKey.numpad4: '4',
-    LogicalKeyboardKey.numpad5: '5',
-    LogicalKeyboardKey.numpad6: '6',
-    LogicalKeyboardKey.numpad7: '7',
-    LogicalKeyboardKey.numpad8: '8',
-    LogicalKeyboardKey.numpad9: '9',
-  };
   static final RegExp _digitPattern = RegExp(r'^\d$');
 
   late final FocusNode _focusNode;
@@ -563,8 +541,13 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   }
 
   String? _digitForKey(LogicalKeyboardKey key) {
-    final mappedDigit = _digitKeys[key];
-    if (mappedDigit != null) return mappedDigit;
+    for (var i = 0; i <= 9; i++) {
+      final digit = i.toString();
+      if (key == LogicalKeyboardKey.findKeyByKeyId(0x00000000030 + i) ||
+          key == LogicalKeyboardKey.findKeyByKeyId(0x00200000230 + i)) {
+        return digit;
+      }
+    }
 
     final label = key.keyLabel;
     if (label.length == 1 && _digitPattern.hasMatch(label)) {
