@@ -606,6 +606,8 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
       _verifying = true;
       _error = null;
     });
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
 
     final pinAuth = ref.read(pinAuthProvider);
     final valid = await pinAuth.verifyPin(enteredPin);

@@ -180,7 +180,8 @@ class KeyStorage {
     return value ?? 'system';
   }
 
-  /// Stores PIN hash, salt, and length
+  /// Stores PIN hash, salt, and length.
+  /// The hash may include version/profile metadata for migration.
   Future<void> storePinHash(
     String hash,
     String salt, {
