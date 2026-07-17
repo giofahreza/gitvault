@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/providers.dart';
 import '../../core/theme/note_colors.dart';
 import '../../data/models/note.dart';
+import '../../data/repositories/notes_repository.dart';
 import '../../utils/auto_bullet.dart';
 
 /// Note editor screen for creating and editing notes
@@ -16,20 +19,39 @@ class NoteEditorDialog extends ConsumerStatefulWidget {
   ConsumerState<NoteEditorDialog> createState() => _NoteEditorDialogState();
 }
 
-class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
+class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
+    with WidgetsBindingObserver {
+  static const _autoSaveDelay = Duration(milliseconds: 600);
+
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
+  late final NotesRepository _repository;
   late NoteColor _selectedColor;
   late bool _isPinned;
   late List<String> _tags;
   late bool _isChecklist;
   late List<ChecklistItem> _checklistItems;
+  Note? _persistedNote;
+  Timer? _autoSaveTimer;
+  Future<void> _saveQueue = Future<void>.value();
+  final ValueNotifier<int> _saveStatusRevision = ValueNotifier<int>(0);
+  int _changeRevision = 0;
+  int _savedRevision = 0;
+  int _pendingSaveCount = 0;
   bool _hasChanges = false;
+  bool _isClosing = false;
+  bool _canPop = false;
+  bool _discardPendingChanges = false;
+  bool _isDisposed = false;
+  Object? _lastSaveError;
   String _previousContent = '';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _repository = ref.read(notesRepositoryProvider);
+    _persistedNote = widget.note;
     _titleController = TextEditingController(text: widget.note?.title ?? '');
     _contentController = TextEditingController(text: widget.note?.content ?? '');
     _selectedColor = widget.note?.color ?? NoteColor.white;
@@ -39,19 +61,63 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
     _checklistItems = List.from(widget.note?.checklistItems ?? []);
     _previousContent = _contentController.text;
 
-    _titleController.addListener(() => _hasChanges = true);
+    _titleController.addListener(_markChanged);
     _contentController.addListener(_onContentChanged);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _autoSaveTimer?.cancel();
+    _isDisposed = true;
+
+    // A route can be disposed without going through its back handler (for
+    // example when the biometric gate locks the app). Keep the already-built
+    // save operation alive so those last edits still reach encrypted storage.
+    if (_hasChanges && !_discardPendingChanges) {
+      unawaited(_queueLatestSave(showError: false, updateUi: false));
+    }
+
+    _saveStatusRevision.dispose();
     _titleController.dispose();
     _contentController.dispose();
     super.dispose();
   }
 
-  void _onContentChanged() {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(_queueLatestSave(showError: false));
+    }
+  }
+
+  void _markChanged() {
+    if (_discardPendingChanges) return;
+
+    _changeRevision++;
     _hasChanges = true;
+    _lastSaveError = null;
+    _notifySaveStatus();
+    _scheduleAutoSave();
+  }
+
+  void _notifySaveStatus() {
+    if (_isDisposed) return;
+    _saveStatusRevision.value++;
+  }
+
+  void _scheduleAutoSave() {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(
+      _autoSaveDelay,
+      () => unawaited(_queueLatestSave(showError: false)),
+    );
+  }
+
+  void _onContentChanged() {
+    _markChanged();
 
     final text = _contentController.text;
     final prevText = _previousContent;
@@ -108,7 +174,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
     final tagBgColor = NoteColorPalette.getTagBackgroundColor(_selectedColor.colorIndex, brightness);
 
     return PopScope(
-      canPop: false,
+      canPop: _canPop,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         await _handleBack();
@@ -131,96 +197,116 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
                 color: textColor,
               ),
               tooltip: _isChecklist ? 'Switch to text' : 'Switch to checklist',
-              onPressed: _toggleChecklist,
+              onPressed: _isClosing ? null : _toggleChecklist,
             ),
             IconButton(
               icon: Icon(_isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: textColor),
               tooltip: _isPinned ? 'Unpin' : 'Pin',
-              onPressed: () {
+              onPressed: _isClosing ? null : () {
                 setState(() {
                   _isPinned = !_isPinned;
-                  _hasChanges = true;
+                  _markChanged();
                 });
               },
             ),
             IconButton(
               icon: Icon(Icons.palette_outlined, color: textColor),
               tooltip: 'Change color',
-              onPressed: _showColorPicker,
+              onPressed: _isClosing ? null : _showColorPicker,
             ),
             if (widget.note != null) ...[
               IconButton(
                 icon: Icon(Icons.archive_outlined, color: textColor),
                 tooltip: 'Archive',
-                onPressed: _archiveNote,
+                onPressed: _isClosing ? null : _archiveNote,
               ),
               IconButton(
                 icon: Icon(Icons.delete_outline, color: textColor),
                 tooltip: 'Delete',
-                onPressed: _deleteNote,
+                onPressed: _isClosing ? null : _deleteNote,
               ),
             ],
           ],
-        ),
-        body: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              TextField(
-                controller: _titleController,
-                decoration: InputDecoration(
-                  hintText: 'Title',
-                  hintStyle: TextStyle(color: hintColor),
-                  border: InputBorder.none,
-                ),
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
-                ),
-              ),
-              if (_isChecklist)
-                Expanded(child: _buildChecklistEditor(textColor, hintColor))
-              else
-                Expanded(
-                  child: TextField(
-                    controller: _contentController,
-                    decoration: InputDecoration(
-                      hintText: 'Note',
-                      hintStyle: TextStyle(color: hintColor),
-                      border: InputBorder.none,
-                    ),
-                    style: TextStyle(fontSize: 16, color: textColor),
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(38),
+            child: SizedBox(
+              height: 38,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _saveStatusRevision,
+                    builder: (_, __, ___) => _buildSaveStatus(textColor),
                   ),
                 ),
-              if (_tags.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _tags.map((tag) {
-                    return Chip(
-                      label: Text('#$tag', style: TextStyle(color: textColor)),
-                      backgroundColor: tagBgColor,
-                      deleteIconColor: textColor,
-                      onDeleted: () {
-                        setState(() {
-                          _tags.remove(tag);
-                          _hasChanges = true;
-                        });
-                      },
-                    );
-                  }).toList(),
+              ),
+            ),
+          ),
+        ),
+        body: AbsorbPointer(
+          absorbing: _isClosing,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _titleController,
+                  decoration: InputDecoration(
+                    hintText: 'Title',
+                    hintStyle: TextStyle(color: hintColor),
+                    border: InputBorder.none,
+                  ),
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
                 ),
+                if (_isChecklist)
+                  Expanded(child: _buildChecklistEditor(textColor, hintColor))
+                else
+                  Expanded(
+                    child: TextField(
+                      controller: _contentController,
+                      decoration: InputDecoration(
+                        hintText: 'Note',
+                        hintStyle: TextStyle(color: hintColor),
+                        border: InputBorder.none,
+                      ),
+                      style: TextStyle(fontSize: 16, color: textColor),
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                    ),
+                  ),
+                if (_tags.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _tags.map((tag) {
+                      return Chip(
+                        label:
+                            Text('#$tag', style: TextStyle(color: textColor)),
+                        backgroundColor: tagBgColor,
+                        deleteIconColor: textColor,
+                        onDeleted: () {
+                          setState(() {
+                            _tags.remove(tag);
+                            _markChanged();
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
         floatingActionButton: FloatingActionButton.extended(
-          onPressed: _addTag,
+          onPressed: _isClosing ? null : _addTag,
           backgroundColor: Theme.of(context).colorScheme.primaryContainer,
           foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
           icon: const Icon(Icons.tag),
@@ -228,6 +314,74 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
         ),
       ),
     );
+  }
+
+  Widget _buildSaveStatus(Color textColor) {
+    final style = TextButton.styleFrom(
+      foregroundColor: textColor,
+      disabledForegroundColor: textColor.withOpacity(0.7),
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    );
+
+    if (_pendingSaveCount > 0) {
+      return TextButton.icon(
+        onPressed: null,
+        style: style,
+        icon: SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: textColor,
+          ),
+        ),
+        label: const Text('Saving…'),
+      );
+    }
+
+    if (_lastSaveError != null) {
+      return TextButton.icon(
+        onPressed: _isClosing ? null : _manualSave,
+        style: style,
+        icon: const Icon(Icons.error_outline, size: 18),
+        label: const Text('Save failed · Retry'),
+      );
+    }
+
+    if (_hasChanges) {
+      return TextButton.icon(
+        onPressed: _isClosing ? null : _manualSave,
+        style: style,
+        icon: const Icon(Icons.save_outlined, size: 18),
+        label: Text(
+          _persistedNote == null
+              ? 'Not saved yet · Save now'
+              : 'Unsaved changes · Save now',
+        ),
+      );
+    }
+
+    if (_persistedNote != null) {
+      return TextButton.icon(
+        onPressed: null,
+        style: style,
+        icon: const Icon(Icons.check_circle_outline, size: 18),
+        label: const Text('Saved'),
+      );
+    }
+
+    return TextButton.icon(
+      onPressed: null,
+      style: style,
+      icon: const Icon(Icons.edit_note, size: 18),
+      label: const Text('Not saved yet'),
+    );
+  }
+
+  Future<void> _manualSave() async {
+    if (_isClosing || _pendingSaveCount > 0) return;
+    await _queueLatestSave(showError: true);
   }
 
   Widget _buildChecklistEditor(Color textColor, Color hintColor) {
@@ -260,7 +414,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
               if (value.trim().isNotEmpty) {
                 setState(() {
                   _checklistItems.add(ChecklistItem(text: value.trim()));
-                  _hasChanges = true;
+                  _markChanged();
                 });
               }
             },
@@ -301,7 +455,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
       onDismissed: (_) {
         setState(() {
           _checklistItems.removeAt(index);
-          _hasChanges = true;
+          _markChanged();
         });
       },
       child: ListTile(
@@ -310,7 +464,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
           onChanged: (value) {
             setState(() {
               _checklistItems[index] = item.copyWith(isChecked: value ?? false);
-              _hasChanges = true;
+              _markChanged();
             });
           },
         ),
@@ -320,7 +474,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
           isChecked: item.isChecked,
           onChanged: (value) {
             _checklistItems[index] = item.copyWith(text: value);
-            _hasChanges = true;
+            _markChanged();
           },
         ),
         contentPadding: EdgeInsets.zero,
@@ -359,7 +513,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
         }
         _isChecklist = true;
       }
-      _hasChanges = true;
+      _markChanged();
     });
   }
 
@@ -391,7 +545,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
                     onTap: () {
                       setState(() {
                         _selectedColor = color;
-                        _hasChanges = true;
+                        _markChanged();
                       });
                       Navigator.pop(context);
                     },
@@ -449,7 +603,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
                 if (tag.isNotEmpty && !_tags.contains(tag)) {
                   setState(() {
                     _tags.add(tag);
-                    _hasChanges = true;
+                    _markChanged();
                   });
                 }
                 Navigator.pop(context);
@@ -480,74 +634,195 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog> {
     );
 
     if (confirm == true && widget.note != null) {
-      final repo = ref.read(notesRepositoryProvider);
-      await repo.deleteNote(widget.note!.uuid);
-      if (mounted) Navigator.pop(context);
+      if (_isClosing) return;
+      if (mounted) setState(() => _isClosing = true);
+      _autoSaveTimer?.cancel();
+      _discardPendingChanges = true;
+      _hasChanges = false;
+
+      try {
+        // Do not let an older autosave finish after the deletion and recreate
+        // the note.
+        await _saveQueue;
+        await _repository.initialize();
+        await _repository.deleteNote(widget.note!.uuid);
+        await _closeEditor();
+      } catch (error) {
+        _discardPendingChanges = false;
+        _hasChanges = _changeRevision > _savedRevision;
+        if (mounted) setState(() => _isClosing = false);
+        _showSaveError(error);
+      }
     }
   }
 
   Future<void> _archiveNote() async {
-    if (widget.note != null) {
-      final repo = ref.read(notesRepositoryProvider);
-      await repo.initialize();
-      final updated = widget.note!.copyWith(isArchived: true);
-      await repo.updateNote(updated);
-      if (mounted) Navigator.pop(context);
-    }
-  }
+    if (_persistedNote == null || _isClosing) return;
 
-  Future<void> _handleBack() async {
-    if (_hasChanges) {
-      await _saveNote();
-    }
-    if (mounted) Navigator.pop(context);
-  }
-
-  Future<void> _saveNote() async {
-    final title = _titleController.text.trim();
-    final content = _isChecklist ? '' : _contentController.text.trim();
-
-    // Don't save empty notes
-    if (title.isEmpty && content.isEmpty && _checklistItems.isEmpty) {
+    if (mounted) setState(() => _isClosing = true);
+    final saved = await _queueLatestSave(showError: true);
+    if (!saved) {
+      if (mounted) setState(() => _isClosing = false);
       return;
     }
 
     try {
-      final repo = ref.read(notesRepositoryProvider);
-      await repo.initialize();
-
-      if (widget.note == null) {
-        // Create new note
-        await repo.createNote(
-          title: title,
-          content: content,
-          color: _selectedColor,
-          isPinned: _isPinned,
-          tags: _tags,
-          isChecklist: _isChecklist,
-          checklistItems: _checklistItems,
-        );
-      } else {
-        // Update existing note
-        final updated = widget.note!.copyWith(
-          title: title,
-          content: content,
-          color: _selectedColor,
-          isPinned: _isPinned,
-          tags: _tags,
-          isChecklist: _isChecklist,
-          checklistItems: _checklistItems,
-        );
-        await repo.updateNote(updated);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving note: $e')),
-        );
-      }
+      final updated = _persistedNote!.copyWith(isArchived: true);
+      _persistedNote = await _repository.updateNote(updated);
+      _hasChanges = false;
+      _discardPendingChanges = true;
+      await _closeEditor();
+    } catch (error) {
+      if (mounted) setState(() => _isClosing = false);
+      _showSaveError(error);
     }
   }
+
+  Future<void> _handleBack() async {
+    if (_isClosing) return;
+    if (mounted) setState(() => _isClosing = true);
+
+    final saved = await _queueLatestSave(showError: true);
+    if (!saved) {
+      if (mounted) setState(() => _isClosing = false);
+      return;
+    }
+
+    _discardPendingChanges = true;
+    await _closeEditor();
+  }
+
+  Future<void> _closeEditor() async {
+    if (!mounted) return;
+
+    // PopScope publishes canPop during build. Wait for that rebuild before
+    // asking Navigator to pop, otherwise the just-completed save can still be
+    // blocked by the previous canPop=false value.
+    setState(() => _canPop = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) Navigator.pop(context);
+  }
+
+  _NoteDraft _buildDraft() {
+    return _NoteDraft(
+      title: _titleController.text.trim(),
+      // Keep whitespace and trailing newlines exactly as the user entered it.
+      content: _isChecklist ? '' : _contentController.text,
+      color: _selectedColor,
+      isPinned: _isPinned,
+      tags: List<String>.from(_tags),
+      isChecklist: _isChecklist,
+      checklistItems: List<ChecklistItem>.from(_checklistItems),
+    );
+  }
+
+  Future<bool> _queueLatestSave({
+    required bool showError,
+    bool updateUi = true,
+  }) async {
+    _autoSaveTimer?.cancel();
+
+    if (!_hasChanges) {
+      await _saveQueue;
+      return _lastSaveError == null;
+    }
+
+    final draft = _buildDraft();
+    final revision = _changeRevision;
+
+    // Empty new notes are intentionally discarded. Existing notes can still
+    // be cleared, which the previous implementation did not allow.
+    final hasChecklistContent =
+        draft.checklistItems.any((item) => item.text.trim().isNotEmpty);
+    if (_persistedNote == null &&
+        draft.title.isEmpty &&
+        draft.content.trim().isEmpty &&
+        !hasChecklistContent) {
+      _savedRevision = revision;
+      _hasChanges = false;
+      if (updateUi) _notifySaveStatus();
+      return true;
+    }
+
+    _pendingSaveCount++;
+    if (updateUi) _notifySaveStatus();
+
+    final previousSave = _saveQueue;
+    final operation = previousSave.then((_) async {
+      await _repository.initialize();
+
+      final currentNote = _persistedNote;
+      if (currentNote == null) {
+        _persistedNote = await _repository.createNote(
+          title: draft.title,
+          content: draft.content,
+          color: draft.color,
+          isPinned: draft.isPinned,
+          tags: draft.tags,
+          isChecklist: draft.isChecklist,
+          checklistItems: draft.checklistItems,
+        );
+      } else {
+        final updated = currentNote.copyWith(
+          title: draft.title,
+          content: draft.content,
+          color: draft.color,
+          isPinned: draft.isPinned,
+          tags: draft.tags,
+          isChecklist: draft.isChecklist,
+          checklistItems: draft.checklistItems,
+        );
+        _persistedNote = await _repository.updateNote(updated);
+      }
+    });
+
+    // Keep the queue usable after a failed write; the caller still receives
+    // the original operation so it can report the failure.
+    _saveQueue = operation.catchError((_) {});
+
+    try {
+      await operation;
+      if (revision > _savedRevision) _savedRevision = revision;
+      _hasChanges = _changeRevision > _savedRevision;
+      _lastSaveError = null;
+      return true;
+    } catch (error) {
+      _lastSaveError = error;
+      _hasChanges = true;
+      if (showError) _showSaveError(error);
+      return false;
+    } finally {
+      _pendingSaveCount--;
+      if (updateUi) _notifySaveStatus();
+    }
+  }
+
+  void _showSaveError(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Could not save note: $error')),
+    );
+  }
+}
+
+class _NoteDraft {
+  final String title;
+  final String content;
+  final NoteColor color;
+  final bool isPinned;
+  final List<String> tags;
+  final bool isChecklist;
+  final List<ChecklistItem> checklistItems;
+
+  const _NoteDraft({
+    required this.title,
+    required this.content,
+    required this.color,
+    required this.isPinned,
+    required this.tags,
+    required this.isChecklist,
+    required this.checklistItems,
+  });
 }
 
 /// Stateful text field for individual checklist items to avoid losing focus

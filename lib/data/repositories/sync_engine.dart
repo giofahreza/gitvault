@@ -17,6 +17,8 @@ import 'ssh_repository.dart';
 /// Implements "Smart Sync" with conflict resolution via Last Write Wins
 /// Syncs both password entries and notes to the same GitHub data folder
 class SyncEngine {
+  static Future<SyncResult>? _activeSync;
+
   final VaultRepository _vaultRepository;
   final NotesRepository _notesRepository;
   final SshRepository? _sshRepository;
@@ -26,6 +28,8 @@ class SyncEngine {
 
   late Box<String> _syncMetadataBox;
   bool _isInitialized = false;
+  SyncIndex? _lastRemoteIndex;
+  final Set<String> _remoteItemsNeedingRepair = <String>{};
 
   SyncEngine({
     required VaultRepository vaultRepository,
@@ -54,6 +58,23 @@ class SyncEngine {
 
   /// Performs full sync: pull from GitHub then push local changes
   Future<SyncResult> sync() async {
+    // Several screens can request a foreground sync at the same time. Sharing
+    // one in-flight operation prevents them from racing to rewrite the GitHub
+    // index with different snapshots.
+    final activeSync = _activeSync;
+    if (activeSync != null) return activeSync;
+
+    late final Future<SyncResult> operation;
+    operation = _performSync().whenComplete(() {
+      if (identical(_activeSync, operation)) {
+        _activeSync = null;
+      }
+    });
+    _activeSync = operation;
+    return operation;
+  }
+
+  Future<SyncResult> _performSync() async {
     if (!_isInitialized) {
       throw StateError('SyncEngine not initialized');
     }
@@ -88,6 +109,9 @@ class SyncEngine {
     int conflicts = 0;
 
     try {
+      _lastRemoteIndex = null;
+      _remoteItemsNeedingRepair.clear();
+
       // Download index file
       final indexBytes = await _githubService.downloadFile(Constants.indexFile);
 
@@ -98,6 +122,7 @@ class SyncEngine {
 
       // Decrypt index
       final syncIndex = await _decryptIndex(indexBytes, rootKey);
+      _lastRemoteIndex = syncIndex;
 
       // Verify monotonic counter (anti-rollback)
       final localCounter = await _getLocalCounter();
@@ -113,7 +138,10 @@ class SyncEngine {
 
         // Download file
         final fileBytes = await _githubService.downloadFile(remotePath);
-        if (fileBytes == null) continue;
+        if (fileBytes == null) {
+          _remoteItemsNeedingRepair.add(uuid);
+          continue;
+        }
 
         // Try to decrypt as VaultEntry first, then as Note
         try {
@@ -144,13 +172,15 @@ class SyncEngine {
             final localNote = await _notesRepository.getNote(uuid);
 
             if (localNote == null) {
-              // New note, save it
-              await _notesRepository.saveNote(remoteNote);
-              downloaded++;
+              // It may have been created locally after the read above, so the
+              // repository performs one final timestamp check before writing.
+              if (await _notesRepository.saveNoteIfNewer(remoteNote)) {
+                downloaded++;
+              }
             } else {
               // Conflict resolution: Last Write Wins
-              if (remoteNote.modifiedAt.isAfter(localNote.modifiedAt)) {
-                await _notesRepository.saveNote(remoteNote);
+              if (remoteNote.modifiedAt.isAfter(localNote.modifiedAt) &&
+                  await _notesRepository.saveNoteIfNewer(remoteNote)) {
                 downloaded++;
                 conflicts++;
               }
@@ -176,6 +206,7 @@ class SyncEngine {
               }
             } catch (e) {
               // Could not decrypt as any type, skip
+              _remoteItemsNeedingRepair.add(uuid);
               continue;
             }
           }
@@ -198,7 +229,7 @@ class SyncEngine {
     try {
       // Get all local entries (passwords), notes, and SSH credentials
       final entries = await _vaultRepository.getAllEntries();
-      final notes = await _notesRepository.getAllNotes();
+      final notes = await _notesRepository.getAllStoredNotes();
       final sshCredentials = _sshRepository != null
           ? await _sshRepository!.getAllCredentials()
           : <SshCredential>[];
@@ -216,7 +247,14 @@ class SyncEngine {
       }
 
       // Build UUID-to-hash map
-      final Map<String, String> uuidToHashMap = {};
+      // Start with the remote maps. If a single remote item cannot be read, a
+      // sync should not silently remove it from the encrypted index.
+      final Map<String, String> uuidToHashMap = {
+        ...?_lastRemoteIndex?.uuidToHashMap,
+      };
+      final Map<String, String> uuidToContentHashMap = {
+        ...?_lastRemoteIndex?.uuidToContentHashMap,
+      };
 
       // Upload each password entry
       for (final entry in entries) {
@@ -227,6 +265,17 @@ class SyncEngine {
         );
 
         uuidToHashMap[entry.uuid] = filenameHash;
+
+        final contentHash = await _contentHash(
+          rootKey,
+          'vault',
+          entry.toJsonString(),
+        );
+        final isUnchanged = !_remoteItemsNeedingRepair.contains(entry.uuid) &&
+            _lastRemoteIndex?.uuidToContentHashMap[entry.uuid] == contentHash;
+        uuidToContentHashMap[entry.uuid] = contentHash;
+
+        if (isUnchanged) continue;
 
         final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
 
@@ -253,6 +302,17 @@ class SyncEngine {
 
         uuidToHashMap[note.uuid] = filenameHash;
 
+        final contentHash = await _contentHash(
+          rootKey,
+          'note',
+          note.toJsonString(),
+        );
+        final isUnchanged = !_remoteItemsNeedingRepair.contains(note.uuid) &&
+            _lastRemoteIndex?.uuidToContentHashMap[note.uuid] == contentHash;
+        uuidToContentHashMap[note.uuid] = contentHash;
+
+        if (isUnchanged) continue;
+
         final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
 
         // Encrypt note
@@ -277,6 +337,17 @@ class SyncEngine {
 
         uuidToHashMap[ssh.uuid] = filenameHash;
 
+        final contentHash = await _contentHash(
+          rootKey,
+          'ssh',
+          ssh.toJsonString(),
+        );
+        final isUnchanged = !_remoteItemsNeedingRepair.contains(ssh.uuid) &&
+            _lastRemoteIndex?.uuidToContentHashMap[ssh.uuid] == contentHash;
+        uuidToContentHashMap[ssh.uuid] = contentHash;
+
+        if (isUnchanged) continue;
+
         final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
 
         final encryptedBytes = await _encryptSshCredential(ssh, rootKey);
@@ -290,12 +361,27 @@ class SyncEngine {
         uploaded++;
       }
 
+      final remoteIndex = _lastRemoteIndex;
+      final indexChanged = remoteIndex == null ||
+          !_mapsEqual(remoteIndex.uuidToHashMap, uuidToHashMap) ||
+          !_mapsEqual(
+            remoteIndex.uuidToContentHashMap,
+            uuidToContentHashMap,
+          );
+
+      // Do not create a new GitHub commit when the encrypted data set is
+      // already current.
+      if (!indexChanged) {
+        return PushResult(uploaded: uploaded);
+      }
+
       // Create and upload index
       final newCounter = await _getLocalCounter() + 1;
       final syncIndex = SyncIndex(
         lastUpdated: DateTime.now(),
         monotonicCounter: newCounter,
         uuidToHashMap: uuidToHashMap,
+        uuidToContentHashMap: uuidToContentHashMap,
       );
 
       final indexBytes = await _encryptIndex(syncIndex, rootKey);
@@ -314,6 +400,25 @@ class SyncEngine {
     }
   }
 
+  Future<String> _contentHash(
+    Uint8List rootKey,
+    String type,
+    String json,
+  ) {
+    return _cryptoManager.hmacSha256(
+      key: rootKey,
+      data: '$type:$json',
+    );
+  }
+
+  bool _mapsEqual(Map<String, String> a, Map<String, String> b) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
   /// Syncs the device registry with GitHub
   Future<void> _syncDeviceRegistry(Uint8List rootKey) async {
     try {
@@ -321,7 +426,8 @@ class SyncEngine {
       if (deviceId == null) return;
 
       final deviceName = await _keyStorage.getLocalDeviceName() ?? 'Unknown Device';
-      final now = DateTime.now().toIso8601String();
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
 
       // Download existing registry
       Map<String, dynamic> registry = {};
@@ -337,8 +443,9 @@ class SyncEngine {
           final jsonString = utf8.decode(decryptedBytes);
           registry = jsonDecode(jsonString) as Map<String, dynamic>;
         } catch (_) {
-          // Corrupt or wrong key, start fresh
-          registry = {};
+          // Never replace a registry we could not authenticate or decrypt;
+          // doing so could erase the trusted-device list for every client.
+          return;
         }
       }
 
@@ -347,29 +454,45 @@ class SyncEngine {
 
       // Update or add this device
       bool found = false;
+      bool needsUpload = false;
       final updatedDevices = devices.map((d) {
         final device = d as Map<String, dynamic>;
         if (device['deviceId'] == deviceId) {
           found = true;
+          final previousLastSeen =
+              DateTime.tryParse(device['lastSeen'] as String? ?? '');
+          final lastSeenIsStale = previousLastSeen == null ||
+              now.difference(previousLastSeen) >= const Duration(hours: 6);
+          final nameChanged = device['name'] != deviceName;
+
+          if (!lastSeenIsStale && !nameChanged) return device;
+
+          needsUpload = true;
           return {
             ...device,
             'name': deviceName,
-            'lastSeen': now,
+            'lastSeen': nowIso,
           };
         }
         return device;
       }).toList();
 
       if (!found) {
+        needsUpload = true;
         updatedDevices.add({
           'deviceId': deviceId,
           'name': deviceName,
-          'lastSeen': now,
-          'addedAt': now,
+          'lastSeen': nowIso,
+          'addedAt': nowIso,
         });
       }
 
       registry['devices'] = updatedDevices;
+
+      if (!needsUpload) {
+        await _keyStorage.storeDeviceRegistry(jsonEncode(registry));
+        return;
+      }
 
       // Encrypt and upload
       final registryJson = jsonEncode(registry);

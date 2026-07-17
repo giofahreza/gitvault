@@ -1,6 +1,6 @@
 name: gitvault
 description: A sovereign, device-centric password manager using GitHub.
-version: 1.0.102+102
+version: 1.0.116+116
 publish_to: 'none'
 
 environment:

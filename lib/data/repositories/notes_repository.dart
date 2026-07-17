@@ -9,12 +9,18 @@ import '../models/note.dart';
 
 /// Repository for managing encrypted notes (separate from vault entries)
 class NotesRepository {
+  // All repository instances in the foreground isolate share the same Hive
+  // box. Serializing mutations prevents an older encryption/write operation
+  // from finishing after a newer one and replacing it.
+  static Future<void> _writeQueue = Future<void>.value();
+
   final CryptoManager _cryptoManager;
   final KeyStorage _keyStorage;
   final Uuid _uuid = const Uuid();
 
   late Box<String> _notesBox;
   bool _isInitialized = false;
+  Future<void>? _initializeFuture;
 
   NotesRepository({
     required CryptoManager cryptoManager,
@@ -25,6 +31,17 @@ class NotesRepository {
   /// Initialize the notes storage
   Future<void> initialize() async {
     if (_isInitialized) return;
+
+    _initializeFuture ??= _openNotesBox();
+    try {
+      await _initializeFuture;
+    } catch (_) {
+      _initializeFuture = null;
+      rethrow;
+    }
+  }
+
+  Future<void> _openNotesBox() async {
     _notesBox = await Hive.openBox<String>('notes');
     _isInitialized = true;
   }
@@ -60,9 +77,10 @@ class NotesRepository {
   }
 
   /// Update an existing note
-  Future<void> updateNote(Note note) async {
+  Future<Note> updateNote(Note note) async {
     final updated = note.copyWith(modifiedAt: DateTime.now());
     await _saveNote(updated);
+    return updated;
   }
 
   /// Delete a note
@@ -70,12 +88,30 @@ class NotesRepository {
     if (!_isInitialized) {
       throw StateError('NotesRepository not initialized');
     }
-    await _notesBox.delete(uuid);
+    await _enqueueWrite(() => _notesBox.delete(uuid));
   }
 
   /// Save a note (for sync engine)
   Future<void> saveNote(Note note) async {
     await _saveNote(note);
+  }
+
+  /// Save a remotely synced note only if it is still newer when the write
+  /// reaches the front of the local mutation queue.
+  ///
+  /// The sync engine may have read the note just before the editor autosaved.
+  /// Re-checking here prevents that stale sync decision from overwriting the
+  /// editor's newer work.
+  Future<bool> saveNoteIfNewer(Note note) {
+    return _enqueueWrite(() async {
+      final local = await getNote(note.uuid);
+      if (local != null && !note.modifiedAt.isAfter(local.modifiedAt)) {
+        return false;
+      }
+
+      await _writeNote(note);
+      return true;
+    });
   }
 
   /// Get a single note by UUID
@@ -107,6 +143,29 @@ class NotesRepository {
 
   /// Get all notes
   Future<List<Note>> getAllNotes() async {
+    final notes = await getAllStoredNotes();
+
+    // Filter out archived notes
+    final activeNotes = notes.where((n) => !n.isArchived).toList();
+
+    // Sort: pinned first, then by sortOrder asc, then createdAt desc as tiebreaker
+    activeNotes.sort((a, b) {
+      if (a.isPinned != b.isPinned) {
+        return a.isPinned ? -1 : 1;
+      }
+      final orderCmp = a.sortOrder.compareTo(b.sortOrder);
+      if (orderCmp != 0) return orderCmp;
+      return b.createdAt.compareTo(a.createdAt);
+    });
+
+    return activeNotes;
+  }
+
+  /// Get every locally stored note, including archived notes.
+  ///
+  /// Sync must use this method so archiving a note does not accidentally make
+  /// it disappear from the remote index.
+  Future<List<Note>> getAllStoredNotes() async {
     if (!_isInitialized) {
       throw StateError('NotesRepository not initialized');
     }
@@ -123,20 +182,7 @@ class NotesRepository {
       }
     }
 
-    // Filter out archived notes
-    final activeNotes = notes.where((n) => !n.isArchived).toList();
-
-    // Sort: pinned first, then by sortOrder asc, then createdAt desc as tiebreaker
-    activeNotes.sort((a, b) {
-      if (a.isPinned != b.isPinned) {
-        return a.isPinned ? -1 : 1;
-      }
-      final orderCmp = a.sortOrder.compareTo(b.sortOrder);
-      if (orderCmp != 0) return orderCmp;
-      return b.createdAt.compareTo(a.createdAt);
-    });
-
-    return activeNotes;
+    return notes;
   }
 
   /// Get all archived notes
@@ -210,6 +256,10 @@ class NotesRepository {
   }
 
   Future<void> _saveNote(Note note) async {
+    await _enqueueWrite(() => _writeNote(note));
+  }
+
+  Future<void> _writeNote(Note note) async {
     if (!_isInitialized) {
       throw StateError('NotesRepository not initialized');
     }
@@ -232,6 +282,15 @@ class NotesRepository {
     await _notesBox.put(note.uuid, base64Encoded);
   }
 
+  Future<T> _enqueueWrite<T>(Future<T> Function() operation) {
+    final scheduled = _writeQueue.then((_) => operation());
+    _writeQueue = scheduled.then<void>(
+      (_) {},
+      onError: (_, __) {},
+    );
+    return scheduled;
+  }
+
   /// Get note count
   Future<int> getNoteCount() async {
     if (!_isInitialized) {
@@ -243,8 +302,10 @@ class NotesRepository {
   /// Close the notes box
   Future<void> close() async {
     if (_isInitialized) {
+      await _writeQueue;
       await _notesBox.close();
       _isInitialized = false;
+      _initializeFuture = null;
     }
   }
 }

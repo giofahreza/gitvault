@@ -97,25 +97,17 @@ final notesRepositoryProvider = Provider<NotesRepository>((ref) {
 });
 
 /// Provider for notes list (auto-refreshes when invalidated)
-final notesProvider = FutureProvider<List<Note>>((ref) async {
+final notesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
   final repo = ref.watch(notesRepositoryProvider);
-  try {
-    await repo.initialize();
-    return await repo.getAllNotes();
-  } catch (e) {
-    return [];
-  }
+  await repo.initialize();
+  return repo.getAllNotes();
 });
 
 /// Provider for archived notes list
-final archivedNotesProvider = FutureProvider<List<Note>>((ref) async {
+final archivedNotesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
   final repo = ref.watch(notesRepositoryProvider);
-  try {
-    await repo.initialize();
-    return await repo.getArchivedNotes();
-  } catch (e) {
-    return [];
-  }
+  await repo.initialize();
+  return repo.getArchivedNotes();
 });
 
 /// Provider for SshRepository
