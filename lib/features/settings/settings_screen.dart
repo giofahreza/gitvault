@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/biometric_auth.dart';
@@ -25,6 +26,22 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  late final Future<String> _appVersionFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _appVersionFuture = _loadAppVersion();
+  }
+
+  Future<String> _loadAppVersion() async {
+    const releaseVersion = String.fromEnvironment('GITVAULT_VERSION');
+    if (releaseVersion.isNotEmpty) return releaseVersion;
+
+    final packageInfo = await PackageInfo.fromPlatform();
+    return packageInfo.version.isEmpty ? 'Unknown' : packageInfo.version;
+  }
+
   @override
   Widget build(BuildContext context) {
     final biometricEnabled = ref.watch(biometricEnabledProvider);
@@ -142,7 +159,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text('GitVault'),
-            subtitle: const Text('Version 1.0.0'),
+            subtitle: FutureBuilder<String>(
+              future: _appVersionFuture,
+              builder: (context, snapshot) {
+                final version = snapshot.data ?? '...';
+                return Text('Version $version');
+              },
+            ),
             trailing: const Icon(Icons.open_in_new, size: 16),
             onTap: () => _launchUrl('https://github.com/giofahreza/gitvault'),
           ),

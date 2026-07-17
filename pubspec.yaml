@@ -46,6 +46,8 @@ dependencies:
   hex: ^0.2.0
   # For opening URLs (giofahreza.com, GitHub)
   url_launcher: ^6.2.0
+  # For reading app version/build metadata
+  package_info_plus: ^9.0.0
   # For SSH connections
   dartssh2: ^2.8.2
   # For terminal emulator UI
