@@ -11,6 +11,7 @@ class PinAuth {
   final KeyStorage _keyStorage;
   final _PinHashProfile _nativeProfile;
   final _PinHashProfile _webProfile;
+  final _PinHashProfile _legacyWebProfile;
   final _PinHashProfile _preferredProfile;
 
   PinAuth({required KeyStorage keyStorage})
@@ -18,6 +19,7 @@ class PinAuth {
           keyStorage: keyStorage,
           nativeProfile: _PinHashProfile.nativeArgon2id(),
           webProfile: _PinHashProfile.webPbkdf2(),
+          legacyWebProfile: _PinHashProfile.legacyWebPbkdf2(),
           useWebHashing: kIsWeb,
         );
 
@@ -29,6 +31,7 @@ class PinAuth {
     int argonIterations = _PinHashProfile.nativeArgonIterations,
     int argonParallelism = _PinHashProfile.nativeArgonParallelism,
     int pbkdf2Iterations = _PinHashProfile.webPbkdf2Iterations,
+    int legacyPbkdf2Iterations = _PinHashProfile.legacyWebPbkdf2Iterations,
   }) : this._(
           keyStorage: keyStorage,
           nativeProfile: _PinHashProfile.nativeArgon2id(
@@ -39,6 +42,9 @@ class PinAuth {
           webProfile: _PinHashProfile.webPbkdf2(
             iterations: pbkdf2Iterations,
           ),
+          legacyWebProfile: _PinHashProfile.legacyWebPbkdf2(
+            iterations: legacyPbkdf2Iterations,
+          ),
           useWebHashing: useWebHashing,
         );
 
@@ -46,14 +52,18 @@ class PinAuth {
     required KeyStorage keyStorage,
     required _PinHashProfile nativeProfile,
     required _PinHashProfile webProfile,
+    required _PinHashProfile legacyWebProfile,
     required bool useWebHashing,
   })  : _keyStorage = keyStorage,
         _nativeProfile = nativeProfile,
         _webProfile = webProfile,
+        _legacyWebProfile = legacyWebProfile,
         _preferredProfile = useWebHashing ? webProfile : nativeProfile;
 
   static final RegExp _pinPattern = RegExp(r'^\d{4,6}$');
   static const String _storedHashVersion = 'v2';
+  static const int _freeFailedAttempts = 2;
+  static const Duration _maxThrottleDelay = Duration(minutes: 5);
 
   /// Hash a PIN using the selected platform profile.
   Future<_PinHash> _hashPin(
@@ -120,6 +130,7 @@ class PinAuth {
       base64Encode(salt),
       length: pin.length,
     );
+    await _keyStorage.clearPinThrottle();
   }
 
   /// Verify a PIN against stored hash
@@ -127,6 +138,9 @@ class PinAuth {
     if (!_pinPattern.hasMatch(pin)) return false;
 
     await _keyStorage.initialize();
+    final throttleDelay = await getThrottleDelay();
+    if (throttleDelay > Duration.zero) return false;
+
     final storedHash = await _keyStorage.getPinHash();
     final storedSalt = await _keyStorage.getPinSalt();
 
@@ -143,6 +157,7 @@ class PinAuth {
     );
     final valid = _constantTimeEquals(hash.hash, parsedHash.hash);
     if (valid) {
+      await _keyStorage.clearPinThrottle();
       final storedLength = await _keyStorage.getPinLength();
       if (parsedHash.profile.id != _preferredProfile.id) {
         unawaited(
@@ -156,6 +171,8 @@ class PinAuth {
       } else if (storedLength == null) {
         await _keyStorage.storePinLength(pin.length);
       }
+    } else {
+      await _recordFailedAttempt();
     }
     return valid;
   }
@@ -170,6 +187,12 @@ class PinAuth {
   Future<int?> getPinLength() async {
     await _keyStorage.initialize();
     return await _keyStorage.getPinLength();
+  }
+
+  /// Return remaining PIN throttle delay, if too many wrong attempts happened.
+  Future<Duration> getThrottleDelay() async {
+    await _keyStorage.initialize();
+    return _remainingThrottleDelay(DateTime.now());
   }
 
   /// Remove PIN
@@ -208,7 +231,39 @@ class PinAuth {
   _PinHashProfile? _profileForId(String id) {
     if (id == _nativeProfile.id) return _nativeProfile;
     if (id == _webProfile.id) return _webProfile;
+    if (id == _legacyWebProfile.id) return _legacyWebProfile;
     return null;
+  }
+
+  Future<Duration> _remainingThrottleDelay(DateTime now) async {
+    final throttleUntil = await _keyStorage.getPinThrottleUntil();
+    if (throttleUntil == null || !throttleUntil.isAfter(now)) {
+      return Duration.zero;
+    }
+    return throttleUntil.difference(now);
+  }
+
+  Future<void> _recordFailedAttempt() async {
+    final attempts = await _keyStorage.getPinFailedAttempts() + 1;
+    await _keyStorage.storePinFailedAttempts(attempts);
+
+    final delay = _throttleDelayForAttempt(attempts);
+    if (delay <= Duration.zero) return;
+
+    await _keyStorage.storePinThrottleUntil(DateTime.now().add(delay));
+  }
+
+  Duration _throttleDelayForAttempt(int attempts) {
+    if (attempts <= _freeFailedAttempts) return Duration.zero;
+
+    final delayedAttempts = attempts - _freeFailedAttempts;
+    final maxSeconds = _maxThrottleDelay.inSeconds;
+    var seconds = 5;
+    for (var i = 1; i < delayedAttempts && seconds < maxSeconds; i++) {
+      seconds *= 2;
+    }
+    if (seconds > maxSeconds) seconds = maxSeconds;
+    return Duration(seconds: seconds);
   }
 
   bool _constantTimeEquals(String a, String b) {
@@ -252,7 +307,8 @@ class _PinHashProfile {
   static const nativeArgonMemory = 65536; // 64 MB
   static const nativeArgonIterations = 3;
   static const nativeArgonParallelism = 2;
-  static const webPbkdf2Iterations = 210000;
+  static const webPbkdf2Iterations = 75000;
+  static const legacyWebPbkdf2Iterations = 210000;
 
   final String id;
   final _PinHashAlgorithm algorithm;
@@ -290,6 +346,20 @@ class _PinHashProfile {
 
   factory _PinHashProfile.webPbkdf2({
     int iterations = webPbkdf2Iterations,
+  }) {
+    return _PinHashProfile._(
+      id: 'pbkdf2-sha256-web-v2',
+      algorithm: _PinHashAlgorithm.pbkdf2Sha256,
+      memory: 0,
+      iterations: iterations,
+      parallelism: 0,
+      hashLength: 32,
+      bits: 256,
+    );
+  }
+
+  factory _PinHashProfile.legacyWebPbkdf2({
+    int iterations = legacyWebPbkdf2Iterations,
   }) {
     return _PinHashProfile._(
       id: 'pbkdf2-sha256-web-v1',

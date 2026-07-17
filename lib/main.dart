@@ -482,10 +482,15 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   String _pin = '';
   String? _error;
   bool _verifying = false;
+  Duration _throttleRemaining = Duration.zero;
+  Timer? _throttleTimer;
   int? _pinLength;
+
+  bool get _isThrottled => _throttleRemaining > Duration.zero;
 
   bool get _canSubmitPin =>
       !_verifying &&
+      !_isThrottled &&
       _pin.length >= _minPinLength &&
       _pin.length <= _maxPinLength;
 
@@ -494,6 +499,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     super.initState();
     _focusNode = FocusNode();
     _loadPinLength();
+    _loadThrottleState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -504,6 +510,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
 
   @override
   void dispose() {
+    _throttleTimer?.cancel();
     _focusNode.dispose();
     super.dispose();
   }
@@ -517,6 +524,12 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
         pinLength <= _maxPinLength) {
       setState(() => _pinLength = pinLength);
     }
+  }
+
+  Future<void> _loadThrottleState() async {
+    final remaining = await ref.read(pinAuthProvider).getThrottleDelay();
+    if (!mounted) return;
+    _applyThrottle(remaining);
   }
 
   void _handleKeyEvent(KeyEvent event) {
@@ -558,7 +571,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   }
 
   void _onDigitPressed(String digit) {
-    if (_verifying || _pin.length >= _maxPinLength) return;
+    if (_verifying || _isThrottled || _pin.length >= _maxPinLength) return;
     if (!_focusNode.hasFocus) {
       _focusNode.requestFocus();
     }
@@ -589,6 +602,10 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
 
   void _submitPin() {
     if (_verifying) return;
+    if (_isThrottled) {
+      _loadThrottleState();
+      return;
+    }
 
     if (_pin.length < _minPinLength) {
       setState(() => _error = 'PIN must be at least 4 digits.');
@@ -602,6 +619,14 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     if (!_canSubmitPin) return;
 
     final enteredPin = _pin;
+    final pinAuth = ref.read(pinAuthProvider);
+    final throttleDelay = await pinAuth.getThrottleDelay();
+    if (!mounted) return;
+    if (throttleDelay > Duration.zero) {
+      _applyThrottle(throttleDelay);
+      return;
+    }
+
     setState(() {
       _verifying = true;
       _error = null;
@@ -609,7 +634,6 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
 
-    final pinAuth = ref.read(pinAuthProvider);
     final valid = await pinAuth.verifyPin(enteredPin);
     if (!mounted) return;
 
@@ -618,17 +642,75 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
       return;
     }
 
+    final nextThrottleDelay = await pinAuth.getThrottleDelay();
+    if (!mounted) return;
+
     setState(() {
       _pin = '';
-      _error = 'Wrong PIN. Try again.';
+      _error = nextThrottleDelay > Duration.zero
+          ? null
+          : 'Wrong PIN. Try again.';
       _verifying = false;
     });
-    _focusNode.requestFocus();
+
+    if (nextThrottleDelay > Duration.zero) {
+      _applyThrottle(nextThrottleDelay);
+    } else {
+      _focusNode.requestFocus();
+    }
+  }
+
+  void _applyThrottle(Duration remaining) {
+    _throttleTimer?.cancel();
+    final rounded = _roundThrottle(remaining);
+
+    setState(() {
+      _throttleRemaining = rounded;
+      if (rounded > Duration.zero) {
+        _error = null;
+      }
+    });
+
+    if (rounded <= Duration.zero) return;
+
+    _throttleTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      final next = _throttleRemaining - const Duration(seconds: 1);
+      if (next <= Duration.zero) {
+        timer.cancel();
+        setState(() => _throttleRemaining = Duration.zero);
+        _focusNode.requestFocus();
+      } else {
+        setState(() => _throttleRemaining = next);
+      }
+    });
+  }
+
+  Duration _roundThrottle(Duration remaining) {
+    if (remaining <= Duration.zero) return Duration.zero;
+    return Duration(seconds: (remaining.inMilliseconds + 999) ~/ 1000);
+  }
+
+  String _formatThrottle(Duration remaining) {
+    final totalSeconds = remaining.inSeconds;
+    if (totalSeconds < 60) return '${totalSeconds}s';
+
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    if (seconds == 0) return '${minutes}m';
+    return '${minutes}m ${seconds}s';
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final throttleMessage = _isThrottled
+        ? 'Too many wrong PIN attempts. Try again in ${_formatThrottle(_throttleRemaining)}.'
+        : null;
 
     return Scaffold(
       body: KeyboardListener(
@@ -664,7 +746,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
                               ? colorScheme.primary
                               : Colors.transparent,
                           border: Border.all(
-                            color: _error != null
+                            color: _error != null || _isThrottled
                                 ? colorScheme.error
                                 : colorScheme.primary,
                             width: 2,
@@ -673,7 +755,17 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
                       );
                     }),
                   ),
-                  if (_error != null) ...[
+                  if (throttleMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      throttleMessage,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: colorScheme.error,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ] else if (_error != null) ...[
                     const SizedBox(height: 12),
                     Text(
                       _error!,
@@ -747,7 +839,8 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
               height: 56,
               margin: const EdgeInsets.symmetric(horizontal: 8),
               child: ElevatedButton(
-                onPressed: _verifying ? null : () => _onDigitPressed(key),
+                onPressed:
+                    (_verifying || _isThrottled) ? null : () => _onDigitPressed(key),
                 style: ElevatedButton.styleFrom(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

@@ -20,6 +20,8 @@ class KeyStorage {
   static const String _pinHashKey = 'gitvault_pin_hash';
   static const String _pinSaltKey = 'gitvault_pin_salt';
   static const String _pinLengthKey = 'gitvault_pin_length';
+  static const String _pinFailedAttemptsKey = 'gitvault_pin_failed_attempts';
+  static const String _pinThrottleUntilKey = 'gitvault_pin_throttle_until';
   static const String _autoSyncIntervalKey = 'gitvault_auto_sync_interval';
   static const String _localDeviceNameKey = 'gitvault_local_device_name';
   static const String _deviceRegistryKey = 'gitvault_device_registry';
@@ -221,6 +223,40 @@ class KeyStorage {
     await _box.put(_pinLengthKey, length.toString());
   }
 
+  /// Retrieves failed PIN attempt count
+  Future<int> getPinFailedAttempts() async {
+    _ensureInitialized();
+    final value = _box.get(_pinFailedAttemptsKey);
+    return int.tryParse(value ?? '') ?? 0;
+  }
+
+  /// Stores failed PIN attempt count
+  Future<void> storePinFailedAttempts(int attempts) async {
+    _ensureInitialized();
+    await _box.put(_pinFailedAttemptsKey, attempts.toString());
+  }
+
+  /// Retrieves PIN throttle expiry time
+  Future<DateTime?> getPinThrottleUntil() async {
+    _ensureInitialized();
+    final value = _box.get(_pinThrottleUntilKey);
+    if (value == null) return null;
+    return DateTime.tryParse(value);
+  }
+
+  /// Stores PIN throttle expiry time
+  Future<void> storePinThrottleUntil(DateTime until) async {
+    _ensureInitialized();
+    await _box.put(_pinThrottleUntilKey, until.toIso8601String());
+  }
+
+  /// Clears failed PIN attempt and throttle state
+  Future<void> clearPinThrottle() async {
+    _ensureInitialized();
+    await _box.delete(_pinFailedAttemptsKey);
+    await _box.delete(_pinThrottleUntilKey);
+  }
+
   /// Checks if PIN is configured
   Future<bool> hasPinSetup() async {
     _ensureInitialized();
@@ -233,6 +269,7 @@ class KeyStorage {
     await _box.delete(_pinHashKey);
     await _box.delete(_pinSaltKey);
     await _box.delete(_pinLengthKey);
+    await clearPinThrottle();
   }
 
   /// Stores auto-sync interval in minutes (0 = off)
