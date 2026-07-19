@@ -21,6 +21,7 @@ import 'features/ssh/ssh_screen.dart';
 import 'features/notes/notes_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/autofill/autofill_select_screen.dart';
+import 'utils/pointer_focus.dart';
 
 /// Extract the registered domain from a URL string (strips www.).
 String? _extractDomain(String? url) {
@@ -260,6 +261,26 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
 
   Future<void> _attemptBiometric() async {
     final biometricEnabled = ref.read(biometricEnabledProvider);
+    if (kIsWeb) {
+      final pinAuth = ref.read(pinAuthProvider);
+      final hasPIN = await pinAuth.isPinSetup();
+      if (!mounted) return;
+
+      if (hasPIN) {
+        setState(() {
+          _showPinEntry = true;
+          _checking = false;
+        });
+      } else {
+        setState(() {
+          _authenticated = true;
+          _checking = false;
+        });
+        _pollPendingAutofill();
+      }
+      return;
+    }
+
     if (!biometricEnabled) {
       // Biometric disabled — check if PIN is set up
       final pinAuth = ref.read(pinAuthProvider);
@@ -367,11 +388,22 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _authenticated = true;
-          _checking = false;
-        });
-        _pollPendingAutofill();
+        final pinAuth = ref.read(pinAuthProvider);
+        final hasPIN = await pinAuth.isPinSetup();
+        if (!mounted) return;
+
+        if (hasPIN) {
+          setState(() {
+            _checking = false;
+            _showPinEntry = true;
+          });
+        } else {
+          setState(() {
+            _authenticated = true;
+            _checking = false;
+          });
+          _pollPendingAutofill();
+        }
       }
     }
   }
@@ -479,9 +511,12 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   static final RegExp _digitPattern = RegExp(r'^\d$');
 
   late final FocusNode _focusNode;
+  late final FocusNode _webPinInputFocus;
+  late final TextEditingController _webPinInputController;
   String _pin = '';
   String? _error;
   bool _verifying = false;
+  bool _syncingWebPinInput = false;
   Duration _throttleRemaining = Duration.zero;
   Timer? _throttleTimer;
   int? _pinLength;
@@ -498,12 +533,24 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   void initState() {
     super.initState();
     _focusNode = FocusNode();
+    _webPinInputFocus = FocusNode();
+    _webPinInputController = TextEditingController();
     _loadPinLength();
     _loadThrottleState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        _focusNode.requestFocus();
+        _requestKeyboardFocus();
+        if (kIsWeb) {
+          Future<void>.delayed(
+            const Duration(milliseconds: 150),
+            _requestKeyboardFocus,
+          );
+          Future<void>.delayed(
+            const Duration(milliseconds: 500),
+            _requestKeyboardFocus,
+          );
+        }
       }
     });
   }
@@ -511,8 +558,44 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   @override
   void dispose() {
     _throttleTimer?.cancel();
+    _pin = '';
+    _clearWebPinInput();
+    _webPinInputController.dispose();
+    _webPinInputFocus.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _requestKeyboardFocus() {
+    if (!mounted) return;
+    if (kIsWeb) {
+      FocusScope.of(context).requestFocus(_webPinInputFocus);
+    } else {
+      FocusScope.of(context).requestFocus(_focusNode);
+    }
+  }
+
+  void _syncWebPinInput() {
+    if (!kIsWeb || _webPinInputController.text == _pin) return;
+    _syncingWebPinInput = true;
+    try {
+      _webPinInputController.value = TextEditingValue(
+        text: _pin,
+        selection: TextSelection.collapsed(offset: _pin.length),
+      );
+    } finally {
+      _syncingWebPinInput = false;
+    }
+  }
+
+  void _clearWebPinInput() {
+    if (!kIsWeb) return;
+    _syncingWebPinInput = true;
+    try {
+      _webPinInputController.clear();
+    } finally {
+      _syncingWebPinInput = false;
+    }
   }
 
   Future<void> _loadPinLength() async {
@@ -534,6 +617,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
 
   void _handleKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return;
+    if (kIsWeb && _webPinInputFocus.hasFocus) return;
 
     final key = event.logicalKey;
     final digit = _digitForKey(key);
@@ -572,31 +656,60 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
 
   void _onDigitPressed(String digit) {
     if (_verifying || _isThrottled || _pin.length >= _maxPinLength) return;
-    if (!_focusNode.hasFocus) {
-      _focusNode.requestFocus();
+    if (!_focusNode.hasFocus && !(_webPinInputFocus.hasFocus && kIsWeb)) {
+      _requestKeyboardFocus();
     }
 
     setState(() {
       _pin += digit;
       _error = null;
     });
+    _syncWebPinInput();
 
     final pinLength = _pinLength;
     if ((pinLength != null && _pin.length == pinLength) ||
         (pinLength == null && _pin.length == _maxPinLength)) {
-      _verifyPin();
+      _verifyPin(enteredPinOverride: _pin);
     }
   }
 
   void _onBackspace() {
     if (_pin.isNotEmpty && !_verifying) {
       if (!_focusNode.hasFocus) {
-        _focusNode.requestFocus();
+        _requestKeyboardFocus();
       }
       setState(() {
         _pin = _pin.substring(0, _pin.length - 1);
         _error = null;
       });
+      _syncWebPinInput();
+    }
+  }
+
+  void _onWebPinInputChanged(String value) {
+    if (!kIsWeb || _syncingWebPinInput || value == _pin) return;
+    if (_verifying || _isThrottled) {
+      _syncWebPinInput();
+      return;
+    }
+
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    final nextPin = digits.length > _maxPinLength
+        ? digits.substring(0, _maxPinLength)
+        : digits;
+
+    setState(() {
+      _pin = nextPin;
+      if (nextPin.isNotEmpty) {
+        _error = null;
+      }
+    });
+    _syncWebPinInput();
+
+    final pinLength = _pinLength;
+    if ((pinLength != null && nextPin.length == pinLength) ||
+        (pinLength == null && nextPin.length == _maxPinLength)) {
+      _verifyPin(enteredPinOverride: nextPin);
     }
   }
 
@@ -612,13 +725,22 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
       return;
     }
 
-    _verifyPin();
+    _verifyPin(enteredPinOverride: _pin);
   }
 
-  Future<void> _verifyPin() async {
-    if (!_canSubmitPin) return;
+  Future<void> _verifyPin({String? enteredPinOverride}) async {
+    if (_verifying) return;
+    if (_isThrottled) {
+      _loadThrottleState();
+      return;
+    }
 
-    final enteredPin = _pin;
+    final enteredPin = enteredPinOverride ?? _pin;
+    if (enteredPin.length < _minPinLength ||
+        enteredPin.length > _maxPinLength) {
+      return;
+    }
+
     final pinAuth = ref.read(pinAuthProvider);
     final throttleDelay = await pinAuth.getThrottleDelay();
     if (!mounted) return;
@@ -638,6 +760,8 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     if (!mounted) return;
 
     if (valid) {
+      _pin = '';
+      _clearWebPinInput();
       widget.onSuccess();
       return;
     }
@@ -647,16 +771,16 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
 
     setState(() {
       _pin = '';
-      _error = nextThrottleDelay > Duration.zero
-          ? null
-          : 'Wrong PIN. Try again.';
+      _error =
+          nextThrottleDelay > Duration.zero ? null : 'Wrong PIN. Try again.';
       _verifying = false;
     });
+    _syncWebPinInput();
 
     if (nextThrottleDelay > Duration.zero) {
       _applyThrottle(nextThrottleDelay);
     } else {
-      _focusNode.requestFocus();
+      _requestKeyboardFocus();
     }
   }
 
@@ -683,7 +807,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
       if (next <= Duration.zero) {
         timer.cancel();
         setState(() => _throttleRemaining = Duration.zero);
-        _focusNode.requestFocus();
+        _requestKeyboardFocus();
       } else {
         setState(() => _throttleRemaining = next);
       }
@@ -711,89 +835,160 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     final throttleMessage = _isThrottled
         ? 'Too many wrong PIN attempts. Try again in ${_formatThrottle(_throttleRemaining)}.'
         : null;
+    final webPinError = kIsWeb ? throttleMessage ?? _error : null;
 
     return Scaffold(
       body: KeyboardListener(
         focusNode: _focusNode,
         autofocus: true,
         onKeyEvent: _handleKeyEvent,
-        child: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.lock, size: 48, color: colorScheme.primary),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Enter PIN',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 24),
-                  // PIN dots
-                  Row(
+        child: Listener(
+          onPointerDown: (_) => _requestKeyboardFocus(),
+          child: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Semantics(
+                  container: true,
+                  label: 'GitVault is locked. Enter your PIN to unlock.',
+                  explicitChildNodes: true,
+                  child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(6, (i) {
-                      final filled = i < _pin.length;
-                      return Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
-                        width: 16,
-                        height: 16,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: filled
-                              ? colorScheme.primary
-                              : Colors.transparent,
-                          border: Border.all(
-                            color: _error != null || _isThrottled
-                                ? colorScheme.error
-                                : colorScheme.primary,
-                            width: 2,
+                    children: [
+                      Icon(Icons.lock, size: 48, color: colorScheme.primary),
+                      const SizedBox(height: 16),
+                      Semantics(
+                        header: true,
+                        child: Text(
+                          'Enter PIN',
+                          style: TextStyle(
+                              fontSize: 24, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      if (kIsWeb)
+                        _buildWebPinInput(colorScheme, webPinError)
+                      else
+                        _buildPinDots(colorScheme),
+                      if (!kIsWeb && throttleMessage != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          throttleMessage,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: colorScheme.error,
+                            fontSize: 14,
                           ),
                         ),
-                      );
-                    }),
+                      ] else if (!kIsWeb && _error != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          _error!,
+                          style: TextStyle(
+                            color: colorScheme.error,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ] else if (_verifying) ...[
+                        const SizedBox(height: 12),
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ],
+                      const SizedBox(height: 32),
+                      ..._buildKeypad(colorScheme),
+                      if (!kIsWeb) ...[
+                        const SizedBox(height: 16),
+                        TextButton.icon(
+                          onPressed: widget.onRetryBiometric,
+                          icon: const Icon(Icons.fingerprint),
+                          label: const Text('Use Biometrics'),
+                        ),
+                      ],
+                    ],
                   ),
-                  if (throttleMessage != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      throttleMessage,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: colorScheme.error,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ] else if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _error!,
-                      style: TextStyle(
-                        color: colorScheme.error,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ] else if (_verifying) ...[
-                    const SizedBox(height: 12),
-                    const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ],
-                  const SizedBox(height: 32),
-                  // Numeric keypad
-                  ..._buildKeypad(colorScheme),
-                  const SizedBox(height: 16),
-                  TextButton.icon(
-                    onPressed: widget.onRetryBiometric,
-                    icon: const Icon(Icons.fingerprint),
-                    label: const Text('Use Biometrics'),
-                  ),
-                ],
+                ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPinDots(ColorScheme colorScheme) {
+    return Semantics(
+      label:
+          'PIN entry, ${_pin.length} of ${_pinLength ?? _maxPinLength} digits entered',
+      child: ExcludeSemantics(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(6, (i) {
+            final filled = i < _pin.length;
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: filled ? colorScheme.primary : Colors.transparent,
+                border: Border.all(
+                  color: _error != null || _isThrottled
+                      ? colorScheme.error
+                      : colorScheme.primary,
+                  width: 2,
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWebPinInput(ColorScheme colorScheme, String? errorText) {
+    return Semantics(
+      textField: true,
+      label: 'GitVault PIN input',
+      value: '${_pin.length} of ${_pinLength ?? _maxPinLength} digits entered',
+      child: SizedBox(
+        width: 220,
+        child: PointerFocus(
+          focusNode: _webPinInputFocus,
+          child: TextField(
+            controller: _webPinInputController,
+            focusNode: _webPinInputFocus,
+            autofocus: true,
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            maxLength: _maxPinLength,
+            readOnly: _isThrottled,
+            textAlign: TextAlign.center,
+            enableInteractiveSelection: false,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(_maxPinLength),
+            ],
+            decoration: InputDecoration(
+              labelText: 'GitVault PIN',
+              counterText: '',
+              errorText: errorText,
+              errorMaxLines: 2,
+              border: const OutlineInputBorder(),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: colorScheme.primary),
+              ),
+            ),
+            style: const TextStyle(
+              fontSize: 24,
+              letterSpacing: 8,
+            ),
+            onTap: _requestKeyboardFocus,
+            onChanged: _onWebPinInputChanged,
+            onSubmitted: (_) => _submitPin(),
           ),
         ),
       ),
@@ -818,9 +1013,16 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
               return SizedBox(
                 width: 72,
                 height: 56,
-                child: TextButton(
-                  onPressed: _canSubmitPin ? _submitPin : null,
-                  child: const Icon(Icons.check),
+                child: Semantics(
+                  label: 'Submit PIN',
+                  button: true,
+                  enabled: _canSubmitPin,
+                  child: ExcludeSemantics(
+                    child: TextButton(
+                      onPressed: _canSubmitPin ? _submitPin : null,
+                      child: const Icon(Icons.check),
+                    ),
+                  ),
                 ),
               );
             }
@@ -828,9 +1030,17 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
               return SizedBox(
                 width: 72,
                 height: 56,
-                child: TextButton(
-                  onPressed: _verifying ? null : _onBackspace,
-                  child: const Icon(Icons.backspace_outlined),
+                child: Semantics(
+                  label: 'Delete digit',
+                  button: true,
+                  enabled: !_verifying && !_isThrottled,
+                  child: ExcludeSemantics(
+                    child: TextButton(
+                      onPressed:
+                          (_verifying || _isThrottled) ? null : _onBackspace,
+                      child: const Icon(Icons.backspace_outlined),
+                    ),
+                  ),
                 ),
               );
             }
@@ -838,15 +1048,23 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
               width: 72,
               height: 56,
               margin: const EdgeInsets.symmetric(horizontal: 8),
-              child: ElevatedButton(
-                onPressed:
-                    (_verifying || _isThrottled) ? null : () => _onDigitPressed(key),
-                style: ElevatedButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+              child: Semantics(
+                label: 'Digit $key',
+                button: true,
+                enabled: !_verifying && !_isThrottled,
+                child: ExcludeSemantics(
+                  child: ElevatedButton(
+                    onPressed: (_verifying || _isThrottled)
+                        ? null
+                        : () => _onDigitPressed(key),
+                    style: ElevatedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(key, style: const TextStyle(fontSize: 24)),
                   ),
                 ),
-                child: Text(key, style: const TextStyle(fontSize: 24)),
               ),
             );
           }).toList(),
@@ -867,16 +1085,11 @@ class MainScreen extends ConsumerStatefulWidget {
 class _MainScreenState extends ConsumerState<MainScreen> {
   static const double _railBreakpoint = 720;
   static const double _extendedRailBreakpoint = 1100;
+  static const double _mobileNavigationBarHeight = 80;
+  static const String _uiSettingsBoxName = 'ui_settings';
+  static const String _lastTabKey = 'last_tab_index';
 
-  int _currentIndex = 2; // Default to Notes tab
-
-  final _screens = const [
-    VaultScreen(),
-    TotpCodesPage(),
-    NotesScreen(),
-    SshScreen(),
-    SettingsScreen(),
-  ];
+  int _currentIndex = 0; // Default to Passwords tab
 
   static const _destinations = [
     _AppDestination(icon: Icons.password, label: 'Passwords'),
@@ -886,23 +1099,63 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     _AppDestination(icon: Icons.settings, label: 'Settings'),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadLastTab());
+  }
+
+  Future<void> _loadLastTab() async {
+    final box = await Hive.openBox<String>(_uiSettingsBoxName);
+    final storedIndex = int.tryParse(box.get(_lastTabKey) ?? '');
+    if (storedIndex == null ||
+        storedIndex < 0 ||
+        storedIndex >= _destinations.length ||
+        !mounted) {
+      return;
+    }
+
+    setState(() => _currentIndex = storedIndex);
+  }
+
   void _selectDestination(int index) {
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _currentIndex = index);
+    unawaited(_saveLastTab(index));
+  }
+
+  Future<void> _saveLastTab(int index) async {
+    final box = await Hive.openBox<String>(_uiSettingsBoxName);
+    await box.put(_lastTabKey, index.toString());
   }
 
   @override
   Widget build(BuildContext context) {
+    final screens = [
+      const VaultScreen(),
+      const TotpCodesPage(),
+      const NotesScreen(),
+      const SshScreen(),
+      SettingsScreen(isActive: _currentIndex == 4),
+    ];
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final useRail = constraints.maxWidth >= _railBreakpoint;
 
         if (!useRail) {
           return Scaffold(
-            body: IndexedStack(
-              index: _currentIndex,
-              children: _screens,
+            body: Padding(
+              padding: const EdgeInsets.only(
+                bottom: _mobileNavigationBarHeight,
+              ),
+              child: IndexedStack(
+                index: _currentIndex,
+                children: screens,
+              ),
             ),
             bottomNavigationBar: NavigationBar(
+              height: _mobileNavigationBarHeight,
               selectedIndex: _currentIndex,
               onDestinationSelected: _selectDestination,
               destinations: [
@@ -916,8 +1169,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           );
         }
 
-        final useExtendedRail =
-            constraints.maxWidth >= _extendedRailBreakpoint;
+        final useExtendedRail = constraints.maxWidth >= _extendedRailBreakpoint;
 
         return Scaffold(
           body: Row(
@@ -943,7 +1195,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               Expanded(
                 child: IndexedStack(
                   index: _currentIndex,
-                  children: _screens,
+                  children: screens,
                 ),
               ),
             ],

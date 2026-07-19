@@ -5,27 +5,33 @@ import '../../core/services/background_sync_service.dart';
 import '../../core/services/battery_optimization_manager.dart';
 import '../../core/services/connectivity_manager.dart';
 
+enum BackgroundSyncSettingsResult { setupGitHub }
+
 /// Background sync settings screen
 class BackgroundSyncSettings extends ConsumerStatefulWidget {
   const BackgroundSyncSettings({super.key});
 
   @override
-  ConsumerState<BackgroundSyncSettings> createState() => _BackgroundSyncSettingsState();
+  ConsumerState<BackgroundSyncSettings> createState() =>
+      _BackgroundSyncSettingsState();
 }
 
-class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings> {
+class _BackgroundSyncSettingsState
+    extends ConsumerState<BackgroundSyncSettings> {
   bool _isEnabled = false;
   int _syncInterval = 60;
   bool _requireWifi = false;
   bool _requireCharging = false;
   bool _isLoading = true;
   bool _isSyncing = false;
+  bool _hasGitHubCredentials = false;
 
   Map<String, dynamic>? _syncStats;
   BatteryOptimizationStatus? _batteryStatus;
   ConnectivityStatus? _connectivityStatus;
 
-  final BatteryOptimizationManager _batteryManager = BatteryOptimizationManager();
+  final BatteryOptimizationManager _batteryManager =
+      BatteryOptimizationManager();
   final ConnectivityManager _connectivityManager = ConnectivityManager();
 
   @override
@@ -39,11 +45,16 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
     final enabled = await BackgroundSyncService.isEnabled();
     final interval = await BackgroundSyncService.getSyncInterval();
     final stats = await BackgroundSyncService.getSyncStats();
+    final keyStorage = ref.read(keyStorageProvider);
+    await keyStorage.initialize();
+    final hasGitHubCredentials = await keyStorage.hasGitHubCredentials();
 
+    if (!mounted) return;
     setState(() {
-      _isEnabled = enabled;
+      _isEnabled = enabled && hasGitHubCredentials;
       _syncInterval = interval;
       _syncStats = stats;
+      _hasGitHubCredentials = hasGitHubCredentials;
       _isLoading = false;
     });
   }
@@ -52,6 +63,7 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
     final battery = await _batteryManager.getOptimizationStatus();
     final connectivity = await _connectivityManager.getConnectivityStatus();
 
+    if (!mounted) return;
     setState(() {
       _batteryStatus = battery;
       _connectivityStatus = connectivity;
@@ -59,6 +71,11 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
   }
 
   Future<void> _toggleBackgroundSync(bool value) async {
+    if (!_hasGitHubCredentials) {
+      _showGitHubRequiredMessage();
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     if (value) {
@@ -127,6 +144,11 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
 
   Future<void> _triggerManualSync() async {
     if (_isSyncing) return;
+    if (!_hasGitHubCredentials) {
+      _showGitHubRequiredMessage();
+      return;
+    }
+
     setState(() => _isSyncing = true);
 
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -134,7 +156,11 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
       const SnackBar(
         content: Row(
           children: [
-            SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+            SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white)),
             SizedBox(width: 12),
             Text('Syncing with GitHub...'),
           ],
@@ -158,7 +184,8 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Sync complete — pushed: ${result.pushed}, pulled: ${result.pulled}${result.conflicts > 0 ? ", conflicts: ${result.conflicts}" : ""}'),
+            content: Text(
+                'Sync complete — pushed: ${result.pushed}, pulled: ${result.pulled}${result.conflicts > 0 ? ", conflicts: ${result.conflicts}" : ""}'),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 4),
           ),
@@ -182,6 +209,18 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
     }
   }
 
+  void _showGitHubRequiredMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Set up GitHub Sync first in Settings > Backup.'),
+      ),
+    );
+  }
+
+  void _requestGitHubSetup() {
+    Navigator.of(context).pop(BackgroundSyncSettingsResult.setupGitHub);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -197,7 +236,9 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
                 Card(
                   child: SwitchListTile(
                     title: const Text('Enable Background Sync'),
-                    subtitle: const Text('Automatically sync vault in background'),
+                    subtitle: Text(_hasGitHubCredentials
+                        ? 'Automatically sync vault in background'
+                        : 'Set up GitHub Sync first'),
                     value: _isEnabled,
                     onChanged: _toggleBackgroundSync,
                   ),
@@ -223,7 +264,8 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
                             max: 360,
                             divisions: 23,
                             label: '$_syncInterval min',
-                            onChanged: (value) => _updateInterval(value.toInt()),
+                            onChanged: (value) =>
+                                _updateInterval(value.toInt()),
                           ),
                           Text(
                             'More frequent sync uses more battery',
@@ -241,14 +283,16 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
                       children: [
                         SwitchListTile(
                           title: const Text('WiFi Only'),
-                          subtitle: const Text('When off, syncs on WiFi or mobile data'),
+                          subtitle: const Text(
+                              'When off, syncs on WiFi or mobile data'),
                           value: _requireWifi,
                           onChanged: _updateWifiRequirement,
                         ),
                         const Divider(height: 1),
                         SwitchListTile(
                           title: const Text('Charging Only'),
-                          subtitle: const Text('Sync only when device is charging'),
+                          subtitle:
+                              const Text('Sync only when device is charging'),
                           value: _requireCharging,
                           onChanged: _updateChargingRequirement,
                         ),
@@ -270,11 +314,22 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
 
                 // Manual Sync Button
                 ElevatedButton.icon(
-                  onPressed: _isSyncing ? null : _triggerManualSync,
+                  onPressed: _isSyncing
+                      ? null
+                      : _hasGitHubCredentials
+                          ? _triggerManualSync
+                          : _requestGitHubSetup,
                   icon: _isSyncing
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.sync),
-                  label: Text(_isSyncing ? 'Syncing...' : 'Sync Now'),
+                  label: Text(_isSyncing
+                      ? 'Syncing...'
+                      : _hasGitHubCredentials
+                          ? 'Sync Now'
+                          : 'Set Up GitHub Sync First'),
                 ),
               ],
             ),
@@ -370,6 +425,13 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
     final lastSuccess = stats['last_success'] as bool;
     final lastError = stats['last_error'] as String?;
     final failures = stats['consecutive_failures'] as int;
+    final status = !_hasGitHubCredentials
+        ? 'Not configured'
+        : lastSync == null && lastError == null
+            ? 'Never synced'
+            : lastSuccess
+                ? 'Success'
+                : 'Failed';
 
     return Card(
       child: Padding(
@@ -382,13 +444,12 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            _buildStatRow('Last Sync', lastSync != null
-                ? _formatDateTime(lastSync)
-                : 'Never'),
-            _buildStatRow('Status', lastSuccess ? 'Success' : 'Failed'),
-            if (lastError != null)
+            _buildStatRow('Last Sync',
+                lastSync != null ? _formatDateTime(lastSync) : 'Never'),
+            _buildStatRow('Status', status),
+            if (_hasGitHubCredentials && lastError != null)
               _buildStatRow('Last Error', lastError),
-            if (failures > 0)
+            if (_hasGitHubCredentials && failures > 0)
               _buildStatRow('Consecutive Failures', failures.toString()),
           ],
         ),
@@ -400,12 +461,15 @@ class _BackgroundSyncSettingsState extends ConsumerState<BackgroundSyncSettings>
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w500),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
           ),
         ],
       ),

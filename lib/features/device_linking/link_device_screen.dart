@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +11,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/providers/providers.dart';
 import '../../core/crypto/blind_handshake.dart';
 import '../../core/services/background_sync_service.dart';
+import '../../utils/constants.dart';
+import '../../utils/pointer_focus.dart';
 
 /// Screen for linking a new device via QR code + PIN
 class LinkDeviceScreen extends ConsumerStatefulWidget {
@@ -30,23 +35,30 @@ class _LinkDeviceScreenState extends ConsumerState<LinkDeviceScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.all(16.0),
-            child: SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(
-                  value: true,
-                  label: Text('This Device'),
-                  icon: Icon(Icons.qr_code),
-                ),
-                ButtonSegment(
-                  value: false,
-                  label: Text('New Device'),
-                  icon: Icon(Icons.qr_code_scanner),
-                ),
-              ],
-              selected: {_isSource},
-              onSelectionChanged: (Set<bool> selected) {
-                setState(() => _isSource = selected.first);
-              },
+            child: Semantics(
+              container: true,
+              label: 'Device linking role',
+              value: _isSource
+                  ? 'This device shows the QR code'
+                  : 'This device scans or pastes the transfer code',
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(
+                    value: true,
+                    label: Text('This Device'),
+                    icon: Icon(Icons.qr_code),
+                  ),
+                  ButtonSegment(
+                    value: false,
+                    label: Text('New Device'),
+                    icon: Icon(Icons.qr_code_scanner),
+                  ),
+                ],
+                selected: {_isSource},
+                onSelectionChanged: (Set<bool> selected) {
+                  setState(() => _isSource = selected.first);
+                },
+              ),
             ),
           ),
           Padding(
@@ -86,11 +98,35 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
   String? _error;
   bool _hasGitHub = false;
   bool _showTransferCode = false;
+  bool _transferCodeCopied = false;
+  final _scrollController = ScrollController();
+  Timer? _copyFeedbackTimer;
 
   @override
   void initState() {
     super.initState();
     _generatePayload();
+  }
+
+  @override
+  void dispose() {
+    _copyFeedbackTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _toggleTransferCode() {
+    setState(() => _showTransferCode = !_showTransferCode);
+    if (!_showTransferCode) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   Future<void> _generatePayload() async {
@@ -113,7 +149,8 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
       final githubToken = await keyStorage.getGitHubToken() ?? '';
       final repoOwner = await keyStorage.getRepoOwner() ?? '';
       final repoName = await keyStorage.getRepoName() ?? '';
-      final hasGitHub = githubToken.isNotEmpty && repoOwner.isNotEmpty && repoName.isNotEmpty;
+      final hasGitHub =
+          githubToken.isNotEmpty && repoOwner.isNotEmpty && repoName.isNotEmpty;
 
       final payload = await blindHandshake.generateLinkingPayload(
         rootKey: rootKey,
@@ -139,6 +176,18 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
     }
   }
 
+  void _refreshPayload() {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _payload = null;
+      _hasGitHub = false;
+      _showTransferCode = false;
+      _transferCodeCopied = false;
+    });
+    _generatePayload();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -157,10 +206,15 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
               const SizedBox(height: 16),
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              FilledButton(onPressed: () {
-                setState(() { _loading = true; _error = null; });
-                _generatePayload();
-              }, child: const Text('Retry')),
+              FilledButton(
+                  onPressed: () {
+                    setState(() {
+                      _loading = true;
+                      _error = null;
+                    });
+                    _generatePayload();
+                  },
+                  child: const Text('Retry')),
             ],
           ),
         ),
@@ -169,179 +223,271 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
 
     final payload = _payload!;
     final colorScheme = Theme.of(context).colorScheme;
-    return SingleChildScrollView(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                'Scan this QR code on your new device',
-                style: TextStyle(fontSize: 18),
-              ),
-              const SizedBox(height: 16),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = MediaQuery.sizeOf(context).width < 520;
+        final compact = constraints.maxHeight < 680 || narrow;
+        final revealCompact = _showTransferCode && constraints.maxHeight < 760;
+        final qrSize = narrow
+            ? (_showTransferCode ? 150.0 : 210.0)
+            : (revealCompact ? 150.0 : (compact ? 180.0 : 250.0));
+        final pagePadding = narrow ? 12.0 : (compact ? 16.0 : 24.0);
+        final sectionGap = revealCompact || narrow ? 12.0 : 24.0;
+        final pinFontSize =
+            narrow ? 32.0 : (revealCompact ? 28.0 : (compact ? 30.0 : 36.0));
 
-              // Show what will be transferred
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: _hasGitHub
-                      ? colorScheme.secondaryContainer
-                      : colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _hasGitHub ? Icons.cloud_done : Icons.cloud_off,
-                      size: 18,
-                      color: _hasGitHub
-                          ? colorScheme.onSecondaryContainer
-                          : colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _hasGitHub
-                          ? 'GitHub sync config will transfer automatically'
-                          : 'GitHub sync not configured on this device',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _hasGitHub
-                            ? colorScheme.onSecondaryContainer
-                            : colorScheme.onSurfaceVariant,
+        return Scrollbar(
+          controller: _scrollController,
+          thumbVisibility: kIsWeb,
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            padding: EdgeInsets.only(bottom: sectionGap),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Padding(
+                  padding: EdgeInsets.all(pagePadding),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        'Scan this QR code on your new device',
+                        style: TextStyle(fontSize: 18),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: colorScheme.surface,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: QrImageView(
-                  data: payload.qrData,
-                  version: QrVersions.auto,
-                  size: 250,
-                  eyeStyle: QrEyeStyle(color: colorScheme.onSurface),
-                  dataModuleStyle: QrDataModuleStyle(color: colorScheme.onSurface),
-                ),
-              ),
-              const SizedBox(height: 32),
-              const Text(
-                'Then enter this PIN:',
-                style: TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  payload.displayPIN,
-                  style: const TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 8,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'This code expires in 5 minutes',
-                style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'No camera on the new device?',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Copy this transfer code and paste it on the new device.',
-                      style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        FilledButton.tonalIcon(
-                          onPressed: () async {
-                            await Clipboard.setData(ClipboardData(text: payload.qrData));
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Transfer code copied')),
-                            );
-                          },
-                          icon: const Icon(Icons.copy),
-                          label: const Text('Copy Code'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => setState(() => _showTransferCode = !_showTransferCode),
-                          icon: Icon(_showTransferCode ? Icons.visibility_off : Icons.visibility),
-                          label: Text(_showTransferCode ? 'Hide Code' : 'Show Code'),
-                        ),
-                      ],
-                    ),
-                    if (_showTransferCode) ...[
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: colorScheme.surface,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: colorScheme.outlineVariant),
-                        ),
-                        constraints: const BoxConstraints(maxHeight: 140),
-                        child: SingleChildScrollView(
-                          child: SelectableText(
-                            payload.qrData,
-                            style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                      // Show what will be transferred
+                      Semantics(
+                        container: true,
+                        label: 'GitHub sync transfer status',
+                        value: _hasGitHub
+                            ? 'GitHub sync config will transfer automatically'
+                            : 'GitHub sync is not configured on this device',
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _hasGitHub
+                                ? colorScheme.secondaryContainer
+                                : colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _hasGitHub ? Icons.cloud_done : Icons.cloud_off,
+                                size: 18,
+                                color: _hasGitHub
+                                    ? colorScheme.onSecondaryContainer
+                                    : colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _hasGitHub
+                                    ? 'GitHub sync config will transfer automatically'
+                                    : 'GitHub sync not configured on this device',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _hasGitHub
+                                      ? colorScheme.onSecondaryContainer
+                                      : colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
+                      SizedBox(height: sectionGap),
+
+                      Semantics(
+                        image: true,
+                        label: 'Device linking QR code',
+                        value: 'Scan this code on the new device',
+                        child: Container(
+                          padding: EdgeInsets.all(compact ? 10 : 16),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surface,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: ExcludeSemantics(
+                            child: QrImageView(
+                              data: payload.qrData,
+                              version: QrVersions.auto,
+                              size: qrSize,
+                              eyeStyle:
+                                  QrEyeStyle(color: colorScheme.onSurface),
+                              dataModuleStyle: QrDataModuleStyle(
+                                  color: colorScheme.onSurface),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: compact ? 18 : 32),
+                      const Text(
+                        'Then enter this PIN:',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      Semantics(
+                        container: true,
+                        label: 'Device linking PIN',
+                        value: payload.displayPIN.split('').join(' '),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: ExcludeSemantics(
+                            child: Text(
+                              payload.displayPIN,
+                              style: TextStyle(
+                                fontSize: pinFontSize,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 8,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: compact ? 12 : 16),
+                      Text(
+                        'This code expires in 5 minutes',
+                        style: TextStyle(
+                            fontSize: 12, color: colorScheme.onSurfaceVariant),
+                      ),
+                      SizedBox(height: compact ? 12 : 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'No camera on the new device?',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Copy this transfer code and paste it on the new device.',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: colorScheme.onSurfaceVariant),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                Tooltip(
+                                  message: 'Copy transfer code',
+                                  child: FilledButton.tonalIcon(
+                                    onPressed: () async {
+                                      await Clipboard.setData(
+                                          ClipboardData(text: payload.qrData));
+                                      if (!mounted) return;
+                                      _copyFeedbackTimer?.cancel();
+                                      setState(
+                                          () => _transferCodeCopied = true);
+                                      _copyFeedbackTimer = Timer(
+                                        const Duration(seconds: 2),
+                                        () {
+                                          if (mounted) {
+                                            setState(() =>
+                                                _transferCodeCopied = false);
+                                          }
+                                        },
+                                      );
+                                      ScaffoldMessenger.of(context)
+                                        ..hideCurrentSnackBar()
+                                        ..showSnackBar(
+                                          const SnackBar(
+                                            content:
+                                                Text('Transfer code copied'),
+                                            duration: Duration(seconds: 2),
+                                            behavior: SnackBarBehavior.floating,
+                                            margin: EdgeInsets.fromLTRB(
+                                                16, 0, 16, 88),
+                                          ),
+                                        );
+                                    },
+                                    icon: Icon(_transferCodeCopied
+                                        ? Icons.check
+                                        : Icons.copy),
+                                    label: Text(_transferCodeCopied
+                                        ? 'Copied'
+                                        : 'Copy Code'),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message: _showTransferCode
+                                      ? 'Hide transfer code'
+                                      : 'Show transfer code',
+                                  child: OutlinedButton.icon(
+                                    onPressed: _toggleTransferCode,
+                                    icon: Icon(_showTransferCode
+                                        ? Icons.visibility_off
+                                        : Icons.visibility),
+                                    label: Text(_showTransferCode
+                                        ? 'Hide Code'
+                                        : 'Show Code'),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message: 'Generate a fresh QR code and PIN',
+                                  child: OutlinedButton.icon(
+                                    onPressed: _refreshPayload,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Generate New Code'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_showTransferCode) ...[
+                              const SizedBox(height: 10),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                      color: colorScheme.outlineVariant),
+                                ),
+                                constraints:
+                                    const BoxConstraints(maxHeight: 140),
+                                child: Semantics(
+                                  textField: true,
+                                  readOnly: true,
+                                  label: 'Transfer code text',
+                                  child: SingleChildScrollView(
+                                    child: SelectableText(
+                                      payload.qrData,
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          fontFamily: 'monospace'),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ],
-                  ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 24),
-              OutlinedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _loading = true;
-                    _error = null;
-                    _payload = null;
-                    _hasGitHub = false;
-                    _showTransferCode = false;
-                  });
-                  _generatePayload();
-                },
-                icon: const Icon(Icons.refresh),
-                label: const Text('Generate New Code'),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -359,7 +505,11 @@ class _ScanQRView extends ConsumerStatefulWidget {
 class _ScanQRViewState extends ConsumerState<_ScanQRView> {
   final _pinController = TextEditingController();
   final _codeController = TextEditingController();
+  final _pinFocus = FocusNode();
+  final _codeFocus = FocusNode();
   String? _scannedData;
+  String? _codeError;
+  String? _pinError;
   late _LinkInputMethod _inputMethod;
   bool _linking = false;
   String _statusMessage = '';
@@ -372,8 +522,12 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
 
   @override
   void dispose() {
+    _pinController.clear();
+    _codeController.clear();
     _pinController.dispose();
     _codeController.dispose();
+    _pinFocus.dispose();
+    _codeFocus.dispose();
     super.dispose();
   }
 
@@ -392,38 +546,53 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          SegmentedButton<_LinkInputMethod>(
-            segments: const [
-              ButtonSegment(
-                value: _LinkInputMethod.scan,
-                icon: Icon(Icons.qr_code_scanner),
-                label: Text('Scan QR'),
-              ),
-              ButtonSegment(
-                value: _LinkInputMethod.paste,
-                icon: Icon(Icons.paste),
-                label: Text('Paste Code'),
-              ),
-            ],
-            selected: {_inputMethod},
-            onSelectionChanged: (selected) {
-              setState(() => _inputMethod = selected.first);
-            },
+          Semantics(
+            container: true,
+            label: 'Transfer code input method',
+            value: _inputMethod == _LinkInputMethod.scan
+                ? 'Scan QR'
+                : 'Paste code',
+            child: SegmentedButton<_LinkInputMethod>(
+              segments: [
+                if (!kIsWeb)
+                  const ButtonSegment(
+                    value: _LinkInputMethod.scan,
+                    icon: Icon(Icons.qr_code_scanner),
+                    label: Text('Scan QR'),
+                  ),
+                const ButtonSegment(
+                  value: _LinkInputMethod.paste,
+                  icon: Icon(Icons.paste),
+                  label: Text('Paste Code'),
+                ),
+              ],
+              selected: {_inputMethod},
+              onSelectionChanged: (selected) {
+                setState(() {
+                  _inputMethod = selected.first;
+                  _codeError = null;
+                });
+              },
+            ),
           ),
           const SizedBox(height: 16),
           if (_inputMethod == _LinkInputMethod.scan) ...[
             Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: MobileScanner(
-                  onDetect: (capture) {
-                    for (final barcode in capture.barcodes) {
-                      if (barcode.rawValue != null) {
-                        setState(() => _scannedData = barcode.rawValue);
-                        break;
+              child: Semantics(
+                label: 'QR scanner camera preview',
+                value: 'Point camera at the QR code on the existing device',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: MobileScanner(
+                    onDetect: (capture) {
+                      for (final barcode in capture.barcodes) {
+                        if (barcode.rawValue != null) {
+                          _acceptTransferCode(barcode.rawValue!);
+                          break;
+                        }
                       }
-                    }
-                  },
+                    },
+                  ),
                 ),
               ),
             ),
@@ -432,10 +601,22 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
               'Scan the QR shown on your existing device.',
               style: TextStyle(color: colorScheme.onSurfaceVariant),
             ),
-            TextButton.icon(
-              onPressed: () => setState(() => _inputMethod = _LinkInputMethod.paste),
-              icon: const Icon(Icons.paste),
-              label: const Text('Use Transfer Code Instead'),
+            if (_codeError != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _codeError!,
+                style: TextStyle(color: colorScheme.error),
+                textAlign: TextAlign.center,
+              ),
+            ],
+            Tooltip(
+              message: 'Switch to transfer code entry',
+              child: TextButton.icon(
+                onPressed: () =>
+                    setState(() => _inputMethod = _LinkInputMethod.paste),
+                icon: const Icon(Icons.paste),
+                label: const Text('Use Transfer Code Instead'),
+              ),
             ),
           ] else ...[
             Container(
@@ -455,17 +636,29 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
                   const SizedBox(height: 8),
                   Text(
                     'On the existing device, open Link Device and tap "Copy Code".',
-                    style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                    style: TextStyle(
+                        fontSize: 12, color: colorScheme.onSurfaceVariant),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _codeController,
-                    minLines: 4,
-                    maxLines: 6,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                    decoration: const InputDecoration(
-                      hintText: 'Paste transfer code here',
-                      border: OutlineInputBorder(),
+                  PointerFocus(
+                    focusNode: _codeFocus,
+                    child: TextField(
+                      controller: _codeController,
+                      focusNode: _codeFocus,
+                      minLines: 4,
+                      maxLines: 6,
+                      style: const TextStyle(
+                          fontFamily: 'monospace', fontSize: 12),
+                      onChanged: (_) {
+                        if (_codeError != null) {
+                          setState(() => _codeError = null);
+                        }
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Paste transfer code here',
+                        border: const OutlineInputBorder(),
+                        errorText: _codeError,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -473,14 +666,20 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      OutlinedButton.icon(
-                        onPressed: _pasteFromClipboard,
-                        icon: const Icon(Icons.content_paste),
-                        label: const Text('Paste from Clipboard'),
+                      Tooltip(
+                        message: 'Paste transfer code from clipboard',
+                        child: OutlinedButton.icon(
+                          onPressed: _pasteFromClipboard,
+                          icon: const Icon(Icons.content_paste),
+                          label: const Text('Paste from Clipboard'),
+                        ),
                       ),
-                      FilledButton(
-                        onPressed: _acceptManualCode,
-                        child: const Text('Continue'),
+                      Tooltip(
+                        message: 'Continue to PIN entry',
+                        child: FilledButton(
+                          onPressed: _acceptManualCode,
+                          child: const Text('Continue'),
+                        ),
                       ),
                     ],
                   ),
@@ -510,52 +709,78 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
             Icon(Icons.check_circle, size: 64, color: colorScheme.tertiary),
             const SizedBox(height: 16),
             const Text(
-              'QR Code Scanned!',
+              'Transfer Code Accepted',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 32),
             const Text('Now enter the 6-digit PIN shown on the other device:'),
             const SizedBox(height: 16),
-            TextField(
-              controller: _pinController,
-              decoration: const InputDecoration(
-                labelText: 'PIN',
-                border: OutlineInputBorder(),
-                counterText: '',
+            PointerFocus(
+              focusNode: _pinFocus,
+              child: TextField(
+                controller: _pinController,
+                focusNode: _pinFocus,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'PIN',
+                  border: const OutlineInputBorder(),
+                  counterText: '',
+                  errorText: _pinError,
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 24, letterSpacing: 8),
+                textInputAction: TextInputAction.done,
+                onChanged: (_) {
+                  if (_pinError != null) {
+                    setState(() => _pinError = null);
+                  }
+                },
+                onSubmitted: (_) => _linking ? null : _verifyAndLink(),
               ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 6,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24, letterSpacing: 8),
             ),
             const SizedBox(height: 24),
             if (_linking && _statusMessage.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Text(
-                        _statusMessage,
-                        style: TextStyle(color: colorScheme.onSurfaceVariant),
+              Semantics(
+                liveRegion: true,
+                label: 'Device linking status',
+                value: _statusMessage,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          _statusMessage,
+                          style: TextStyle(color: colorScheme.onSurfaceVariant),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
-            FilledButton(
-              onPressed: _linking ? null : _verifyAndLink,
-              child: _linking
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Link Device'),
+            Tooltip(
+              message: 'Verify PIN and link this device',
+              child: FilledButton(
+                onPressed: _linking ? null : _verifyAndLink,
+                child: _linking
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Text('Link Device'),
+              ),
             ),
             const SizedBox(height: 16),
             TextButton(
@@ -564,6 +789,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
                   : () => setState(() {
                         _scannedData = null;
                         _pinController.clear();
+                        _pinError = null;
                       }),
               child: const Text('Use Another Code'),
             ),
@@ -583,31 +809,58 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       );
       return;
     }
-    setState(() => _codeController.text = text);
+    setState(() {
+      _codeController.text = text;
+      _codeError = null;
+    });
   }
 
   void _acceptManualCode() {
     final code = _codeController.text.trim();
-    if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please paste transfer code first')),
-      );
+    _acceptTransferCode(code);
+  }
+
+  void _acceptTransferCode(String code) {
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) {
+      setState(() => _codeError = 'Please paste transfer code first');
       return;
     }
-    setState(() => _scannedData = code);
+
+    if (!_looksLikeTransferCode(trimmed)) {
+      setState(() {
+        _codeError =
+            'This is not a valid GitVault transfer code. Copy the full code from Link New Device.';
+      });
+      return;
+    }
+
+    setState(() {
+      _scannedData = trimmed;
+      _codeError = null;
+      _pinError = null;
+    });
+  }
+
+  bool _looksLikeTransferCode(String code) {
+    try {
+      final bytes = base64Decode(code);
+      return bytes.length > Constants.nonceSize + Constants.macSize;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _verifyAndLink() async {
     if (_pinController.text.length != 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PIN must be 6 digits')),
-      );
+      setState(() => _pinError = 'PIN must be 6 digits');
       return;
     }
 
     setState(() {
       _linking = true;
       _statusMessage = 'Verifying PIN...';
+      _pinError = null;
     });
 
     try {
@@ -650,20 +903,25 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
 
       // Prompt for device name
       final nameController = TextEditingController(text: 'Linked Device');
+      final nameFocus = FocusNode();
       final deviceName = await showDialog<String>(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
           title: const Text('Name This Device'),
-          content: TextField(
-            controller: nameController,
-            decoration: const InputDecoration(
-              labelText: 'Device Name',
-              hintText: 'e.g., My Pixel, Work Phone',
-              border: OutlineInputBorder(),
+          content: PointerFocus(
+            focusNode: nameFocus,
+            child: TextField(
+              controller: nameController,
+              focusNode: nameFocus,
+              decoration: const InputDecoration(
+                labelText: 'Device Name',
+                hintText: 'e.g., My Pixel, Work Phone',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
             ),
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
           ),
           actions: [
             FilledButton(
@@ -673,6 +931,10 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
           ],
         ),
       );
+
+      nameController.clear();
+      nameController.dispose();
+      nameFocus.dispose();
 
       if (!mounted) return;
 
@@ -750,15 +1012,21 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() { _linking = false; _statusMessage = ''; });
+        setState(() {
+          _linking = false;
+          _statusMessage = '';
+        });
+        _pinController.clear();
         String message;
         if (e.toString().contains('expired')) {
           message = 'Code expired. Ask the other device to generate a new one.';
-        } else if (e.toString().contains('MAC') || e.toString().contains('Decryption')) {
+        } else if (e.toString().contains('MAC') ||
+            e.toString().contains('Decryption')) {
           message = 'Wrong PIN. Please try again.';
         } else {
           message = 'Linking failed: $e';
         }
+        setState(() => _pinError = message);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
         );

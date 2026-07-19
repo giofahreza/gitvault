@@ -8,6 +8,7 @@ import '../../core/theme/note_colors.dart';
 import '../../data/models/note.dart';
 import '../../data/repositories/notes_repository.dart';
 import '../../utils/auto_bullet.dart';
+import '../../utils/pointer_focus.dart';
 
 /// Note editor screen for creating and editing notes
 class NoteEditorDialog extends ConsumerStatefulWidget {
@@ -25,6 +26,10 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
 
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
+  final _newChecklistItemController = TextEditingController();
+  final _titleFocus = FocusNode();
+  final _contentFocus = FocusNode();
+  final _newChecklistItemFocus = FocusNode();
   late final NotesRepository _repository;
   late NoteColor _selectedColor;
   late bool _isPinned;
@@ -53,7 +58,8 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
     _repository = ref.read(notesRepositoryProvider);
     _persistedNote = widget.note;
     _titleController = TextEditingController(text: widget.note?.title ?? '');
-    _contentController = TextEditingController(text: widget.note?.content ?? '');
+    _contentController =
+        TextEditingController(text: widget.note?.content ?? '');
     _selectedColor = widget.note?.color ?? NoteColor.white;
     _isPinned = widget.note?.isPinned ?? false;
     _tags = List.from(widget.note?.tags ?? []);
@@ -79,8 +85,12 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
     }
 
     _saveStatusRevision.dispose();
+    _titleFocus.dispose();
+    _contentFocus.dispose();
+    _newChecklistItemFocus.dispose();
     _titleController.dispose();
     _contentController.dispose();
+    _newChecklistItemController.dispose();
     super.dispose();
   }
 
@@ -157,7 +167,8 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
 
     // Insert the next bullet
     final nextBullet = AutoBullet.getNextBullet(prefix);
-    final newText = text.substring(0, cursorPos) + nextBullet + text.substring(cursorPos);
+    final newText =
+        text.substring(0, cursorPos) + nextBullet + text.substring(cursorPos);
     _previousContent = newText;
     _contentController.value = TextEditingValue(
       text: newText,
@@ -169,9 +180,12 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
     final backgroundColor = _selectedColor.getColorForBrightness(brightness);
-    final textColor = NoteColorPalette.getTextColor(_selectedColor.colorIndex, brightness);
-    final hintColor = NoteColorPalette.getHintColor(_selectedColor.colorIndex, brightness);
-    final tagBgColor = NoteColorPalette.getTagBackgroundColor(_selectedColor.colorIndex, brightness);
+    final textColor =
+        NoteColorPalette.getTextColor(_selectedColor.colorIndex, brightness);
+    final hintColor =
+        NoteColorPalette.getHintColor(_selectedColor.colorIndex, brightness);
+    final tagBgColor = NoteColorPalette.getTagBackgroundColor(
+        _selectedColor.colorIndex, brightness);
 
     return PopScope(
       canPop: _canPop,
@@ -200,14 +214,17 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
               onPressed: _isClosing ? null : _toggleChecklist,
             ),
             IconButton(
-              icon: Icon(_isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: textColor),
+              icon: Icon(_isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                  color: textColor),
               tooltip: _isPinned ? 'Unpin' : 'Pin',
-              onPressed: _isClosing ? null : () {
-                setState(() {
-                  _isPinned = !_isPinned;
-                  _markChanged();
-                });
-              },
+              onPressed: _isClosing
+                  ? null
+                  : () {
+                      setState(() {
+                        _isPinned = !_isPinned;
+                        _markChanged();
+                      });
+                    },
             ),
             IconButton(
               icon: Icon(Icons.palette_outlined, color: textColor),
@@ -250,57 +267,69 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
-                TextField(
-                  controller: _titleController,
-                  decoration: InputDecoration(
-                    hintText: 'Title',
-                    hintStyle: TextStyle(color: hintColor),
-                    border: InputBorder.none,
-                  ),
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
+                PointerFocus(
+                  focusNode: _titleFocus,
+                  child: TextField(
+                    controller: _titleController,
+                    focusNode: _titleFocus,
+                    decoration: InputDecoration(
+                      hintText: 'Title',
+                      hintStyle: TextStyle(color: hintColor),
+                      border: InputBorder.none,
+                    ),
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
                   ),
                 ),
+                if (_tags.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _tags.map((tag) {
+                        return Chip(
+                          label:
+                              Text('#$tag', style: TextStyle(color: textColor)),
+                          backgroundColor: tagBgColor,
+                          deleteIconColor: textColor,
+                          onDeleted: () {
+                            setState(() {
+                              _tags.remove(tag);
+                              _markChanged();
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 if (_isChecklist)
                   Expanded(child: _buildChecklistEditor(textColor, hintColor))
                 else
                   Expanded(
-                    child: TextField(
-                      controller: _contentController,
-                      decoration: InputDecoration(
-                        hintText: 'Note',
-                        hintStyle: TextStyle(color: hintColor),
-                        border: InputBorder.none,
+                    child: PointerFocus(
+                      focusNode: _contentFocus,
+                      child: TextField(
+                        controller: _contentController,
+                        focusNode: _contentFocus,
+                        decoration: InputDecoration(
+                          hintText: 'Note',
+                          hintStyle: TextStyle(color: hintColor),
+                          border: InputBorder.none,
+                        ),
+                        style: TextStyle(fontSize: 16, color: textColor),
+                        maxLines: null,
+                        expands: true,
+                        textAlignVertical: TextAlignVertical.top,
                       ),
-                      style: TextStyle(fontSize: 16, color: textColor),
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
                     ),
                   ),
-                if (_tags.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _tags.map((tag) {
-                      return Chip(
-                        label:
-                            Text('#$tag', style: TextStyle(color: textColor)),
-                        backgroundColor: tagBgColor,
-                        deleteIconColor: textColor,
-                        onDeleted: () {
-                          setState(() {
-                            _tags.remove(tag);
-                            _markChanged();
-                          });
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ],
               ],
             ),
           ),
@@ -399,25 +428,31 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
     return ListView(
       children: [
         // Unchecked items
-        ...unchecked.map((i) => _buildChecklistItemTile(i, textColor, hintColor)),
-        // Add item button
+        ...unchecked
+            .map((i) => _buildChecklistItemTile(i, textColor, hintColor)),
+        // Add item row
         ListTile(
           leading: Icon(Icons.add, color: hintColor),
-          title: TextField(
-            decoration: InputDecoration(
-              hintText: 'Add item',
-              hintStyle: TextStyle(color: hintColor),
-              border: InputBorder.none,
+          title: PointerFocus(
+            focusNode: _newChecklistItemFocus,
+            child: TextField(
+              controller: _newChecklistItemController,
+              focusNode: _newChecklistItemFocus,
+              decoration: InputDecoration(
+                hintText: 'Add item',
+                hintStyle: TextStyle(color: hintColor),
+                border: InputBorder.none,
+              ),
+              style: TextStyle(fontSize: 16, color: textColor),
+              textInputAction: TextInputAction.done,
+              onSubmitted: _addChecklistItem,
             ),
-            style: TextStyle(fontSize: 16, color: textColor),
-            onSubmitted: (value) {
-              if (value.trim().isNotEmpty) {
-                setState(() {
-                  _checklistItems.add(ChecklistItem(text: value.trim()));
-                  _markChanged();
-                });
-              }
-            },
+          ),
+          trailing: IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            color: textColor,
+            tooltip: 'Add item',
+            onPressed: _addChecklistItem,
           ),
           contentPadding: EdgeInsets.zero,
         ),
@@ -435,7 +470,8 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
               ),
             ),
           ),
-          ...checked.map((i) => _buildChecklistItemTile(i, textColor, hintColor)),
+          ...checked
+              .map((i) => _buildChecklistItemTile(i, textColor, hintColor)),
         ],
       ],
     );
@@ -483,6 +519,17 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
     );
   }
 
+  void _addChecklistItem([String? value]) {
+    final itemText = (value ?? _newChecklistItemController.text).trim();
+    if (itemText.isEmpty) return;
+
+    setState(() {
+      _checklistItems.add(ChecklistItem(text: itemText));
+      _newChecklistItemController.clear();
+      _markChanged();
+    });
+  }
+
   void _toggleChecklist() {
     setState(() {
       if (_isChecklist) {
@@ -496,7 +543,9 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
         _isChecklist = false;
       } else {
         // Convert text to checklist
-        final lines = _contentController.text.split('\n').where((l) => l.trim().isNotEmpty);
+        final lines = _contentController.text
+            .split('\n')
+            .where((l) => l.trim().isNotEmpty);
         _checklistItems = lines.map((line) {
           final trimmed = line.trim();
           if (trimmed.startsWith('[x] ') || trimmed.startsWith('[X] ')) {
@@ -508,9 +557,6 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
           }
           return ChecklistItem(text: trimmed);
         }).toList();
-        if (_checklistItems.isEmpty) {
-          _checklistItems.add(const ChecklistItem(text: ''));
-        }
         _isChecklist = true;
       }
       _markChanged();
@@ -519,78 +565,167 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
 
   void _showColorPicker() {
     final brightness = Theme.of(context).brightness;
+    final useDialog = MediaQuery.sizeOf(context).width >= 720;
+
+    if (useDialog) {
+      showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Choose color'),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: _buildColorPickerGrid(dialogContext, brightness),
+          ),
+        ),
+      );
+      return;
+    }
 
     showModalBottomSheet(
       context: context,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Choose color',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: NoteColor.values.map((color) {
-                  final colorBg = color.getColorForBrightness(brightness);
-                  final isSelected = _selectedColor == color;
-
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _selectedColor = color;
-                        _markChanged();
-                      });
-                      Navigator.pop(context);
-                    },
-                    child: Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: colorBg,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isSelected
-                              ? Theme.of(context).colorScheme.primary
-                              : NoteColorPalette.getBorderColor(color.colorIndex, brightness),
-                          width: isSelected ? 3 : 1,
-                        ),
-                      ),
-                      child: isSelected
-                          ? Icon(Icons.check, color: NoteColorPalette.getTextColor(color.colorIndex, brightness))
-                          : null,
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-            ],
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Choose color',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                _buildColorPickerGrid(sheetContext, brightness),
+              ],
+            ),
           ),
         );
       },
     );
   }
 
+  Widget _buildColorPickerGrid(
+      BuildContext pickerContext, Brightness brightness) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: NoteColor.values.map((color) {
+        final colorBg = color.getColorForBrightness(brightness);
+        final isSelected = _selectedColor == color;
+
+        return Semantics(
+          button: true,
+          selected: isSelected,
+          label:
+              '${_noteColorLabel(color)} note color${isSelected ? ", selected" : ""}',
+          child: Tooltip(
+            message: _noteColorLabel(color),
+            child: InkResponse(
+              onTap: () {
+                setState(() {
+                  _selectedColor = color;
+                  _markChanged();
+                });
+                Navigator.pop(pickerContext);
+              },
+              radius: 30,
+              child: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: colorBg,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected
+                        ? Theme.of(pickerContext).colorScheme.primary
+                        : NoteColorPalette.getBorderColor(
+                            color.colorIndex,
+                            brightness,
+                          ),
+                    width: isSelected ? 3 : 1,
+                  ),
+                ),
+                child: isSelected
+                    ? Icon(
+                        Icons.check,
+                        color: NoteColorPalette.getTextColor(
+                          color.colorIndex,
+                          brightness,
+                        ),
+                      )
+                    : null,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  String _noteColorLabel(NoteColor color) {
+    switch (color) {
+      case NoteColor.white:
+        return 'White';
+      case NoteColor.red:
+        return 'Red';
+      case NoteColor.orange:
+        return 'Orange';
+      case NoteColor.yellow:
+        return 'Yellow';
+      case NoteColor.green:
+        return 'Green';
+      case NoteColor.teal:
+        return 'Teal';
+      case NoteColor.blue:
+        return 'Blue';
+      case NoteColor.purple:
+        return 'Purple';
+      case NoteColor.pink:
+        return 'Pink';
+      case NoteColor.brown:
+        return 'Brown';
+      case NoteColor.gray:
+        return 'Gray';
+    }
+  }
+
   void _addTag() {
+    final tagController = TextEditingController();
+    final tagFocus = FocusNode();
+
     showDialog(
       context: context,
       builder: (context) {
-        final tagController = TextEditingController();
+        void submitTag() {
+          final tag = tagController.text.trim();
+          if (tag.isNotEmpty && !_tags.contains(tag)) {
+            setState(() {
+              _tags.add(tag);
+              _markChanged();
+            });
+          }
+          Navigator.pop(context);
+        }
+
         return AlertDialog(
           title: const Text('Add Tag'),
-          content: TextField(
-            controller: tagController,
-            decoration: const InputDecoration(
-              hintText: 'Tag name',
-              border: OutlineInputBorder(),
+          content: PointerFocus(
+            focusNode: tagFocus,
+            child: TextField(
+              controller: tagController,
+              focusNode: tagFocus,
+              decoration: const InputDecoration(
+                hintText: 'Tag name',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submitTag(),
             ),
-            autofocus: true,
           ),
           actions: [
             TextButton(
@@ -598,22 +733,16 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () {
-                final tag = tagController.text.trim();
-                if (tag.isNotEmpty && !_tags.contains(tag)) {
-                  setState(() {
-                    _tags.add(tag);
-                    _markChanged();
-                  });
-                }
-                Navigator.pop(context);
-              },
+              onPressed: submitTag,
               child: const Text('Add'),
             ),
           ],
         );
       },
-    );
+    ).whenComplete(() {
+      tagController.dispose();
+      tagFocus.dispose();
+    });
   }
 
   Future<void> _deleteNote() async {
@@ -623,9 +752,12 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
         title: const Text('Delete Note'),
         content: const Text('Delete this note? This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete'),
           ),
@@ -840,11 +972,13 @@ class _ChecklistItemTextField extends StatefulWidget {
   });
 
   @override
-  State<_ChecklistItemTextField> createState() => _ChecklistItemTextFieldState();
+  State<_ChecklistItemTextField> createState() =>
+      _ChecklistItemTextFieldState();
 }
 
 class _ChecklistItemTextFieldState extends State<_ChecklistItemTextField> {
   late final TextEditingController _controller;
+  final _focusNode = FocusNode();
 
   @override
   void initState() {
@@ -854,25 +988,30 @@ class _ChecklistItemTextFieldState extends State<_ChecklistItemTextField> {
 
   @override
   void dispose() {
+    _focusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: _controller,
-      style: TextStyle(
-        fontSize: 16,
-        color: widget.textColor,
-        decoration: widget.isChecked ? TextDecoration.lineThrough : null,
+    return PointerFocus(
+      focusNode: _focusNode,
+      child: TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        style: TextStyle(
+          fontSize: 16,
+          color: widget.textColor,
+          decoration: widget.isChecked ? TextDecoration.lineThrough : null,
+        ),
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 8),
+        ),
+        onChanged: widget.onChanged,
       ),
-      decoration: const InputDecoration(
-        border: InputBorder.none,
-        isDense: true,
-        contentPadding: EdgeInsets.symmetric(vertical: 8),
-      ),
-      onChanged: widget.onChanged,
     );
   }
 }

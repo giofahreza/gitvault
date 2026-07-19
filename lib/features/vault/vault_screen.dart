@@ -9,6 +9,7 @@ import '../../data/models/vault_entry.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/totp_generator.dart';
 import '../../utils/auth_helper.dart';
+import '../../utils/pointer_focus.dart';
 
 /// Main vault screen displaying all password entries grouped by category
 class VaultScreen extends ConsumerStatefulWidget {
@@ -20,13 +21,36 @@ class VaultScreen extends ConsumerStatefulWidget {
 
 class _VaultScreenState extends ConsumerState<VaultScreen> {
   final _searchController = TextEditingController();
+  late final FocusNode _searchFocusNode;
   String _searchQuery = '';
-  final Set<String> _expandedGroups = {};
+  bool _isSearching = false;
+  final Set<String> _collapsedGroups = {};
+  String? _copiedPasswordUuid;
+  Timer? _copyFeedbackTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchFocusNode = FocusNode(onKeyEvent: _handleSearchKey);
+  }
 
   @override
   void dispose() {
+    _searchController.clear();
     _searchController.dispose();
+    _searchFocusNode.dispose();
+    _copyFeedbackTimer?.cancel();
     super.dispose();
+  }
+
+  KeyEventResult _handleSearchKey(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape &&
+        _isSearching) {
+      _clearSearch();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   @override
@@ -35,37 +59,34 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: _searchQuery.isEmpty
+        title: !_isSearching
             ? const Text('Passwords')
-            : TextField(
-                controller: _searchController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'Search passwords...',
-                  border: InputBorder.none,
+            : PointerFocus(
+                focusNode: _searchFocusNode,
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'Search passwords...',
+                    border: InputBorder.none,
+                  ),
+                  style: const TextStyle(fontSize: 18),
+                  onChanged: (value) => setState(() => _searchQuery = value),
                 ),
-                style: const TextStyle(fontSize: 18),
-                onChanged: (value) => setState(() => _searchQuery = value),
               ),
         actions: [
-          if (_searchQuery.isEmpty)
+          if (!_isSearching)
             IconButton(
               icon: const Icon(Icons.search),
               tooltip: 'Search',
-              onPressed: () {
-                setState(() => _searchQuery = ' ');
-                _searchController.clear();
-              },
+              onPressed: _startSearch,
             )
           else
             IconButton(
               icon: const Icon(Icons.close),
-              onPressed: () {
-                setState(() {
-                  _searchQuery = '';
-                  _searchController.clear();
-                });
-              },
+              tooltip: 'Close search',
+              onPressed: _clearSearch,
             ),
         ],
       ),
@@ -74,11 +95,36 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => Center(child: Text('Error: $err')),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddEntryDialog(),
-        child: const Icon(Icons.add),
+      floatingActionButton: Semantics(
+        label: 'Add password',
+        button: true,
+        child: FloatingActionButton(
+          tooltip: 'Add password',
+          onPressed: () => _showAddEntryDialog(),
+          child: const Icon(Icons.add),
+        ),
       ),
     );
+  }
+
+  void _startSearch() {
+    setState(() {
+      _isSearching = true;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocusNode.requestFocus();
+    });
+  }
+
+  void _clearSearch() {
+    setState(() {
+      _isSearching = false;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+    FocusScope.of(context).unfocus();
   }
 
   String _getGroup(VaultEntry entry) {
@@ -90,16 +136,17 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
 
   Widget _buildVaultList(List<VaultEntry> entries) {
     // Filter out 2FA-only entries (entries with empty passwords)
-    final passwordEntries = entries.where((e) => e.password.isNotEmpty).toList();
+    final passwordEntries =
+        entries.where((e) => e.password.isNotEmpty).toList();
 
-    final filtered = _searchQuery.isEmpty
+    final trimmedQuery = _searchQuery.trim().toLowerCase();
+    final filtered = trimmedQuery.isEmpty
         ? passwordEntries
         : passwordEntries.where((e) {
-            final q = _searchQuery.toLowerCase();
-            return e.title.toLowerCase().contains(q) ||
-                e.username.toLowerCase().contains(q) ||
-                (e.url?.toLowerCase().contains(q) ?? false) ||
-                e.tags.any((t) => t.toLowerCase().contains(q));
+            return e.title.toLowerCase().contains(trimmedQuery) ||
+                e.username.toLowerCase().contains(trimmedQuery) ||
+                (e.url?.toLowerCase().contains(trimmedQuery) ?? false) ||
+                e.tags.any((t) => t.toLowerCase().contains(trimmedQuery));
           }).toList();
 
     if (filtered.isEmpty) {
@@ -115,7 +162,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                   ? 'No matching entries'
                   : 'No entries yet.\nTap + to add one.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: colorScheme.onSurfaceVariant),
+              style:
+                  TextStyle(fontSize: 16, color: colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -140,12 +188,16 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     // If only one group and it's "Ungrouped", show flat list
     if (sortedGroups.length == 1 && sortedGroups.first == 'Ungrouped') {
       return ListView.builder(
+        padding: const EdgeInsets.only(bottom: 96),
         itemCount: filtered.length,
         itemBuilder: (context, index) {
           final entry = filtered[index];
           return _VaultEntryTile(
             entry: entry,
-            onTap: () => _copyPassword(entry),
+            passwordCopied: _copiedPasswordUuid == entry.uuid,
+            onTap: () => _showEntryDetails(entry),
+            onCopy: () => _copyPassword(entry),
+            onEdit: () => _showEditEntryDialog(entry),
             onLongPress: () => _showEditEntryDialog(entry),
           );
         },
@@ -153,11 +205,12 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     }
 
     return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 96),
       itemCount: sortedGroups.length,
       itemBuilder: (context, index) {
         final group = sortedGroups[index];
         final groupEntries = grouped[group]!;
-        final isCollapsed = !_expandedGroups.contains(group);
+        final isCollapsed = _collapsedGroups.contains(group);
 
         return _GroupSection(
           groupName: group,
@@ -166,14 +219,17 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           onToggle: () {
             setState(() {
               if (isCollapsed) {
-                _expandedGroups.add(group);
+                _collapsedGroups.remove(group);
               } else {
-                _expandedGroups.remove(group);
+                _collapsedGroups.add(group);
               }
             });
           },
-          onEntryTap: _copyPassword,
+          onEntryTap: _showEntryDetails,
+          onEntryCopy: _copyPassword,
+          onEntryEdit: _showEditEntryDialog,
           onEntryLongPress: _showEditEntryDialog,
+          copiedPasswordUuid: _copiedPasswordUuid,
         );
       },
     );
@@ -194,12 +250,22 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
 
   void _performCopy(VaultEntry entry) {
     Clipboard.setData(ClipboardData(text: entry.password));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Password copied to clipboard'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+    _copyFeedbackTimer?.cancel();
+    setState(() => _copiedPasswordUuid = entry.uuid);
+    _copyFeedbackTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copiedPasswordUuid = null);
+    });
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Password copied to clipboard'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
+        ),
+      );
 
     // Auto-clear clipboard after configured seconds
     final seconds = ref.read(clipboardClearSecondsProvider);
@@ -226,9 +292,12 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               title: const Text('Delete Entry'),
               content: Text('Are you sure to delete "${entry.title}"?'),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Cancel')),
                 FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+                  style: FilledButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.error),
                   onPressed: () => Navigator.pop(ctx, true),
                   child: const Text('Delete'),
                 ),
@@ -248,7 +317,9 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
         onCopyUsername: () {
           Clipboard.setData(ClipboardData(text: entry.username));
           ScaffoldMessenger.of(sheetContext).showSnackBar(
-            const SnackBar(content: Text('Username copied'), duration: Duration(seconds: 2)),
+            const SnackBar(
+                content: Text('Username copied'),
+                duration: Duration(seconds: 2)),
           );
         },
       ),
@@ -317,11 +388,6 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     final hasGitHub = await keyStorage.hasGitHubCredentials();
 
     if (!hasGitHub) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('GitHub not configured. Set it up in Settings > Backup > GitHub Sync')),
-        );
-      }
       return;
     }
 
@@ -337,7 +403,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       final name = await keyStorage.getRepoName();
 
       if (token == null || owner == null || name == null) {
-        throw Exception('GitHub credentials incomplete. Please reconfigure in Settings.');
+        throw Exception(
+            'GitHub credentials incomplete. Please reconfigure in Settings.');
       }
 
       final githubService = GitHubService(
@@ -370,7 +437,9 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           message = 'Synced: ${result.pushed} pushed, ${result.pulled} pulled';
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message), backgroundColor: Theme.of(context).colorScheme.tertiary),
+          SnackBar(
+              content: Text(message),
+              backgroundColor: Theme.of(context).colorScheme.tertiary),
         );
       }
     } catch (e) {
@@ -403,7 +472,10 @@ class _GroupSection extends StatelessWidget {
   final bool isCollapsed;
   final VoidCallback onToggle;
   final void Function(VaultEntry) onEntryTap;
+  final void Function(VaultEntry) onEntryCopy;
+  final void Function(VaultEntry) onEntryEdit;
   final void Function(VaultEntry) onEntryLongPress;
+  final String? copiedPasswordUuid;
 
   const _GroupSection({
     required this.groupName,
@@ -411,7 +483,10 @@ class _GroupSection extends StatelessWidget {
     required this.isCollapsed,
     required this.onToggle,
     required this.onEntryTap,
+    required this.onEntryCopy,
+    required this.onEntryEdit,
     required this.onEntryLongPress,
+    required this.copiedPasswordUuid,
   });
 
   @override
@@ -457,7 +532,10 @@ class _GroupSection extends StatelessWidget {
         if (!isCollapsed)
           ...entries.map((entry) => _VaultEntryTile(
                 entry: entry,
+                passwordCopied: copiedPasswordUuid == entry.uuid,
                 onTap: () => onEntryTap(entry),
+                onCopy: () => onEntryCopy(entry),
+                onEdit: () => onEntryEdit(entry),
                 onLongPress: () => onEntryLongPress(entry),
               )),
         const Divider(height: 1),
@@ -469,32 +547,67 @@ class _GroupSection extends StatelessWidget {
 class _VaultEntryTile extends StatelessWidget {
   final VaultEntry entry;
   final VoidCallback onTap;
+  final VoidCallback onCopy;
+  final VoidCallback onEdit;
   final VoidCallback onLongPress;
+  final bool passwordCopied;
 
   const _VaultEntryTile({
     required this.entry,
     required this.onTap,
+    required this.onCopy,
+    required this.onEdit,
     required this.onLongPress,
+    required this.passwordCopied,
   });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: colorScheme.primaryContainer,
-        child: Text(
-          entry.title.isNotEmpty ? entry.title[0].toUpperCase() : '?',
-          style: TextStyle(
-            color: colorScheme.onPrimaryContainer,
-            fontWeight: FontWeight.bold,
+    final semanticLabel = [
+      'Password entry',
+      entry.title,
+      if (entry.username.isNotEmpty) 'username ${entry.username}',
+    ].join(', ');
+
+    return Semantics(
+      container: true,
+      label: semanticLabel,
+      button: true,
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.primaryContainer,
+          child: Text(
+            entry.title.isNotEmpty ? entry.title[0].toUpperCase() : '?',
+            style: TextStyle(
+              color: colorScheme.onPrimaryContainer,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
+        title: Text(entry.title),
+        subtitle: Text(entry.username),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: passwordCopied ? 'Password copied' : 'Copy password',
+              icon: Icon(
+                passwordCopied ? Icons.check_circle : Icons.copy_outlined,
+              ),
+              color: passwordCopied ? colorScheme.primary : null,
+              onPressed: onCopy,
+            ),
+            IconButton(
+              tooltip: 'Edit password',
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: onEdit,
+            ),
+          ],
+        ),
+        onTap: onTap,
+        onLongPress: onLongPress,
       ),
-      title: Text(entry.title),
-      subtitle: Text(entry.username),
-      onTap: onTap,
-      onLongPress: onLongPress,
     );
   }
 }
@@ -514,12 +627,14 @@ class _EntryDetailsSheet extends ConsumerWidget {
     required this.onCopyUsername,
   });
 
-  Future<void> _showDelete2FAConfirmation(BuildContext context, VaultEntry entry) async {
+  Future<void> _showDelete2FAConfirmation(
+      BuildContext context, VaultEntry entry) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove 2FA'),
-        content: const Text('Are you sure you want to remove 2FA from this entry?'),
+        content:
+            const Text('Are you sure you want to remove 2FA from this entry?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -561,61 +676,122 @@ class _EntryDetailsSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
+    final mediaQuery = MediaQuery.of(context);
+    final isDesktop = mediaQuery.size.width >= 720;
+    final initialSize = isDesktop && mediaQuery.size.height < 760 ? 0.82 : 0.64;
+
     return DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      minChildSize: 0.3,
-      maxChildSize: 0.9,
+      initialChildSize: initialSize,
+      minChildSize: isDesktop ? 0.5 : 0.35,
+      maxChildSize: 0.95,
       expand: false,
       builder: (context, scrollController) {
-        return Padding(
-          padding: const EdgeInsets.all(24),
-          child: ListView(
-            controller: scrollController,
-            children: [
-              Center(
-                child: Container(
-                  width: 40, height: 4,
-                  decoration: BoxDecoration(
-                    color: colorScheme.outlineVariant,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            child: Scrollbar(
+              controller: scrollController,
+              thumbVisibility: isDesktop,
+              child: ListView(
+                controller: scrollController,
+                padding: EdgeInsets.only(
+                  bottom: 24 + mediaQuery.viewPadding.bottom,
                 ),
-              ),
-              const SizedBox(height: 24),
-              Text(entry.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              if (entry.tags.isNotEmpty && entry.tags.first.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    Chip(
-                      label: Text(entry.tags.first, style: const TextStyle(fontSize: 12)),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colorScheme.outlineVariant,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text(entry.title,
+                      style: const TextStyle(
+                          fontSize: 24, fontWeight: FontWeight.bold)),
+                  if (entry.tags.isNotEmpty && entry.tags.first.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      children: [
+                        Chip(
+                          label: Text(entry.tags.first,
+                              style: const TextStyle(fontSize: 12)),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ],
                     ),
                   ],
-                ),
-              ],
-              const SizedBox(height: 24),
-              _DetailRow(label: 'Username', value: entry.username, onCopy: onCopyUsername),
-              const SizedBox(height: 12),
-              _DetailRow(label: 'Password', value: entry.password, obscured: true, onCopy: onCopyPassword),
-              if (entry.totpSecret != null && entry.totpSecret!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _TotpCodeRow(
-                  totpSecret: entry.totpSecret!,
-                  onEdit: onEdit,
-                ),
-              ],
-              if (entry.url != null && entry.url!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _DetailRow(label: 'URL', value: entry.url!),
-              ],
-              if (entry.notes != null && entry.notes!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _DetailRow(label: 'Notes', value: entry.notes!),
-              ],
-            ],
+                  const SizedBox(height: 24),
+                  _DetailRow(
+                      label: 'Username',
+                      value: entry.username,
+                      onCopy: onCopyUsername),
+                  const SizedBox(height: 12),
+                  _DetailRow(
+                      label: 'Password',
+                      value: entry.password,
+                      obscured: true,
+                      onCopy: onCopyPassword),
+                  if (entry.totpSecret != null &&
+                      entry.totpSecret!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _TotpCodeRow(
+                      totpSecret: entry.totpSecret!,
+                      onEdit: onEdit,
+                    ),
+                  ],
+                  if (entry.url != null && entry.url!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _DetailRow(label: 'URL', value: entry.url!),
+                  ],
+                  if (entry.notes != null && entry.notes!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _DetailRow(label: 'Notes', value: entry.notes!),
+                  ],
+                  const SizedBox(height: 24),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: onCopyUsername,
+                        icon: const Icon(Icons.person_outline),
+                        label: const Text('Copy Username'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: onCopyPassword,
+                        icon: const Icon(Icons.copy_outlined),
+                        label: const Text('Copy Password'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: onEdit,
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Edit'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: onDelete,
+                        icon: Icon(Icons.delete_outline,
+                            color: colorScheme.error),
+                        label: Text(
+                          'Delete',
+                          style: TextStyle(color: colorScheme.error),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: colorScheme.error),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -663,22 +839,30 @@ class _DetailRowState extends ConsumerState<_DetailRow> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final displayValue = (widget.obscured && _hidden) ? '••••••••' : widget.value;
+    final displayValue =
+        (widget.obscured && _hidden) ? '••••••••' : widget.value;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+        Text(widget.label,
+            style:
+                TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
         const SizedBox(height: 4),
         Row(
           children: [
-            Expanded(child: Text(displayValue, style: const TextStyle(fontSize: 16))),
+            Expanded(
+                child:
+                    Text(displayValue, style: const TextStyle(fontSize: 16))),
             if (widget.obscured)
               IconButton(
-                icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off, size: 20),
+                tooltip: _hidden ? 'Show password' : 'Hide password',
+                icon: Icon(_hidden ? Icons.visibility : Icons.visibility_off,
+                    size: 20),
                 onPressed: _togglePasswordVisibility,
               ),
             if (widget.onCopy != null)
               IconButton(
+                tooltip: 'Copy ${widget.label.toLowerCase()}',
                 icon: const Icon(Icons.copy, size: 20),
                 onPressed: widget.onCopy,
               ),
@@ -700,25 +884,52 @@ class AddEntryDialog extends ConsumerStatefulWidget {
 }
 
 class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
+  final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _urlController = TextEditingController();
   final _notesController = TextEditingController();
   final _groupController = TextEditingController();
+  final _titleFocus = FocusNode();
+  final _usernameFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+  final _groupFocus = FocusNode();
+  final _urlFocus = FocusNode();
+  final _notesFocus = FocusNode();
 
   bool _obscurePassword = true;
   bool _saving = false;
   bool _authenticated = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _titleFocus.requestFocus();
+    });
+  }
+
+  @override
   void dispose() {
+    _titleController.clear();
+    _usernameController.clear();
+    _passwordController.clear();
+    _urlController.clear();
+    _notesController.clear();
+    _groupController.clear();
     _titleController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     _urlController.dispose();
     _notesController.dispose();
     _groupController.dispose();
+    _titleFocus.dispose();
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _groupFocus.dispose();
+    _urlFocus.dispose();
+    _notesFocus.dispose();
     super.dispose();
   }
 
@@ -742,73 +953,166 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
     }
   }
 
+  void _focusNext(FocusNode focusNode) {
+    focusNode.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && focusNode.canRequestFocus) {
+        focusNode.requestFocus();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Add Password'),
       content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                hintText: 'e.g., Gmail',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _usernameController,
-              decoration: const InputDecoration(
-                labelText: 'Username/Email',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _passwordController,
-              decoration: InputDecoration(
-                labelText: 'Password',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
-                  onPressed: _togglePasswordVisibility,
+        child: Form(
+          key: _formKey,
+          child: FocusTraversalGroup(
+            policy: OrderedTraversalPolicy(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(1),
+                  child: PointerFocus(
+                    focusNode: _titleFocus,
+                    child: TextFormField(
+                      controller: _titleController,
+                      focusNode: _titleFocus,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Title',
+                        hintText: 'e.g., Gmail',
+                        border: OutlineInputBorder(),
+                      ),
+                      enabled: !_saving,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_usernameFocus),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'Title is required'
+                              : null,
+                    ),
+                  ),
                 ),
-              ),
-              obscureText: _obscurePassword,
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(2),
+                  child: PointerFocus(
+                    focusNode: _usernameFocus,
+                    child: TextFormField(
+                      controller: _usernameController,
+                      focusNode: _usernameFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'Username/Email',
+                        border: OutlineInputBorder(),
+                      ),
+                      enabled: !_saving,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_passwordFocus),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'Username or email is required'
+                              : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(3),
+                  child: PointerFocus(
+                    focusNode: _passwordFocus,
+                    child: TextFormField(
+                      controller: _passwordController,
+                      focusNode: _passwordFocus,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: ExcludeFocus(
+                          child: IconButton(
+                            tooltip: _obscurePassword
+                                ? 'Show password'
+                                : 'Hide password',
+                            icon: Icon(_obscurePassword
+                                ? Icons.visibility
+                                : Icons.visibility_off),
+                            onPressed: _togglePasswordVisibility,
+                          ),
+                        ),
+                      ),
+                      obscureText: _obscurePassword,
+                      enabled: !_saving,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_groupFocus),
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Password is required'
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(4),
+                  child: PointerFocus(
+                    focusNode: _groupFocus,
+                    child: TextFormField(
+                      controller: _groupController,
+                      focusNode: _groupFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'Group (optional)',
+                        hintText: 'e.g., Social, Work, Finance',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.folder_outlined),
+                      ),
+                      enabled: !_saving,
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_urlFocus),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(5),
+                  child: PointerFocus(
+                    focusNode: _urlFocus,
+                    child: TextFormField(
+                      controller: _urlController,
+                      focusNode: _urlFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'URL (optional)',
+                        hintText: 'https://example.com',
+                        border: OutlineInputBorder(),
+                      ),
+                      enabled: !_saving,
+                      keyboardType: TextInputType.url,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_notesFocus),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(6),
+                  child: PointerFocus(
+                    focusNode: _notesFocus,
+                    child: TextFormField(
+                      controller: _notesController,
+                      focusNode: _notesFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                      enabled: !_saving,
+                      maxLines: 3,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _groupController,
-              decoration: const InputDecoration(
-                labelText: 'Group (optional)',
-                hintText: 'e.g., Social, Work, Finance',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.folder_outlined),
-              ),
-              textCapitalization: TextCapitalization.words,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _urlController,
-              decoration: const InputDecoration(
-                labelText: 'URL (optional)',
-                hintText: 'https://example.com',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 3,
-            ),
-          ],
+          ),
         ),
       ),
       actions: [
@@ -818,19 +1122,19 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
         ),
         FilledButton(
           onPressed: _saving ? null : _saveEntry,
-          child: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save'),
+          child: _saving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
         ),
       ],
     );
   }
 
   Future<void> _saveEntry() async {
-    if (_titleController.text.isEmpty ||
-        _usernameController.text.isEmpty ||
-        _passwordController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in Title, Username, and Password')),
-      );
+    if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
@@ -847,8 +1151,12 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
         title: _titleController.text.trim(),
         username: _usernameController.text.trim(),
         password: _passwordController.text,
-        url: _urlController.text.trim().isEmpty ? null : _urlController.text.trim(),
-        notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        url: _urlController.text.trim().isEmpty
+            ? null
+            : _urlController.text.trim(),
+        notes: _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
         tags: tags,
       );
 
@@ -892,7 +1200,8 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
     _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (mounted) {
         final newPeriod = TotpGenerator.getCurrentPeriod();
-        if (newPeriod != _currentPeriod || _secondsRemaining != TotpGenerator.getSecondsRemaining()) {
+        if (newPeriod != _currentPeriod ||
+            _secondsRemaining != TotpGenerator.getSecondsRemaining()) {
           setState(() {
             _secondsRemaining = TotpGenerator.getSecondsRemaining();
             _currentPeriod = newPeriod;
@@ -912,13 +1221,17 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final code = TotpGenerator.generateCode(widget.totpSecret) ?? '------';
-    final formattedCode = code.length == 6 ? '${code.substring(0, 3)} ${code.substring(3)}' : code;
+    final formattedCode = code.length == 6
+        ? '${code.substring(0, 3)} ${code.substring(3)}'
+        : code;
     final isExpiring = _secondsRemaining <= 5;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('2FA Code', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+        Text('2FA Code',
+            style:
+                TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
         const SizedBox(height: 4),
         Row(
           children: [
@@ -936,7 +1249,8 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
                 },
                 onLongPress: widget.onEdit,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                   decoration: BoxDecoration(
                     color: colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
@@ -977,6 +1291,25 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
                 ],
               ),
             ),
+            IconButton(
+              tooltip: 'Copy 2FA code',
+              icon: const Icon(Icons.copy_outlined, size: 20),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: code));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Copied: $code'),
+                    duration: const Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              tooltip: 'Edit 2FA',
+              icon: const Icon(Icons.edit_outlined, size: 20),
+              onPressed: widget.onEdit,
+            ),
           ],
         ),
       ],
@@ -1002,12 +1335,19 @@ class EditEntryDialog extends ConsumerStatefulWidget {
 }
 
 class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
+  final _formKey = GlobalKey<FormState>();
   late final TextEditingController _titleController;
   late final TextEditingController _usernameController;
   late final TextEditingController _passwordController;
   late final TextEditingController _urlController;
   late final TextEditingController _notesController;
   late final TextEditingController _groupController;
+  final _titleFocus = FocusNode();
+  final _usernameFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+  final _groupFocus = FocusNode();
+  final _urlFocus = FocusNode();
+  final _notesFocus = FocusNode();
 
   bool _obscurePassword = true;
   bool _saving = false;
@@ -1024,16 +1364,31 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
     _groupController = TextEditingController(
       text: widget.entry.tags.isNotEmpty ? widget.entry.tags.first : '',
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _titleFocus.requestFocus();
+    });
   }
 
   @override
   void dispose() {
+    _titleController.clear();
+    _usernameController.clear();
+    _passwordController.clear();
+    _urlController.clear();
+    _notesController.clear();
+    _groupController.clear();
     _titleController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     _urlController.dispose();
     _notesController.dispose();
     _groupController.dispose();
+    _titleFocus.dispose();
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _groupFocus.dispose();
+    _urlFocus.dispose();
+    _notesFocus.dispose();
     super.dispose();
   }
 
@@ -1057,126 +1412,227 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
     }
   }
 
+  void _focusNext(FocusNode focusNode) {
+    focusNode.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && focusNode.canRequestFocus) {
+        focusNode.requestFocus();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Edit Password'),
       content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _usernameController,
-              decoration: const InputDecoration(
-                labelText: 'Username/Email',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _passwordController,
-              decoration: InputDecoration(
-                labelText: 'Password',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
-                  onPressed: _togglePasswordVisibility,
-                ),
-              ),
-              obscureText: _obscurePassword,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _groupController,
-              decoration: const InputDecoration(
-                labelText: 'Group (optional)',
-                hintText: 'e.g., Social, Work, Finance',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.folder_outlined),
-              ),
-              textCapitalization: TextCapitalization.words,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _urlController,
-              decoration: const InputDecoration(
-                labelText: 'URL (optional)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 16),
-            if (widget.entry.totpSecret != null && widget.entry.totpSecret!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    final confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Remove 2FA'),
-                        content: const Text('Are you sure you want to remove 2FA from this entry?'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Theme.of(context).colorScheme.error,
-                            ),
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('Remove'),
-                          ),
-                        ],
+        child: Form(
+          key: _formKey,
+          child: FocusTraversalGroup(
+            policy: OrderedTraversalPolicy(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(1),
+                  child: PointerFocus(
+                    focusNode: _titleFocus,
+                    child: TextFormField(
+                      controller: _titleController,
+                      focusNode: _titleFocus,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Title',
+                        border: OutlineInputBorder(),
                       ),
-                    );
-                    if (confirm == true && mounted) {
-                      final repo = ref.read(vaultRepositoryProvider);
-                      await repo.initialize();
-                      final updated = widget.entry.copyWith(totpSecret: null);
-                      await repo.updateEntry(updated);
-                      widget.onSaved();
-                      if (mounted) {
-                        Navigator.of(context).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('2FA removed')),
-                        );
-                      }
-                    }
-                  },
-                  icon: const Icon(Icons.remove_circle_outline),
-                  label: const Text('Remove 2FA'),
+                      enabled: !_saving,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_usernameFocus),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'Title is required'
+                              : null,
+                    ),
+                  ),
                 ),
-              ),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.of(context).pop();
-                widget.onDelete();
-              },
-              icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
-              label: Text('Delete Entry', style: TextStyle(color: Theme.of(context).colorScheme.error)),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: Theme.of(context).colorScheme.error),
-              ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(2),
+                  child: PointerFocus(
+                    focusNode: _usernameFocus,
+                    child: TextFormField(
+                      controller: _usernameController,
+                      focusNode: _usernameFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'Username/Email',
+                        border: OutlineInputBorder(),
+                      ),
+                      enabled: !_saving,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_passwordFocus),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'Username or email is required'
+                              : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(3),
+                  child: PointerFocus(
+                    focusNode: _passwordFocus,
+                    child: TextFormField(
+                      controller: _passwordController,
+                      focusNode: _passwordFocus,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: ExcludeFocus(
+                          child: IconButton(
+                            tooltip: _obscurePassword
+                                ? 'Show password'
+                                : 'Hide password',
+                            icon: Icon(_obscurePassword
+                                ? Icons.visibility
+                                : Icons.visibility_off),
+                            onPressed: _togglePasswordVisibility,
+                          ),
+                        ),
+                      ),
+                      obscureText: _obscurePassword,
+                      enabled: !_saving,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_groupFocus),
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Password is required'
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(4),
+                  child: PointerFocus(
+                    focusNode: _groupFocus,
+                    child: TextFormField(
+                      controller: _groupController,
+                      focusNode: _groupFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'Group (optional)',
+                        hintText: 'e.g., Social, Work, Finance',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.folder_outlined),
+                      ),
+                      enabled: !_saving,
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_urlFocus),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(5),
+                  child: PointerFocus(
+                    focusNode: _urlFocus,
+                    child: TextFormField(
+                      controller: _urlController,
+                      focusNode: _urlFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'URL (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                      enabled: !_saving,
+                      keyboardType: TextInputType.url,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _focusNext(_notesFocus),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(6),
+                  child: PointerFocus(
+                    focusNode: _notesFocus,
+                    child: TextFormField(
+                      controller: _notesController,
+                      focusNode: _notesFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                      enabled: !_saving,
+                      maxLines: 3,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (widget.entry.totpSecret != null &&
+                    widget.entry.totpSecret!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Remove 2FA'),
+                            content: const Text(
+                                'Are you sure you want to remove 2FA from this entry?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor:
+                                      Theme.of(context).colorScheme.error,
+                                ),
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text('Remove'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirm == true && mounted) {
+                          final repo = ref.read(vaultRepositoryProvider);
+                          await repo.initialize();
+                          final updated =
+                              widget.entry.copyWith(totpSecret: null);
+                          await repo.updateEntry(updated);
+                          widget.onSaved();
+                          if (mounted) {
+                            Navigator.of(context).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('2FA removed')),
+                            );
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.remove_circle_outline),
+                      label: const Text('Remove 2FA'),
+                    ),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    widget.onDelete();
+                  },
+                  icon: Icon(Icons.delete_outline,
+                      color: Theme.of(context).colorScheme.error),
+                  label: Text('Delete Entry',
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error)),
+                  style: OutlinedButton.styleFrom(
+                    side:
+                        BorderSide(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
       actions: [
@@ -1187,7 +1643,10 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
         FilledButton(
           onPressed: _saving ? null : _updateEntry,
           child: _saving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Save'),
         ),
       ],
@@ -1195,12 +1654,7 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
   }
 
   Future<void> _updateEntry() async {
-    if (_titleController.text.isEmpty ||
-        _usernameController.text.isEmpty ||
-        _passwordController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in Title, Username, and Password')),
-      );
+    if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
@@ -1217,8 +1671,12 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
         title: _titleController.text.trim(),
         username: _usernameController.text.trim(),
         password: _passwordController.text,
-        url: _urlController.text.trim().isEmpty ? null : _urlController.text.trim(),
-        notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        url: _urlController.text.trim().isEmpty
+            ? null
+            : _urlController.text.trim(),
+        notes: _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
         tags: tags,
       );
 

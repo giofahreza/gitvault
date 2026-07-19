@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,20 +8,25 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/biometric_auth.dart';
-import '../../core/crypto/crypto_manager.dart';
 import '../../core/providers/providers.dart';
 import '../../core/services/background_sync_service.dart';
 import '../../core/services/github_service.dart';
 import '../../core/services/ime_service.dart';
-import '../../data/repositories/sync_engine.dart';
 import '../../utils/constants.dart';
+import '../../utils/auth_helper.dart';
 import '../../utils/mnemonic_helper.dart';
+import '../../utils/pointer_focus.dart';
 import '../device_linking/link_device_screen.dart';
 import 'background_sync_settings.dart';
 
 /// Settings and security controls screen
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  final bool isActive;
+
+  const SettingsScreen({
+    super.key,
+    this.isActive = true,
+  });
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -27,11 +34,96 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final Future<String> _appVersionFuture;
+  late final ScrollController _settingsScrollController;
+  late final FocusNode _settingsFocusNode;
+  bool _duressConfigured = false;
+  bool _duressStatusLoading = true;
 
   @override
   void initState() {
     super.initState();
     _appVersionFuture = _loadAppVersion();
+    _settingsScrollController = ScrollController();
+    _settingsFocusNode = FocusNode(debugLabel: 'SettingsScrollFocus');
+    _loadDuressStatus();
+    if (widget.isActive) _requestSettingsFocus();
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _requestSettingsFocus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _settingsScrollController.dispose();
+    _settingsFocusNode.dispose();
+    super.dispose();
+  }
+
+  bool get _showPersistentScrollbar =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.macOS ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux;
+
+  void _requestSettingsFocus() {
+    void request() {
+      if (!mounted || !widget.isActive) return;
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
+      _settingsFocusNode.requestFocus();
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      request();
+      Future<void>.delayed(const Duration(milliseconds: 80), request);
+      Future<void>.delayed(const Duration(milliseconds: 220), request);
+    });
+  }
+
+  KeyEventResult _handleSettingsKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent || !_settingsScrollController.hasClients) {
+      return KeyEventResult.ignored;
+    }
+
+    final position = _settingsScrollController.position;
+    final key = event.logicalKey;
+    final pageStep = position.viewportDimension * 0.85;
+    final lineStep = 64.0;
+    double? target;
+
+    if (key == LogicalKeyboardKey.end) {
+      target = position.maxScrollExtent;
+    } else if (key == LogicalKeyboardKey.home) {
+      target = position.minScrollExtent;
+    } else if (key == LogicalKeyboardKey.pageDown) {
+      target = position.pixels + pageStep;
+    } else if (key == LogicalKeyboardKey.pageUp) {
+      target = position.pixels - pageStep;
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      target = position.pixels + lineStep;
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      target = position.pixels - lineStep;
+    }
+
+    if (target == null) return KeyEventResult.ignored;
+
+    final clamped = target
+        .clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        )
+        .toDouble();
+    _settingsScrollController.animateTo(
+      clamped,
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOutCubic,
+    );
+    return KeyEventResult.handled;
   }
 
   Future<String> _loadAppVersion() async {
@@ -40,6 +132,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final packageInfo = await PackageInfo.fromPlatform();
     return packageInfo.version.isEmpty ? 'Unknown' : packageInfo.version;
+  }
+
+  Future<void> _loadDuressStatus() async {
+    try {
+      final configured =
+          await ref.read(duressManagerProvider).isDuressConfigured();
+      if (mounted) {
+        setState(() {
+          _duressConfigured = configured;
+          _duressStatusLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _duressStatusLoading = false);
+      }
+    }
   }
 
   @override
@@ -53,147 +162,190 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       appBar: AppBar(
         title: const Text('Settings'),
       ),
-      body: ListView(
-        children: [
-          const _SectionHeader(title: 'Appearance'),
-          ListTile(
-            leading: const Icon(Icons.palette),
-            title: const Text('Theme'),
-            subtitle: Text(_getThemeLabel(themeMode)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showThemeSelector(context, ref, themeMode),
-          ),
-          const Divider(),
-          const _SectionHeader(title: 'Security'),
-          ListTile(
-            leading: const Icon(Icons.fingerprint),
-            title: const Text('Biometric Authentication'),
-            subtitle: Text(biometricEnabled ? 'Enabled' : 'Disabled'),
-            trailing: Switch(
-              value: biometricEnabled,
-              onChanged: (value) => _toggleBiometric(value),
+      body: Focus(
+        focusNode: _settingsFocusNode,
+        autofocus: true,
+        onKeyEvent: _handleSettingsKey,
+        child: Scrollbar(
+          controller: _settingsScrollController,
+          thumbVisibility: _showPersistentScrollbar,
+          interactive: true,
+          child: ListView(
+            controller: _settingsScrollController,
+            primary: false,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.only(
+              bottom: 96 + MediaQuery.paddingOf(context).bottom,
             ),
+            children: [
+              const _SectionHeader(title: 'Appearance'),
+              ListTile(
+                leading: const Icon(Icons.palette),
+                title: const Text('Theme'),
+                subtitle: Text(_getThemeLabel(themeMode)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _showThemeSelector(context, ref, themeMode),
+              ),
+              const Divider(),
+              const _SectionHeader(title: 'Security'),
+              if (kIsWeb)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: Text(
+                    'On web, use PIN Lock for protected actions. Biometric unlock, autofill, and GitVault Keyboard are available in the Android app.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              if (kIsWeb)
+                const _WebOnlySettingsTile(
+                  icon: Icons.fingerprint,
+                  title: 'Biometric Authentication',
+                  subtitle: 'Use PIN Lock on web',
+                )
+              else
+                ListTile(
+                  leading: const Icon(Icons.fingerprint),
+                  title: const Text('Biometric Authentication'),
+                  subtitle: Text(biometricEnabled ? 'Enabled' : 'Disabled'),
+                  trailing: Switch(
+                    value: biometricEnabled,
+                    onChanged: (value) => _toggleBiometric(value),
+                  ),
+                ),
+              pinEnabledAsync.when(
+                data: (pinEnabled) => ListTile(
+                  leading: const Icon(Icons.pin),
+                  title: const Text('PIN Lock'),
+                  subtitle: Text(pinEnabled ? 'Configured' : 'Not set up'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showPinSettings(context, ref, pinEnabled),
+                ),
+                loading: () => const ListTile(
+                  leading: Icon(Icons.pin),
+                  title: Text('PIN Lock'),
+                  subtitle: Text('Loading...'),
+                ),
+                error: (_, __) => const ListTile(
+                  leading: Icon(Icons.pin),
+                  title: Text('PIN Lock'),
+                  subtitle: Text('Error'),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.warning),
+                title: const Text('Duress Mode'),
+                subtitle: Text(
+                  _duressStatusLoading
+                      ? 'Checking...'
+                      : _duressConfigured
+                          ? 'Panic PIN configured'
+                          : 'Not configured',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _showDuressSetup(context, ref),
+              ),
+              ListTile(
+                leading: const Icon(Icons.timer),
+                title: const Text('Clipboard Auto-Clear'),
+                subtitle: Text('Clear after $clipboardSeconds seconds'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
+                    _showClipboardSettings(context, ref, clipboardSeconds),
+              ),
+              if (kIsWeb) ...[
+                const _WebOnlySettingsTile(
+                  icon: Icons.auto_awesome,
+                  title: 'System-wide Autofill',
+                  subtitle: 'Available in the Android app',
+                ),
+                const _WebOnlySettingsTile(
+                  icon: Icons.keyboard,
+                  title: 'GitVault Keyboard',
+                  subtitle: 'Available in the Android app',
+                ),
+              ] else ...[
+                ListTile(
+                  leading: const Icon(Icons.auto_awesome),
+                  title: const Text('System-wide Autofill'),
+                  subtitle: const Text('Fill passwords in any app'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showAutofillSettings(context, ref),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.keyboard),
+                  title: const Text('GitVault Keyboard'),
+                  subtitle: const Text('Custom IME for credential filling'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showKeyboardSettings(context, ref),
+                ),
+              ],
+              const Divider(),
+              const _SectionHeader(title: 'Devices'),
+              _DeviceListSection(),
+              ListTile(
+                leading: const Icon(Icons.add),
+                title: const Text('Link New Device'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LinkDeviceScreen()),
+                  );
+                },
+              ),
+              const Divider(),
+              const _SectionHeader(title: 'Backup'),
+              _GitHubStatusTile(),
+              _BackgroundSyncStatusTile(),
+              ListTile(
+                leading: const Icon(Icons.download),
+                title: const Text('View Recovery Phrase'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _showRecoveryKit(context, ref),
+              ),
+              const Divider(),
+              const _SectionHeader(title: 'About'),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('GitVault'),
+                subtitle: FutureBuilder<String>(
+                  future: _appVersionFuture,
+                  builder: (context, snapshot) {
+                    final version = snapshot.data ?? '...';
+                    return Text('Version $version');
+                  },
+                ),
+                trailing: const Icon(Icons.open_in_new, size: 16),
+                onTap: () =>
+                    _launchUrl('https://github.com/giofahreza/gitvault'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.code),
+                title: const Text('Developer'),
+                subtitle: const Text('Giofahreza'),
+                trailing: const Icon(Icons.open_in_new, size: 16),
+                onTap: () => _launchUrl('https://giofahreza.com'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.security),
+                title: const Text('Encryption'),
+                subtitle: const Text('XChaCha20-Poly1305'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.storage),
+                title: const Text('Storage'),
+                subtitle: const Text('GitHub (End-to-End Encrypted)'),
+              ),
+              const Divider(),
+              const _SectionHeader(title: 'Danger Zone'),
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text('Wipe All Data',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () => _showWipeConfirmation(context, ref),
+              ),
+            ],
           ),
-          pinEnabledAsync.when(
-            data: (pinEnabled) => ListTile(
-              leading: const Icon(Icons.pin),
-              title: const Text('PIN Lock'),
-              subtitle: Text(pinEnabled ? 'Configured' : 'Not set up'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _showPinSettings(context, ref, pinEnabled),
-            ),
-            loading: () => const ListTile(
-              leading: Icon(Icons.pin),
-              title: Text('PIN Lock'),
-              subtitle: Text('Loading...'),
-            ),
-            error: (_, __) => const ListTile(
-              leading: Icon(Icons.pin),
-              title: Text('PIN Lock'),
-              subtitle: Text('Error'),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.warning),
-            title: const Text('Duress Mode'),
-            subtitle: const Text('Configure panic PIN'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showDuressSetup(context, ref),
-          ),
-          ListTile(
-            leading: const Icon(Icons.timer),
-            title: const Text('Clipboard Auto-Clear'),
-            subtitle: Text('Clear after $clipboardSeconds seconds'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showClipboardSettings(context, ref, clipboardSeconds),
-          ),
-          ListTile(
-            leading: const Icon(Icons.auto_awesome),
-            title: const Text('System-wide Autofill'),
-            subtitle: const Text('Fill passwords in any app'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showAutofillSettings(context, ref),
-          ),
-          ListTile(
-            leading: const Icon(Icons.keyboard),
-            title: const Text('GitVault Keyboard'),
-            subtitle: const Text('Custom IME for credential filling'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showKeyboardSettings(context, ref),
-          ),
-          const Divider(),
-          const _SectionHeader(title: 'Devices'),
-          _DeviceListSection(),
-          ListTile(
-            leading: const Icon(Icons.add),
-            title: const Text('Link New Device'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const LinkDeviceScreen()),
-              );
-            },
-          ),
-          const Divider(),
-          const _SectionHeader(title: 'Backup'),
-          _GitHubStatusTile(),
-          ListTile(
-            leading: const Icon(Icons.cloud_sync),
-            title: const Text('Background Sync'),
-            subtitle: const Text('Battery-optimized background sync'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const BackgroundSyncSettings()),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.download),
-            title: const Text('Download Recovery Kit'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showRecoveryKit(context, ref),
-          ),
-          const Divider(),
-          const _SectionHeader(title: 'About'),
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('GitVault'),
-            subtitle: FutureBuilder<String>(
-              future: _appVersionFuture,
-              builder: (context, snapshot) {
-                final version = snapshot.data ?? '...';
-                return Text('Version $version');
-              },
-            ),
-            trailing: const Icon(Icons.open_in_new, size: 16),
-            onTap: () => _launchUrl('https://github.com/giofahreza/gitvault'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.code),
-            title: const Text('Developer'),
-            subtitle: const Text('Giofahreza'),
-            trailing: const Icon(Icons.open_in_new, size: 16),
-            onTap: () => _launchUrl('https://giofahreza.com'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.security),
-            title: const Text('Encryption'),
-            subtitle: const Text('XChaCha20-Poly1305'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.storage),
-            title: const Text('Storage'),
-            subtitle: const Text('GitHub (End-to-End Encrypted)'),
-          ),
-          const Divider(),
-          const _SectionHeader(title: 'Danger Zone'),
-          ListTile(
-            leading: const Icon(Icons.delete_forever, color: Colors.red),
-            title: const Text('Wipe All Data', style: TextStyle(color: Colors.red)),
-            onTap: () => _showWipeConfirmation(context, ref),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -261,207 +413,444 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showSetupPinDialog(BuildContext context, WidgetRef ref) {
+  Future<void> _showSetupPinDialog(BuildContext context, WidgetRef ref) async {
     final pinController = TextEditingController();
     final confirmController = TextEditingController();
+    final pinFocus = FocusNode();
+    final confirmFocus = FocusNode();
+    var saving = false;
+    String? error;
 
-    showDialog(
+    Future<void> savePin(
+      BuildContext dialogContext,
+      StateSetter setDialogState,
+    ) async {
+      if (saving) return;
+
+      final pin = pinController.text;
+      final confirm = confirmController.text;
+
+      if (pin.length < 4) {
+        setDialogState(() => error = 'PIN must be at least 4 digits');
+        return;
+      }
+      if (pin.length > 6) {
+        setDialogState(() => error = 'PIN must be 6 digits or fewer');
+        return;
+      }
+      if (pin != confirm) {
+        setDialogState(() => error = 'PINs do not match');
+        return;
+      }
+
+      setDialogState(() {
+        saving = true;
+        error = null;
+      });
+
+      try {
+        final pinAuth = ref.read(pinAuthProvider);
+        await pinAuth.setupPin(pin);
+        ref.invalidate(pinEnabledProvider);
+
+        if (!dialogContext.mounted) return;
+        Navigator.of(dialogContext).pop();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('PIN configured successfully')),
+          );
+        }
+      } catch (e) {
+        if (dialogContext.mounted) {
+          setDialogState(() {
+            saving = false;
+            error = 'Failed to save PIN: $e';
+          });
+        }
+      }
+    }
+
+    await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Set Up PIN'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: pinController,
-              decoration: const InputDecoration(
-                labelText: 'Enter PIN (4-6 digits)',
-                border: OutlineInputBorder(),
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Set Up PIN'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PointerFocus(
+                focusNode: pinFocus,
+                child: TextField(
+                  controller: pinController,
+                  focusNode: pinFocus,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Enter PIN (4-6 digits)',
+                    border: OutlineInputBorder(),
+                    counterText: '',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  obscureText: true,
+                  enabled: !saving,
+                  textInputAction: TextInputAction.next,
+                  onSubmitted: (_) => confirmFocus.requestFocus(),
+                ),
               ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 6,
-              obscureText: true,
+              const SizedBox(height: 12),
+              PointerFocus(
+                focusNode: confirmFocus,
+                child: TextField(
+                  controller: confirmController,
+                  focusNode: confirmFocus,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm PIN',
+                    border: OutlineInputBorder(),
+                    counterText: '',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  obscureText: true,
+                  enabled: !saving,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => savePin(dialogContext, setDialogState),
+                ),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: confirmController,
-              decoration: const InputDecoration(
-                labelText: 'Confirm PIN',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 6,
-              obscureText: true,
+            FilledButton(
+              onPressed:
+                  saving ? null : () => savePin(dialogContext, setDialogState),
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final pin = pinController.text;
-              final confirm = confirmController.text;
-
-              if (pin.length < 4) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('PIN must be at least 4 digits')),
-                );
-                return;
-              }
-              if (pin != confirm) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('PINs do not match')),
-                );
-                return;
-              }
-
-              final pinAuth = ref.read(pinAuthProvider);
-              await pinAuth.setupPin(pin);
-              ref.invalidate(pinEnabledProvider);
-
-              if (context.mounted) {
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('PIN configured successfully')),
-                );
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
+
+    pinController.clear();
+    confirmController.clear();
+    pinController.dispose();
+    confirmController.dispose();
+    pinFocus.dispose();
+    confirmFocus.dispose();
   }
 
-  void _showChangePinDialog(BuildContext context, WidgetRef ref) {
+  Future<void> _showChangePinDialog(BuildContext context, WidgetRef ref) async {
     final oldPinController = TextEditingController();
     final newPinController = TextEditingController();
+    final oldPinFocus = FocusNode();
+    final newPinFocus = FocusNode();
+    var saving = false;
+    String? error;
 
-    showDialog(
+    Future<void> changePin(
+      BuildContext dialogContext,
+      StateSetter setDialogState,
+    ) async {
+      if (saving) return;
+
+      if (oldPinController.text.length < 4) {
+        setDialogState(() => error = 'Current PIN must be at least 4 digits');
+        return;
+      }
+      if (newPinController.text.length < 4) {
+        setDialogState(() => error = 'New PIN must be at least 4 digits');
+        return;
+      }
+
+      setDialogState(() {
+        saving = true;
+        error = null;
+      });
+
+      try {
+        final pinAuth = ref.read(pinAuthProvider);
+        final changed = await pinAuth.changePin(
+          oldPinController.text,
+          newPinController.text,
+        );
+
+        if (!dialogContext.mounted) return;
+        if (!changed) {
+          setDialogState(() {
+            saving = false;
+            error = 'Current PIN is incorrect';
+          });
+          return;
+        }
+
+        ref.invalidate(pinEnabledProvider);
+        Navigator.of(dialogContext).pop();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('PIN changed successfully')),
+          );
+        }
+      } catch (e) {
+        if (dialogContext.mounted) {
+          setDialogState(() {
+            saving = false;
+            error = 'Failed to change PIN: $e';
+          });
+        }
+      }
+    }
+
+    await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Change PIN'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: oldPinController,
-              decoration: const InputDecoration(
-                labelText: 'Current PIN',
-                border: OutlineInputBorder(),
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Change PIN'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PointerFocus(
+                focusNode: oldPinFocus,
+                child: TextField(
+                  controller: oldPinController,
+                  focusNode: oldPinFocus,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Current PIN',
+                    border: OutlineInputBorder(),
+                    counterText: '',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  obscureText: true,
+                  enabled: !saving,
+                  textInputAction: TextInputAction.next,
+                  onSubmitted: (_) => newPinFocus.requestFocus(),
+                ),
               ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 6,
-              obscureText: true,
+              const SizedBox(height: 12),
+              PointerFocus(
+                focusNode: newPinFocus,
+                child: TextField(
+                  controller: newPinController,
+                  focusNode: newPinFocus,
+                  decoration: const InputDecoration(
+                    labelText: 'New PIN (4-6 digits)',
+                    border: OutlineInputBorder(),
+                    counterText: '',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  obscureText: true,
+                  enabled: !saving,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => changePin(dialogContext, setDialogState),
+                ),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: newPinController,
-              decoration: const InputDecoration(
-                labelText: 'New PIN (4-6 digits)',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 6,
-              obscureText: true,
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () => changePin(dialogContext, setDialogState),
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Change'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              if (newPinController.text.length < 4) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('New PIN must be at least 4 digits')),
-                );
-                return;
-              }
-
-              final pinAuth = ref.read(pinAuthProvider);
-              final changed = await pinAuth.changePin(
-                oldPinController.text,
-                newPinController.text,
-              );
-
-              if (context.mounted) {
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(changed ? 'PIN changed successfully' : 'Current PIN is incorrect'),
-                  ),
-                );
-              }
-            },
-            child: const Text('Change'),
-          ),
-        ],
       ),
     );
+
+    oldPinController.clear();
+    newPinController.clear();
+    oldPinController.dispose();
+    newPinController.dispose();
+    oldPinFocus.dispose();
+    newPinFocus.dispose();
   }
 
-  void _removePinDialog(BuildContext context, WidgetRef ref) {
+  Future<void> _removePinDialog(BuildContext context, WidgetRef ref) async {
     final pinController = TextEditingController();
+    final pinFocus = FocusNode();
+    var removing = false;
+    String? error;
 
-    showDialog(
+    Future<void> removePin(
+      BuildContext dialogContext,
+      StateSetter setDialogState,
+    ) async {
+      if (removing) return;
+
+      if (pinController.text.length < 4) {
+        setDialogState(() => error = 'Enter your current PIN');
+        return;
+      }
+
+      setDialogState(() {
+        removing = true;
+        error = null;
+      });
+
+      try {
+        final pinAuth = ref.read(pinAuthProvider);
+        final valid = await pinAuth.verifyPin(pinController.text);
+
+        if (!dialogContext.mounted) return;
+        if (!valid) {
+          setDialogState(() {
+            removing = false;
+            error = 'Incorrect PIN';
+            pinController.clear();
+          });
+          return;
+        }
+
+        await pinAuth.removePin();
+        ref.invalidate(pinEnabledProvider);
+        Navigator.of(dialogContext).pop();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('PIN removed')),
+          );
+        }
+      } catch (e) {
+        if (dialogContext.mounted) {
+          setDialogState(() {
+            removing = false;
+            error = 'Failed to remove PIN: $e';
+          });
+        }
+      }
+    }
+
+    await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove PIN'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Enter your current PIN to remove it.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: pinController,
-              decoration: const InputDecoration(
-                labelText: 'Current PIN',
-                border: OutlineInputBorder(),
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Remove PIN'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Enter your current PIN to remove it.'),
+              const SizedBox(height: 16),
+              PointerFocus(
+                focusNode: pinFocus,
+                child: TextField(
+                  controller: pinController,
+                  focusNode: pinFocus,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Current PIN',
+                    border: OutlineInputBorder(),
+                    counterText: '',
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  obscureText: true,
+                  enabled: !removing,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => removePin(dialogContext, setDialogState),
+                ),
               ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 6,
-              obscureText: true,
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: removing ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: removing
+                  ? null
+                  : () => removePin(dialogContext, setDialogState),
+              child: removing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Remove'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () async {
-              final pinAuth = ref.read(pinAuthProvider);
-              final valid = await pinAuth.verifyPin(pinController.text);
-
-              if (valid) {
-                await pinAuth.removePin();
-                ref.invalidate(pinEnabledProvider);
-                if (context.mounted) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('PIN removed')),
-                  );
-                }
-              } else {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Incorrect PIN')),
-                  );
-                }
-              }
-            },
-            child: const Text('Remove'),
-          ),
-        ],
       ),
     );
+
+    pinController.clear();
+    pinController.dispose();
+    pinFocus.dispose();
   }
 
   Future<void> _toggleBiometric(bool enable) async {
+    if (kIsWeb) {
+      _showWebUnavailableDialog(
+        context,
+        title: 'Biometric Authentication',
+        message:
+            'Biometric unlock is available in the Android app. Use PIN lock on web.',
+      );
+      return;
+    }
+
     if (enable) {
       // Test biometric before enabling
       try {
@@ -472,7 +861,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         if (!supported) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Biometrics not supported on this device')),
+              const SnackBar(
+                  content: Text('Biometrics not supported on this device')),
             );
           }
           return;
@@ -483,7 +873,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         if (!enrolled) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('No fingerprint or face enrolled. Please set up biometrics in device settings first.')),
+              const SnackBar(
+                  content: Text(
+                      'No fingerprint or face enrolled. Please set up biometrics in device settings first.')),
             );
           }
           return;
@@ -507,7 +899,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Authentication failed or cancelled')),
+              const SnackBar(
+                  content: Text('Authentication failed or cancelled')),
             );
           }
         }
@@ -540,7 +933,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return mode.getLabel();
   }
 
-  void _showThemeSelector(BuildContext context, WidgetRef ref, AppThemeMode current) {
+  void _showThemeSelector(
+      BuildContext context, WidgetRef ref, AppThemeMode current) {
     showDialog(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -552,7 +946,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             groupValue: current,
             onChanged: (value) {
               ref.read(themeModeProvider.notifier).state = value!;
-              ref.read(keyStorageProvider).setThemeMode(value.toStorageString());
+              ref
+                  .read(keyStorageProvider)
+                  .setThemeMode(value.toStorageString());
               IMEService.setThemeMode(value.toStorageString());
               Navigator.pop(ctx);
             },
@@ -563,7 +959,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             groupValue: current,
             onChanged: (value) {
               ref.read(themeModeProvider.notifier).state = value!;
-              ref.read(keyStorageProvider).setThemeMode(value.toStorageString());
+              ref
+                  .read(keyStorageProvider)
+                  .setThemeMode(value.toStorageString());
               IMEService.setThemeMode(value.toStorageString());
               Navigator.pop(ctx);
             },
@@ -575,7 +973,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             groupValue: current,
             onChanged: (value) {
               ref.read(themeModeProvider.notifier).state = value!;
-              ref.read(keyStorageProvider).setThemeMode(value.toStorageString());
+              ref
+                  .read(keyStorageProvider)
+                  .setThemeMode(value.toStorageString());
               IMEService.setThemeMode(value.toStorageString());
               Navigator.pop(ctx);
             },
@@ -585,66 +985,129 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showDuressSetup(BuildContext context, WidgetRef ref) {
+  Future<void> _showDuressSetup(BuildContext context, WidgetRef ref) async {
     final pinController = TextEditingController();
-    showDialog(
+    final pinFocus = FocusNode();
+    var saving = false;
+    String? error;
+
+    Future<void> saveDuressPin(
+      BuildContext dialogContext,
+      StateSetter setDialogState,
+    ) async {
+      if (saving) return;
+
+      final pin = pinController.text;
+      if (pin.length != 6) {
+        setDialogState(() => error = 'Panic PIN must be exactly 6 digits');
+        return;
+      }
+
+      setDialogState(() {
+        saving = true;
+        error = null;
+      });
+
+      try {
+        final duressManager = ref.read(duressManagerProvider);
+        await duressManager.setupDuressMode(pin: pin);
+        pinController.clear();
+
+        if (!dialogContext.mounted) return;
+        Navigator.pop(dialogContext);
+        if (context.mounted) {
+          setState(() {
+            _duressConfigured = true;
+            _duressStatusLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Duress PIN configured')),
+          );
+        }
+      } catch (e) {
+        if (dialogContext.mounted) {
+          setDialogState(() {
+            saving = false;
+            error = 'Failed to save duress PIN: $e';
+          });
+        }
+      }
+    }
+
+    await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Duress Mode Setup'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Set a panic PIN. Entering this PIN will wipe the vault and show decoy data.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: pinController,
-              decoration: const InputDecoration(
-                labelText: 'Panic PIN',
-                hintText: '6 digits',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 6,
-              obscureText: true,
+      barrierDismissible: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          title: const Text('Duress Mode Setup'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                    'Set a panic PIN. Entering this PIN will wipe the vault and show decoy data.'),
+                const SizedBox(height: 16),
+                PointerFocus(
+                  focusNode: pinFocus,
+                  child: TextField(
+                    controller: pinController,
+                    focusNode: pinFocus,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: 'Panic PIN',
+                      hintText: '6 digits',
+                      border: const OutlineInputBorder(),
+                      counterText: '',
+                      errorText: error,
+                    ),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    maxLength: 6,
+                    obscureText: true,
+                    enabled: !saving,
+                    textInputAction: TextInputAction.done,
+                    onChanged: (_) {
+                      if (error != null) setDialogState(() => error = null);
+                    },
+                    onSubmitted: (_) =>
+                        saveDuressPin(dialogContext, setDialogState),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () => saveDuressPin(dialogContext, setDialogState),
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              if (pinController.text.length != 6) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('PIN must be 6 digits')),
-                );
-                return;
-              }
-              Navigator.pop(ctx);
-              try {
-                final duressManager = ref.read(duressManagerProvider);
-                await duressManager.setupDuressMode(pin: pinController.text);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Duress PIN configured')),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
+
+    pinController.clear();
+    pinController.dispose();
+    pinFocus.dispose();
   }
 
-  void _showClipboardSettings(BuildContext context, WidgetRef ref, int current) {
+  void _showClipboardSettings(
+      BuildContext context, WidgetRef ref, int current) {
     showDialog(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -666,7 +1129,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  void _showWebUnavailableDialog(
+    BuildContext context, {
+    required String title,
+    required String message,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        title: Text(title),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Text(message),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showKeyboardSettings(BuildContext context, WidgetRef ref) async {
+    if (kIsWeb) {
+      _showWebUnavailableDialog(
+        context,
+        title: 'GitVault Keyboard',
+        message:
+            'The GitVault keyboard is available in the Android app. Browser keyboards cannot be changed from the web app.',
+      );
+      return;
+    }
+
     final imeService = ref.read(imeServiceProvider);
     final isEnabled = await imeService.isIMEEnabled();
 
@@ -689,7 +1186,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             if (!isEnabled)
               Text(
                 'You will be taken to keyboard settings.',
-                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
           ],
         ),
@@ -723,6 +1222,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showAutofillSettings(BuildContext context, WidgetRef ref) async {
+    if (kIsWeb) {
+      _showWebUnavailableDialog(
+        context,
+        title: 'System-wide Autofill',
+        message:
+            'System-wide autofill is available in the Android app. Browser autofill settings are controlled by your browser.',
+      );
+      return;
+    }
+
     final autofillService = ref.read(autofillServiceProvider);
     final isEnabled = await autofillService.isAutofillServiceEnabled();
 
@@ -745,7 +1254,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             if (!isEnabled)
               Text(
                 'You will be taken to system settings to enable autofill.',
-                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
           ],
         ),
@@ -776,49 +1287,105 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showWipeConfirmation(BuildContext context, WidgetRef ref) {
+    final confirmController = TextEditingController();
+    final confirmFocus = FocusNode();
+    var confirmText = '';
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Wipe All Data'),
-        content: const Text(
-          'This will permanently delete all vault entries and reset the app. This action CANNOT be undone.\n\nAre you absolutely sure?',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              try {
-                final repo = ref.read(vaultRepositoryProvider);
-                await repo.initialize();
-                await repo.clearAllEntries();
-                final keyStorage = ref.read(keyStorageProvider);
-                await keyStorage.wipeAllKeys();
-                ref.invalidate(isVaultSetupProvider);
-                ref.invalidate(vaultEntriesProvider);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('All data wiped')),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Wipe failed: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Wipe Everything'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Wipe All Data'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This will permanently delete all vault entries and reset the app. This action CANNOT be undone.',
+              ),
+              const SizedBox(height: 16),
+              const Text('Type WIPE to confirm.'),
+              const SizedBox(height: 8),
+              PointerFocus(
+                focusNode: confirmFocus,
+                child: TextField(
+                  controller: confirmController,
+                  focusNode: confirmFocus,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirmation',
+                    border: OutlineInputBorder(),
+                  ),
+                  textInputAction: TextInputAction.done,
+                  onChanged: (value) {
+                    setDialogState(() => confirmText = value.trim());
+                  },
+                  onSubmitted: (_) {
+                    if (confirmText == 'WIPE') {
+                      _wipeAllData(context, dialogContext, ref);
+                    }
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: confirmText == 'WIPE'
+                  ? () => _wipeAllData(context, dialogContext, ref)
+                  : null,
+              child: const Text('Wipe Everything'),
+            ),
+          ],
+        ),
       ),
-    );
+    ).whenComplete(() {
+      confirmController.dispose();
+      confirmFocus.dispose();
+    });
+  }
+
+  Future<void> _wipeAllData(
+    BuildContext context,
+    BuildContext dialogContext,
+    WidgetRef ref,
+  ) async {
+    Navigator.pop(dialogContext);
+    try {
+      final repo = ref.read(vaultRepositoryProvider);
+      await repo.initialize();
+      await repo.clearAllEntries();
+      final keyStorage = ref.read(keyStorageProvider);
+      await keyStorage.wipeAllKeys();
+      ref.invalidate(isVaultSetupProvider);
+      ref.invalidate(vaultEntriesProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('All data wiped')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Wipe failed: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _showRecoveryKit(BuildContext context, WidgetRef ref) async {
     try {
+      final authenticated = await AuthHelper.authenticate(
+        context: context,
+        ref: ref,
+        reason: 'Authenticate to view recovery phrase',
+      );
+      if (!authenticated || !context.mounted) return;
+
       final keyStorage = ref.read(keyStorageProvider);
       await keyStorage.initialize();
 
@@ -827,7 +1394,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (rootKey == null) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No encryption key found. Please complete onboarding first.')),
+            const SnackBar(
+                content: Text(
+                    'No encryption key found. Please complete onboarding first.')),
           );
         }
         return;
@@ -835,61 +1404,95 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       // Convert root key to mnemonic
       final mnemonic = MnemonicHelper.rootKeyToMnemonic(rootKey);
-      final formattedMnemonic = MnemonicHelper.formatMnemonicForDisplay(mnemonic);
+      final formattedMnemonic =
+          MnemonicHelper.formatMnemonicForDisplay(mnemonic);
 
       if (context.mounted) {
-        showDialog(
+        var recoveryCopied = false;
+        Timer? recoveryCopyTimer;
+
+        await showDialog(
           context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Your Recovery Phrase'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'IMPORTANT: Write down these 24 words in order and store them safely.',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'If you lose all your devices, this is your only way to recover your data.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Theme.of(context).colorScheme.outline),
+          builder: (ctx) => StatefulBuilder(
+            builder: (dialogContext, setDialogState) => AlertDialog(
+              title: const Text('Your Recovery Phrase'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'IMPORTANT: Write down these 24 words in order and store them safely.',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange),
                     ),
-                    child: SelectableText(
-                      formattedMnemonic,
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'If you lose all your devices, this is your only way to recover your data.',
+                      style: TextStyle(fontSize: 12),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: Theme.of(context).colorScheme.outline),
+                      ),
+                      child: Semantics(
+                        container: true,
+                        label:
+                            'Your 24-word recovery phrase: $formattedMnemonic',
+                        child: ExcludeSemantics(
+                          child: SelectableText(
+                            formattedMnemonic,
+                            style: const TextStyle(
+                                fontFamily: 'monospace', fontSize: 11),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: mnemonic));
+                    recoveryCopyTimer?.cancel();
+                    setDialogState(() => recoveryCopied = true);
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(
+                        const SnackBar(
+                          content: Text('Recovery phrase copied to clipboard'),
+                          duration: Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
+                        ),
+                      );
+                    recoveryCopyTimer = Timer(const Duration(seconds: 2), () {
+                      if (dialogContext.mounted) {
+                        setDialogState(() => recoveryCopied = false);
+                      }
+                    });
+                  },
+                  icon: Icon(recoveryCopied ? Icons.check : Icons.copy),
+                  label: Text(recoveryCopied ? 'Copied' : 'Copy'),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Close'),
-              ),
-              FilledButton.icon(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: mnemonic));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Recovery phrase copied to clipboard')),
-                  );
-                },
-                icon: const Icon(Icons.copy),
-                label: const Text('Copy'),
-              ),
-            ],
           ),
-        );
+        ).whenComplete(() => recoveryCopyTimer?.cancel());
       }
     } catch (e) {
       if (context.mounted) {
@@ -898,6 +1501,74 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       }
     }
+  }
+}
+
+class _BackgroundSyncStatusTile extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_BackgroundSyncStatusTile> createState() =>
+      _BackgroundSyncStatusTileState();
+}
+
+class _BackgroundSyncStatusTileState
+    extends ConsumerState<_BackgroundSyncStatusTile> {
+  bool _hasGitHubCredentials = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkConnection();
+  }
+
+  Future<void> _checkConnection() async {
+    final keyStorage = ref.read(keyStorageProvider);
+    await keyStorage.initialize();
+    final hasCredentials = await keyStorage.hasGitHubCredentials();
+    if (mounted) {
+      setState(() {
+        _hasGitHubCredentials = hasCredentials;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(
+        Icons.cloud_sync,
+        color: _hasGitHubCredentials
+            ? null
+            : Theme.of(context).colorScheme.outline,
+      ),
+      title: const Text('Background Sync'),
+      subtitle: Text(
+        _loading
+            ? 'Checking...'
+            : _hasGitHubCredentials
+                ? 'Battery-optimized background sync'
+                : 'Set up GitHub Sync first',
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () async {
+        final result = await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const BackgroundSyncSettings()),
+        );
+        if (result == BackgroundSyncSettingsResult.setupGitHub &&
+            context.mounted) {
+          showGitHubSetupDialog(
+            context,
+            ref,
+            isEditing: false,
+            onConfigured: _checkConnection,
+          );
+        }
+        if (mounted) {
+          await _checkConnection();
+        }
+      },
+    );
   }
 }
 
@@ -933,7 +1604,8 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
   Widget build(BuildContext context) {
     if (_loading) {
       return ListTile(
-        leading: Icon(Icons.cloud, color: Theme.of(context).colorScheme.outline),
+        leading:
+            Icon(Icons.cloud, color: Theme.of(context).colorScheme.outline),
         title: const Text('GitHub Sync'),
         subtitle: const Text('Checking...'),
         trailing: const Icon(Icons.chevron_right),
@@ -943,7 +1615,8 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
     return ListTile(
       leading: Icon(
         Icons.cloud,
-        color: _connected ? Colors.green : Theme.of(context).colorScheme.outline,
+        color:
+            _connected ? Colors.green : Theme.of(context).colorScheme.outline,
       ),
       title: const Text('GitHub Sync'),
       subtitle: Text(_connected ? 'Connected' : 'Not configured'),
@@ -952,7 +1625,8 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
     );
   }
 
-  void _showGitHubSettings(BuildContext context, WidgetRef ref, bool connected) async {
+  void _showGitHubSettings(
+      BuildContext context, WidgetRef ref, bool connected) async {
     final keyStorage = ref.read(keyStorageProvider);
     await keyStorage.initialize();
 
@@ -975,7 +1649,9 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
                 children: [
                   Icon(Icons.check_circle, color: Colors.green, size: 20),
                   SizedBox(width: 8),
-                  Text('Connected', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                  Text('Connected',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, color: Colors.green)),
                 ],
               ),
               const SizedBox(height: 16),
@@ -985,7 +1661,9 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
               const SizedBox(height: 16),
               Text(
                 'Encrypted vault data is automatically synced to your private GitHub repository.',
-                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -993,7 +1671,12 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
             TextButton(
               onPressed: () {
                 Navigator.pop(ctx);
-                _showGitHubSetupDialog(context, ref, isEditing: true);
+                showGitHubSetupDialog(
+                  context,
+                  ref,
+                  isEditing: true,
+                  onConfigured: _checkConnection,
+                );
               },
               child: const Text('Edit'),
             ),
@@ -1006,229 +1689,462 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
       );
     } else {
       // Show setup dialog
-      _showGitHubSetupDialog(context, ref, isEditing: false);
+      showGitHubSetupDialog(
+        context,
+        ref,
+        isEditing: false,
+        onConfigured: _checkConnection,
+      );
     }
   }
+}
 
-  void _showGitHubSetupDialog(BuildContext context, WidgetRef ref, {required bool isEditing}) {
-    final repoOwnerController = TextEditingController();
-    final repoNameController = TextEditingController();
-    final tokenController = TextEditingController();
-    bool validating = false;
+Future<void> _openExternalUrl(BuildContext context, String url) async {
+  try {
+    final uri = Uri.parse(url);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open $url: $e')),
+      );
+    }
+  }
+}
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text(isEditing ? 'Edit GitHub Sync' : 'Setup GitHub Sync'),
-          content: SingleChildScrollView(
+class _GitHubSetupInfoPanel extends StatelessWidget {
+  final bool isEditing;
+
+  const _GitHubSetupInfoPanel({required this.isEditing});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.lock_outline,
+                  size: 18, color: colorScheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Text(
+                isEditing ? 'Storage stays encrypted' : 'What you need',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (!isEditing) ...[
+            const _GitHubSetupStep(
+              number: '1',
+              text:
+                  'Create an empty private repository in your GitHub account.',
+            ),
+            const SizedBox(height: 8),
+            const _GitHubSetupStep(
+              number: '2',
+              text:
+                  'Create a token for that repository with Contents read/write access.',
+            ),
+            const SizedBox(height: 8),
+            const _GitHubSetupStep(
+              number: '3',
+              text: 'Paste the username, repository name, and token here.',
+            ),
+            const SizedBox(height: 10),
+          ],
+          Text(
+            'GitHub stores only encrypted vault files. It never receives your recovery phrase, PIN, or readable passwords.',
+            style: TextStyle(
+              fontSize: 12,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GitHubSetupStep extends StatelessWidget {
+  final String number;
+  final String text;
+
+  const _GitHubSetupStep({
+    required this.number,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colorScheme.primaryContainer,
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            number,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onPrimaryContainer,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _formatGitHubSetupError(Object error) {
+  final raw = error is GitHubException ? error.message : error.toString();
+  final message =
+      raw.replaceFirst(RegExp(r'^(Exception|GitHubException):\s*'), '').trim();
+  final lower = message.toLowerCase();
+
+  if (lower.contains('bad credentials') ||
+      lower.contains('invalid token') ||
+      lower.contains('401')) {
+    return 'GitHub did not accept this token. Create a new token and paste it again.';
+  }
+
+  if (lower.contains('not found') || lower.contains('404')) {
+    return 'GitVault could not find that repository. Check the username, repository name, and that the token can access this repo.';
+  }
+
+  if (lower.contains('permission') ||
+      lower.contains('forbidden') ||
+      lower.contains('403')) {
+    return 'The token does not have enough access. Give it Contents read/write access for this private repository.';
+  }
+
+  if (lower.contains('network') ||
+      lower.contains('socket') ||
+      lower.contains('timeout')) {
+    return 'Could not reach GitHub. Check your internet connection and try again.';
+  }
+
+  return 'Could not verify GitHub Sync. Check the username, repository name, token access, then try again.';
+}
+
+Future<void> showGitHubSetupDialog(
+  BuildContext context,
+  WidgetRef ref, {
+  required bool isEditing,
+  Future<void> Function()? onConfigured,
+}) async {
+  final repoOwnerController = TextEditingController();
+  final repoNameController = TextEditingController();
+  final tokenController = TextEditingController();
+  final repoOwnerFocus = FocusNode();
+  final repoNameFocus = FocusNode();
+  final tokenFocus = FocusNode();
+  bool validating = false;
+  String? validationError;
+
+  await showDialog(
+    context: context,
+    barrierDismissible: true,
+    builder: (ctx) => StatefulBuilder(
+      builder: (dialogContext, setState) => AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        title: Text(isEditing ? 'Edit GitHub Sync' : 'Connect GitHub Sync'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   isEditing
-                      ? 'Update your GitHub repository credentials.'
-                      : 'Connect your private GitHub repository to sync your vault.',
+                      ? 'Update the private GitHub repository used for encrypted backup storage.'
+                      : 'Use a normal personal GitHub account as encrypted backup storage. GitVault encrypts the vault before anything leaves this device.',
                   style: const TextStyle(fontSize: 14),
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: repoOwnerController,
-                  decoration: const InputDecoration(
-                    labelText: 'GitHub Username',
-                    hintText: 'giofahreza',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person),
+                _GitHubSetupInfoPanel(isEditing: isEditing),
+                const SizedBox(height: 16),
+                PointerFocus(
+                  focusNode: repoOwnerFocus,
+                  child: TextField(
+                    controller: repoOwnerController,
+                    focusNode: repoOwnerFocus,
+                    decoration: const InputDecoration(
+                      labelText: 'GitHub username',
+                      hintText: 'your-github-username',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                    textInputAction: TextInputAction.next,
+                    enabled: !validating,
+                    onSubmitted: (_) => repoNameFocus.requestFocus(),
                   ),
-                  enabled: !validating,
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: repoNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Repository Name',
-                    hintText: 'my-vault',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.folder),
+                PointerFocus(
+                  focusNode: repoNameFocus,
+                  child: TextField(
+                    controller: repoNameController,
+                    focusNode: repoNameFocus,
+                    decoration: const InputDecoration(
+                      labelText: 'Repository name',
+                      hintText: 'gitvault-backup',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.folder),
+                    ),
+                    textInputAction: TextInputAction.next,
+                    enabled: !validating,
+                    onSubmitted: (_) => tokenFocus.requestFocus(),
                   ),
-                  enabled: !validating,
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: tokenController,
-                  decoration: const InputDecoration(
-                    labelText: 'Personal Access Token',
-                    hintText: 'ghp_...',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.key),
+                PointerFocus(
+                  focusNode: tokenFocus,
+                  child: TextField(
+                    controller: tokenController,
+                    focusNode: tokenFocus,
+                    decoration: const InputDecoration(
+                      labelText: 'Access token',
+                      hintText: 'Paste token from GitHub',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.key),
+                    ),
+                    obscureText: true,
+                    textInputAction: TextInputAction.done,
+                    enabled: !validating,
                   ),
-                  obscureText: true,
-                  enabled: !validating,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Generate at: github.com/settings/tokens',
-                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  'Use a token for this private repository with Contents read/write access. The token is stored only on this device.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: validating
+                        ? null
+                        : () => _openExternalUrl(
+                              dialogContext,
+                              'https://github.com/settings/tokens',
+                            ),
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('Open token page'),
+                  ),
+                ),
+                if (validationError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    validationError!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
               ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: validating ? null : () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: validating
-                  ? null
-                  : () async {
-                      final owner = repoOwnerController.text.trim();
-                      final repo = repoNameController.text.trim();
-                      final token = tokenController.text.trim();
+        ),
+        actions: [
+          TextButton(
+            onPressed: validating ? null : () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: validating
+                ? null
+                : () async {
+                    final owner = repoOwnerController.text.trim();
+                    final repo = repoNameController.text.trim();
+                    final token = tokenController.text.trim();
 
-                      if (owner.isEmpty || repo.isEmpty || token.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Please fill in all fields')),
-                        );
+                    if (owner.isEmpty || repo.isEmpty || token.isEmpty) {
+                      setState(
+                          () => validationError = 'Please fill in all fields');
+                      return;
+                    }
+
+                    // Validate credentials
+                    setState(() {
+                      validating = true;
+                      validationError = null;
+                    });
+
+                    try {
+                      final github = GitHubService(
+                        accessToken: token,
+                        repoOwner: owner,
+                        repoName: repo,
+                      );
+
+                      await github.verifyRepository();
+
+                      // Check if repo has existing vault data
+                      final indexBytes =
+                          await github.downloadFile(Constants.indexFile);
+                      final hasExistingData = indexBytes != null;
+
+                      github.dispose();
+
+                      final keyStorage = ref.read(keyStorageProvider);
+                      await keyStorage.initialize();
+                      final hasRootKey = await keyStorage.hasRootKey();
+
+                      // If repo has existing data and device has NO root key yet,
+                      // must ask for recovery phrase.
+                      if (hasExistingData && !hasRootKey) {
+                        setState(() => validating = false);
+                        Navigator.pop(ctx);
+
+                        if (context.mounted) {
+                          _showRecoveryCodeDialog(
+                            context,
+                            ref,
+                            token: token,
+                            owner: owner,
+                            repo: repo,
+                          );
+                        }
                         return;
                       }
 
-                      // Validate credentials
-                      setState(() => validating = true);
+                      // Save credentials
+                      await keyStorage.storeGitHubCredentials(
+                        token: token,
+                        repoOwner: owner,
+                        repoName: repo,
+                      );
 
-                      try {
-                        final github = GitHubService(
-                          accessToken: token,
-                          repoOwner: owner,
-                          repoName: repo,
-                        );
+                      if (context.mounted) {
+                        Navigator.pop(ctx);
 
-                        await github.verifyRepository();
-
-                        // Check if repo has existing vault data
-                        final indexBytes = await github.downloadFile(Constants.indexFile);
-                        final hasExistingData = indexBytes != null;
-
-                        github.dispose();
-
-                        final keyStorage = ref.read(keyStorageProvider);
-                        await keyStorage.initialize();
-                        final hasRootKey = await keyStorage.hasRootKey();
-
-                        // If repo has existing data and device has NO root key yet,
-                        // must ask for recovery phrase.
-                        if (hasExistingData && !hasRootKey) {
-                          setState(() => validating = false);
-                          Navigator.pop(ctx);
-
-                          if (context.mounted) {
-                            _showRecoveryCodeDialog(
-                              context,
-                              ref,
-                              token: token,
-                              owner: owner,
-                              repo: repo,
-                            );
-                          }
-                          return;
-                        }
-
-                        // Save credentials
-                        await keyStorage.storeGitHubCredentials(
-                          token: token,
-                          repoOwner: owner,
-                          repoName: repo,
-                        );
-
-                        if (context.mounted) {
-                          Navigator.pop(ctx);
-
-                          if (hasExistingData && hasRootKey) {
-                            // Device already has a root key (e.g. set up as new) —
-                            // auto-sync to pull vault data from GitHub using that key.
-                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Row(
-                                  children: [
-                                    SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
-                                    SizedBox(width: 12),
-                                    Text('Syncing vault from GitHub...'),
-                                  ],
-                                ),
-                                duration: Duration(minutes: 2),
-                              ),
-                            );
-
-                            try {
-                              final result = await BackgroundSyncService.performSyncNow();
-                              if (context.mounted) {
-                                ref.invalidate(vaultRepositoryProvider);
-                                ref.invalidate(notesRepositoryProvider);
-                                ref.invalidate(sshRepositoryProvider);
-                                ref.invalidate(archivedNotesProvider);
-
-                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'GitHub sync configured! Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
-                                    ),
-                                    backgroundColor: Colors.green,
-                                    duration: const Duration(seconds: 5),
-                                  ),
-                                );
-                              }
-                            } catch (syncError) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('GitHub configured, but sync failed: $syncError'),
-                                    backgroundColor: Colors.orange,
-                                    duration: const Duration(seconds: 6),
-                                  ),
-                                );
-                              }
-                            }
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('GitHub sync configured successfully'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          }
-                        }
-
-                        // Refresh connection status
-                        if (mounted) {
-                          await _checkConnection();
-                        }
-                      } catch (e) {
-                        setState(() => validating = false);
-                        if (context.mounted) {
+                        if (hasExistingData && hasRootKey) {
+                          // Device already has a root key (e.g. set up as new) —
+                          // auto-sync to pull vault data from GitHub using that key.
+                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Validation failed: $e')),
+                            const SnackBar(
+                              content: Row(
+                                children: [
+                                  SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2, color: Colors.white)),
+                                  SizedBox(width: 12),
+                                  Text('Syncing vault from GitHub...'),
+                                ],
+                              ),
+                              duration: Duration(minutes: 2),
+                            ),
+                          );
+
+                          try {
+                            final result =
+                                await BackgroundSyncService.performSyncNow();
+                            if (context.mounted) {
+                              ref.invalidate(vaultRepositoryProvider);
+                              ref.invalidate(notesRepositoryProvider);
+                              ref.invalidate(sshRepositoryProvider);
+                              ref.invalidate(archivedNotesProvider);
+
+                              ScaffoldMessenger.of(context)
+                                  .hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'GitHub sync configured! Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
+                                  ),
+                                  backgroundColor: Colors.green,
+                                  duration: const Duration(seconds: 5),
+                                ),
+                              );
+                            }
+                          } catch (syncError) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context)
+                                  .hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                      'GitHub configured, but sync failed: $syncError'),
+                                  backgroundColor: Colors.orange,
+                                  duration: const Duration(seconds: 6),
+                                ),
+                              );
+                            }
+                          }
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content:
+                                  Text('GitHub sync configured successfully'),
+                              backgroundColor: Colors.green,
+                            ),
                           );
                         }
                       }
-                    },
-              child: validating
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('Save & Validate'),
-            ),
-          ],
-        ),
+
+                      await onConfigured?.call();
+                    } catch (e) {
+                      setState(() {
+                        validating = false;
+                        validationError = _formatGitHubSetupError(e);
+                      });
+                    }
+                  },
+            child: validating
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Save & Validate'),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+
+  repoOwnerController.clear();
+  repoNameController.clear();
+  tokenController.clear();
+  repoOwnerController.dispose();
+  repoNameController.dispose();
+  tokenController.dispose();
+  repoOwnerFocus.dispose();
+  repoNameFocus.dispose();
+  tokenFocus.dispose();
 }
 
 // Standalone recovery dialog functions
@@ -1277,7 +2193,8 @@ void _showRecoveryCodeDialog(
         FilledButton(
           onPressed: () {
             Navigator.pop(ctx);
-            _showEnterRecoveryCodeDialog(context, ref, token: token, owner: owner, repo: repo);
+            _showEnterRecoveryCodeDialog(context, ref,
+                token: token, owner: owner, repo: repo);
           },
           child: const Text('Restore with Recovery Phrase'),
         ),
@@ -1285,7 +2202,8 @@ void _showRecoveryCodeDialog(
           style: FilledButton.styleFrom(backgroundColor: Colors.orange),
           onPressed: () {
             Navigator.pop(ctx);
-            _showEraseRepoDialog(context, ref, token: token, owner: owner, repo: repo);
+            _showEraseRepoDialog(context, ref,
+                token: token, owner: owner, repo: repo);
           },
           child: const Text('Erase & Start Fresh'),
         ),
@@ -1294,17 +2212,19 @@ void _showRecoveryCodeDialog(
   );
 }
 
-void _showEnterRecoveryCodeDialog(
+Future<void> _showEnterRecoveryCodeDialog(
   BuildContext context,
   WidgetRef ref, {
   required String token,
   required String owner,
   required String repo,
-}) {
+}) async {
   final recoveryCodeController = TextEditingController();
+  final recoveryCodeFocus = FocusNode();
   bool validating = false;
+  String? validationError;
 
-  showDialog(
+  await showDialog(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => StatefulBuilder(
@@ -1330,12 +2250,15 @@ void _showEnterRecoveryCodeDialog(
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.help_outline, size: 20, color: colorScheme.onTertiaryContainer),
+                      Icon(Icons.help_outline,
+                          size: 20, color: colorScheme.onTertiaryContainer),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'This is the 24-word phrase from your original device, NOT your GitHub password or token.',
-                          style: TextStyle(fontSize: 11, color: colorScheme.onTertiaryContainer),
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: colorScheme.onTertiaryContainer),
                         ),
                       ),
                     ],
@@ -1344,16 +2267,27 @@ void _showEnterRecoveryCodeDialog(
               },
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: recoveryCodeController,
-              decoration: const InputDecoration(
-                labelText: '24-Word Recovery Phrase',
-                hintText: 'word1 word2 word3 ...',
-                border: OutlineInputBorder(),
+            PointerFocus(
+              focusNode: recoveryCodeFocus,
+              child: TextField(
+                controller: recoveryCodeController,
+                focusNode: recoveryCodeFocus,
+                decoration: const InputDecoration(
+                  labelText: '24-Word Recovery Phrase',
+                  hintText: 'word1 word2 word3 ...',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                enabled: !validating,
               ),
-              maxLines: 3,
-              enabled: !validating,
             ),
+            if (validationError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                validationError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -1367,24 +2301,29 @@ void _showEnterRecoveryCodeDialog(
                 : () async {
                     final recoveryCode = recoveryCodeController.text.trim();
                     if (recoveryCode.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Please enter recovery phrase')),
-                      );
+                      setState(() =>
+                          validationError = 'Please enter recovery phrase');
                       return;
                     }
 
-                    setState(() => validating = true);
+                    setState(() {
+                      validating = true;
+                      validationError = null;
+                    });
 
                     try {
                       // Normalize and validate mnemonic
-                      final mnemonic = MnemonicHelper.normalizeMnemonic(recoveryCode);
+                      final mnemonic =
+                          MnemonicHelper.normalizeMnemonic(recoveryCode);
 
                       if (!MnemonicHelper.isValidMnemonic(mnemonic)) {
-                        throw Exception('Invalid recovery phrase. Please check your words and try again.');
+                        throw Exception(
+                            'Invalid recovery phrase. Please check your words and try again.');
                       }
 
                       // Derive root key from mnemonic
-                      final rootKey = MnemonicHelper.mnemonicToRootKey(mnemonic);
+                      final rootKey =
+                          MnemonicHelper.mnemonicToRootKey(mnemonic);
 
                       // Store the key and credentials - we'll verify during actual sync
                       final keyStorage = ref.read(keyStorageProvider);
@@ -1411,7 +2350,11 @@ void _showEnterRecoveryCodeDialog(
                           const SnackBar(
                             content: Row(
                               children: [
-                                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                                SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white)),
                                 SizedBox(width: 12),
                                 Text('Syncing vault from GitHub...'),
                               ],
@@ -1421,7 +2364,8 @@ void _showEnterRecoveryCodeDialog(
                         );
 
                         try {
-                          final result = await BackgroundSyncService.performSyncNow();
+                          final result =
+                              await BackgroundSyncService.performSyncNow();
 
                           if (context.mounted) {
                             ref.invalidate(vaultRepositoryProvider);
@@ -1457,19 +2401,18 @@ void _showEnterRecoveryCodeDialog(
                         }
                       }
                     } catch (e) {
-                      setState(() => validating = false);
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed: $e')),
-                        );
-                      }
+                      setState(() {
+                        validating = false;
+                        validationError = 'Failed: $e';
+                      });
                     }
                   },
             child: validating
                 ? const SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
                   )
                 : const Text('Restore'),
           ),
@@ -1477,6 +2420,10 @@ void _showEnterRecoveryCodeDialog(
       ),
     ),
   );
+
+  recoveryCodeController.clear();
+  recoveryCodeController.dispose();
+  recoveryCodeFocus.dispose();
 }
 
 void _showEraseRepoDialog(
@@ -1496,7 +2443,8 @@ void _showEraseRepoDialog(
         children: [
           Text(
             'WARNING: This will permanently delete all existing vault data in the repository.',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red),
+            style: TextStyle(
+                fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red),
           ),
           SizedBox(height: 16),
           Text(
@@ -1564,7 +2512,8 @@ void _showEraseRepoDialog(
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Repository erased successfully. GitHub sync configured.'),
+                    content: Text(
+                        'Repository erased successfully. GitHub sync configured.'),
                     backgroundColor: Colors.green,
                   ),
                 );
@@ -1614,7 +2563,8 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
       try {
         final registry = jsonDecode(registryJson) as Map<String, dynamic>;
         final deviceList = registry['devices'] as List<dynamic>? ?? [];
-        devices = deviceList.map((d) => Map<String, dynamic>.from(d as Map)).toList();
+        devices =
+            deviceList.map((d) => Map<String, dynamic>.from(d as Map)).toList();
       } catch (_) {}
     }
 
@@ -1682,7 +2632,8 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
               if (isThisDevice) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(4),
@@ -1713,19 +2664,24 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
         orElse: () => {'name': 'This Device'},
       )['name'] as String?,
     );
+    final nameFocus = FocusNode();
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Rename This Device'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Device Name',
-            border: OutlineInputBorder(),
+        content: PointerFocus(
+          focusNode: nameFocus,
+          child: TextField(
+            controller: controller,
+            focusNode: nameFocus,
+            decoration: const InputDecoration(
+              labelText: 'Device Name',
+              border: OutlineInputBorder(),
+            ),
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
           ),
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
         ),
         actions: [
           TextButton(
@@ -1745,6 +2701,52 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
             child: const Text('Save'),
           ),
         ],
+      ),
+    ).whenComplete(() {
+      controller.dispose();
+      nameFocus.dispose();
+    });
+  }
+}
+
+class _WebOnlySettingsTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _WebOnlySettingsTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Semantics(
+      enabled: false,
+      label: '$title, Android only. $subtitle',
+      child: ListTile(
+        enabled: false,
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        trailing: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: Text(
+              'Android',
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

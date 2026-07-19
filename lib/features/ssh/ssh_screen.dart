@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -7,6 +9,7 @@ import '../../core/providers/providers.dart';
 import '../../core/services/ssh_platform/ssh_platform_support.dart';
 import '../../data/models/ssh_credential.dart';
 import '../../core/services/persistent_ssh_service.dart';
+import '../../utils/pointer_focus.dart';
 import 'ssh_persistent_terminal_screen.dart';
 import 'ssh_sessions_screen.dart';
 
@@ -74,9 +77,14 @@ class _SshScreenState extends ConsumerState<SshScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => Center(child: Text('Error: $err')),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddCredentialDialog(),
-        child: const Icon(Icons.add),
+      floatingActionButton: Semantics(
+        label: 'Add SSH credential',
+        button: true,
+        child: FloatingActionButton(
+          tooltip: 'Add SSH credential',
+          onPressed: () => _showAddCredentialDialog(),
+          child: const Icon(Icons.add),
+        ),
       ),
     );
   }
@@ -102,6 +110,7 @@ class _SshScreenState extends ConsumerState<SshScreen> {
     }
 
     return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 96),
       itemCount: credentials.length,
       itemBuilder: (context, index) {
         final credential = credentials[index];
@@ -116,14 +125,13 @@ class _SshScreenState extends ConsumerState<SshScreen> {
   }
 
   Future<void> _connectSsh(SshCredential credential) async {
-    final unsupportedReason = sshTransportUnsupportedReason();
+    final unsupportedReason = _sshUnsupportedReason();
     if (unsupportedReason != null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(unsupportedReason),
-            duration: Duration(seconds: 4),
-          ),
+        _showSshUnavailableDialog(
+          context,
+          title: 'SSH Unavailable on Web',
+          message: unsupportedReason,
         );
       }
       return;
@@ -215,6 +223,37 @@ class _SshScreenState extends ConsumerState<SshScreen> {
   }
 }
 
+String? _sshUnsupportedReason() {
+  if (kIsWeb) {
+    return 'Direct SSH and ping require raw TCP sockets, which browsers do not provide. Use the Android app, or connect through an SSH-over-WebSocket proxy.';
+  }
+  return sshTransportUnsupportedReason();
+}
+
+void _showSshUnavailableDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+}) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      title: Text(title),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Text(message),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
+
 class _SshCredentialTile extends StatefulWidget {
   final SshCredential credential;
   final VoidCallback onTap;
@@ -236,11 +275,12 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
   bool _pinging = false;
 
   Future<void> _pingHost() async {
-    if (sshTransportUnsupportedReason() != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ping is not available on web browser.'),
-        ),
+    final unsupportedReason = _sshUnsupportedReason();
+    if (unsupportedReason != null) {
+      _showSshUnavailableDialog(
+        context,
+        title: 'Ping Unavailable on Web',
+        message: unsupportedReason,
       );
       return;
     }
@@ -284,65 +324,91 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: colorScheme.primaryContainer,
-        child: _pinging
-            ? SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: colorScheme.onPrimaryContainer,
-                ),
-              )
-            : Icon(Icons.terminal, color: colorScheme.onPrimaryContainer),
+    final compact = MediaQuery.sizeOf(context).width < 520;
+    final connectButton = FilledButton.tonalIcon(
+      style: FilledButton.styleFrom(
+        minimumSize: Size(compact ? 94 : 116, 40),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 16),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
-      title: Text(widget.credential.label),
-      subtitle: Text(
-          '${widget.credential.username}@${widget.credential.host}:${widget.credential.port}'),
-      trailing: PopupMenuButton<String>(
-        onSelected: (value) {
-          switch (value) {
-            case 'ping':
-              _pingHost();
-              break;
-            case 'edit':
-              widget.onEdit();
-              break;
-            case 'delete':
-              widget.onDelete();
-              break;
-          }
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(
-            value: 'ping',
-            child: ListTile(
-              leading: Icon(Icons.network_ping),
-              title: Text('Ping'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'edit',
-            child: ListTile(
-              leading: Icon(Icons.edit),
-              title: Text('Edit'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'delete',
-            child: ListTile(
-              leading: Icon(Icons.delete, color: Colors.red),
-              title: Text('Delete', style: TextStyle(color: Colors.red)),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-        ],
-      ),
+      onPressed: widget.onTap,
+      icon: const Icon(Icons.play_arrow, size: 18),
+      label: const Text('Connect'),
+    );
+
+    return Semantics(
+      container: true,
+      button: true,
+      label:
+          'SSH credential ${widget.credential.label}, ${widget.credential.username} at ${widget.credential.host} port ${widget.credential.port}',
       onTap: widget.onTap,
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: colorScheme.primaryContainer,
+          child: _pinging
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                )
+              : Icon(Icons.terminal, color: colorScheme.onPrimaryContainer),
+        ),
+        title: Text(widget.credential.label),
+        subtitle: Text(
+            '${widget.credential.username}@${widget.credential.host}:${widget.credential.port}'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            connectButton,
+            PopupMenuButton<String>(
+              tooltip: 'SSH actions',
+              onSelected: (value) {
+                switch (value) {
+                  case 'ping':
+                    _pingHost();
+                    break;
+                  case 'edit':
+                    widget.onEdit();
+                    break;
+                  case 'delete':
+                    widget.onDelete();
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'ping',
+                  child: ListTile(
+                    leading: Icon(Icons.network_ping),
+                    title: Text('Ping'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'edit',
+                  child: ListTile(
+                    leading: Icon(Icons.edit),
+                    title: Text('Edit'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                    leading: Icon(Icons.delete, color: Colors.red),
+                    title: Text('Delete', style: TextStyle(color: Colors.red)),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        onTap: widget.onTap,
+      ),
     );
   }
 }
@@ -363,6 +429,7 @@ class _SshCredentialDialog extends ConsumerStatefulWidget {
 }
 
 class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
+  final _formKey = GlobalKey<FormState>();
   late final TextEditingController _labelController;
   late final TextEditingController _hostController;
   late final TextEditingController _portController;
@@ -370,6 +437,13 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
   late final TextEditingController _passwordController;
   late final TextEditingController _privateKeyController;
   late final TextEditingController _passphraseController;
+  final _labelFocus = FocusNode();
+  final _hostFocus = FocusNode();
+  final _portFocus = FocusNode();
+  final _usernameFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+  final _privateKeyFocus = FocusNode();
+  final _passphraseFocus = FocusNode();
   late SshAuthType _authType;
   bool _saving = false;
 
@@ -391,10 +465,19 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
     _passphraseController =
         TextEditingController(text: widget.credential?.passphrase ?? '');
     _authType = widget.credential?.authType ?? SshAuthType.password;
+    _portFocus.addListener(_selectPortOnFocus);
   }
 
   @override
   void dispose() {
+    _portFocus.removeListener(_selectPortOnFocus);
+    _labelController.clear();
+    _hostController.clear();
+    _portController.clear();
+    _usernameController.clear();
+    _passwordController.clear();
+    _privateKeyController.clear();
+    _passphraseController.clear();
     _labelController.dispose();
     _hostController.dispose();
     _portController.dispose();
@@ -402,7 +485,25 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
     _passwordController.dispose();
     _privateKeyController.dispose();
     _passphraseController.dispose();
+    _labelFocus.dispose();
+    _hostFocus.dispose();
+    _portFocus.dispose();
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _privateKeyFocus.dispose();
+    _passphraseFocus.dispose();
     super.dispose();
+  }
+
+  void _selectPortOnFocus() {
+    if (!_portFocus.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_portFocus.hasFocus) return;
+      _portController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _portController.text.length,
+      );
+    });
   }
 
   @override
@@ -412,123 +513,204 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
     return AlertDialog(
       title: Text(isEditing ? 'Edit SSH Credential' : 'Add SSH Credential'),
       content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _labelController,
-              decoration: const InputDecoration(
-                labelText: 'Label',
-                hintText: 'e.g., My Server',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.label),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _hostController,
-              decoration: const InputDecoration(
-                labelText: 'Host',
-                hintText: 'e.g., 192.168.1.100',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.dns),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _portController,
-              decoration: const InputDecoration(
-                labelText: 'Port',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.numbers),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _usernameController,
-              decoration: const InputDecoration(
-                labelText: 'Username',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.person),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<SshAuthType>(
-              segments: const [
-                ButtonSegment(
-                  value: SshAuthType.password,
-                  label: Text('Password'),
-                  icon: Icon(Icons.password),
-                ),
-                ButtonSegment(
-                  value: SshAuthType.publicKey,
-                  label: Text('Key'),
-                  icon: Icon(Icons.vpn_key),
-                ),
-              ],
-              selected: {_authType},
-              onSelectionChanged: (value) {
-                setState(() => _authType = value.first);
-              },
-            ),
-            const SizedBox(height: 12),
-            if (_authType == SshAuthType.password)
-              TextField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
-                ),
-                obscureText: true,
-              )
-            else ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _privateKeyController.text.isEmpty
-                          ? 'No private key loaded'
-                          : 'Private key loaded (${_privateKeyController.text.length} chars)',
-                      style: TextStyle(
-                        color: _privateKeyController.text.isEmpty
-                            ? Theme.of(context).colorScheme.onSurfaceVariant
-                            : Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SegmentedButton<SshAuthType>(
+                segments: const [
+                  ButtonSegment(
+                    value: SshAuthType.password,
+                    label: Text('Password'),
+                    icon: Icon(Icons.password),
                   ),
-                  const SizedBox(width: 8),
-                  FilledButton.tonalIcon(
-                    onPressed: _pickKeyFile,
-                    icon: const Icon(Icons.file_open, size: 18),
-                    label: const Text('Pick File'),
+                  ButtonSegment(
+                    value: SshAuthType.publicKey,
+                    label: Text('Key'),
+                    icon: Icon(Icons.vpn_key),
                   ),
                 ],
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _privateKeyController,
-                decoration: const InputDecoration(
-                  labelText: 'Or paste private key',
-                  hintText: '-----BEGIN OPENSSH PRIVATE KEY-----',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 4,
-                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                selected: {_authType},
+                onSelectionChanged: _saving
+                    ? null
+                    : (value) {
+                        setState(() => _authType = value.first);
+                      },
               ),
               const SizedBox(height: 12),
-              TextField(
-                controller: _passphraseController,
-                decoration: const InputDecoration(
-                  labelText: 'Passphrase (optional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
+              PointerFocus(
+                focusNode: _labelFocus,
+                child: TextFormField(
+                  controller: _labelController,
+                  focusNode: _labelFocus,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Label',
+                    hintText: 'e.g., My Server',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.label),
+                  ),
+                  enabled: !_saving,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _hostFocus.requestFocus(),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Label is required'
+                      : null,
                 ),
-                obscureText: true,
               ),
+              const SizedBox(height: 12),
+              PointerFocus(
+                focusNode: _hostFocus,
+                child: TextFormField(
+                  controller: _hostController,
+                  focusNode: _hostFocus,
+                  decoration: const InputDecoration(
+                    labelText: 'Host',
+                    hintText: 'e.g., 192.168.1.100',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.dns),
+                  ),
+                  enabled: !_saving,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _portFocus.requestFocus(),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Host is required'
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 12),
+              PointerFocus(
+                focusNode: _portFocus,
+                child: TextFormField(
+                    controller: _portController,
+                    focusNode: _portFocus,
+                    decoration: const InputDecoration(
+                      labelText: 'Port',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.numbers),
+                    ),
+                    enabled: !_saving,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
+                    validator: (value) {
+                      final port = int.tryParse(value?.trim() ?? '');
+                      if (port == null) return 'Port must be a number';
+                      if (port < 1 || port > 65535) {
+                        return 'Port must be between 1 and 65535';
+                      }
+                      return null;
+                    }),
+              ),
+              const SizedBox(height: 12),
+              PointerFocus(
+                focusNode: _usernameFocus,
+                child: TextFormField(
+                  controller: _usernameController,
+                  focusNode: _usernameFocus,
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person),
+                  ),
+                  enabled: !_saving,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _authType == SshAuthType.password
+                      ? _passwordFocus.requestFocus()
+                      : _privateKeyFocus.requestFocus(),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Username is required'
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (_authType == SshAuthType.password)
+                PointerFocus(
+                  focusNode: _passwordFocus,
+                  child: TextFormField(
+                    controller: _passwordController,
+                    focusNode: _passwordFocus,
+                    decoration: const InputDecoration(
+                      labelText: 'Password',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.lock),
+                    ),
+                    enabled: !_saving,
+                    obscureText: true,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _save(),
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Password is required'
+                        : null,
+                  ),
+                )
+              else ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _privateKeyController.text.isEmpty
+                            ? 'No private key loaded'
+                            : 'Private key loaded (${_privateKeyController.text.length} chars)',
+                        style: TextStyle(
+                          color: _privateKeyController.text.isEmpty
+                              ? Theme.of(context).colorScheme.onSurfaceVariant
+                              : Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.tonalIcon(
+                      onPressed: _saving ? null : _pickKeyFile,
+                      icon: const Icon(Icons.file_open, size: 18),
+                      label: const Text('Pick File'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                PointerFocus(
+                  focusNode: _privateKeyFocus,
+                  child: TextFormField(
+                    controller: _privateKeyController,
+                    focusNode: _privateKeyFocus,
+                    decoration: const InputDecoration(
+                      labelText: 'Or paste private key',
+                      hintText: '-----BEGIN OPENSSH PRIVATE KEY-----',
+                      border: OutlineInputBorder(),
+                    ),
+                    enabled: !_saving,
+                    maxLines: 4,
+                    style:
+                        const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => _passphraseFocus.requestFocus(),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Private key is required'
+                        : null,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                PointerFocus(
+                  focusNode: _passphraseFocus,
+                  child: TextFormField(
+                    controller: _passphraseController,
+                    focusNode: _passphraseFocus,
+                    decoration: const InputDecoration(
+                      labelText: 'Passphrase (optional)',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.lock),
+                    ),
+                    enabled: !_saving,
+                    obscureText: true,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _save(),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
       actions: [
@@ -573,13 +755,7 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
   }
 
   Future<void> _save() async {
-    if (_labelController.text.trim().isEmpty ||
-        _hostController.text.trim().isEmpty ||
-        _usernameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Please fill in Label, Host, and Username')),
-      );
+    if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
 
