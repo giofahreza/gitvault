@@ -1149,14 +1149,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
         if (!useRail) {
           return Scaffold(
-            body: Padding(
-              padding: const EdgeInsets.only(
-                bottom: _mobileNavigationBarHeight,
-              ),
-              child: IndexedStack(
-                index: _currentIndex,
-                children: screens,
-              ),
+            body: IndexedStack(
+              index: _currentIndex,
+              children: screens,
             ),
             bottomNavigationBar: NavigationBar(
               height: _mobileNavigationBarHeight,
