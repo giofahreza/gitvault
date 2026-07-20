@@ -5,6 +5,7 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../core/providers/providers.dart';
 import '../../core/theme/note_colors.dart';
+import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/note.dart';
 import '../../utils/pointer_focus.dart';
 import 'note_editor_screen.dart'; // NoteEditorDialog
@@ -94,6 +95,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               onPressed: () => setState(() => _isGridView = !_isGridView),
             ),
           ],
+          const WebLockAction(compactOnly: true),
         ],
       ),
       body: notesAsync.when(

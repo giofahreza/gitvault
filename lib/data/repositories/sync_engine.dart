@@ -12,6 +12,7 @@ import '../models/sync_index.dart';
 import 'vault_repository.dart';
 import 'notes_repository.dart';
 import 'ssh_repository.dart';
+import '../../core/services/device_identity_service.dart';
 
 /// Manages synchronization between local vault and GitHub storage
 /// Implements "Smart Sync" with conflict resolution via Last Write Wins
@@ -91,7 +92,7 @@ class SyncEngine {
     final pushResult = await _pushToGitHub(rootKey);
 
     // Sync device registry
-    await _syncDeviceRegistry(rootKey);
+    await _syncDeviceRegistry();
 
     // Record sync time
     await _setLastSyncTime(DateTime.now());
@@ -127,14 +128,16 @@ class SyncEngine {
       // Verify monotonic counter (anti-rollback)
       final localCounter = await _getLocalCounter();
       if (syncIndex.monotonicCounter < localCounter) {
-        throw SyncException('Rollback attack detected! Remote counter is lower than local.');
+        throw SyncException(
+            'Rollback attack detected! Remote counter is lower than local.');
       }
 
       // Download each item from the map (could be password entry or note)
       for (final entry in syncIndex.uuidToHashMap.entries) {
         final uuid = entry.key;
         final filenameHash = entry.value;
-        final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
+        final remotePath =
+            '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
 
         // Download file
         final fileBytes = await _githubService.downloadFile(remotePath);
@@ -189,7 +192,8 @@ class SyncEngine {
             // Not a note, try as SSH credential
             try {
               if (_sshRepository != null) {
-                final remoteSsh = await _decryptSshCredential(fileBytes, rootKey);
+                final remoteSsh =
+                    await _decryptSshCredential(fileBytes, rootKey);
 
                 final localSsh = await _sshRepository!.getCredential(uuid);
 
@@ -236,7 +240,8 @@ class SyncEngine {
 
       // If no local data, check if remote index exists
       if (entries.isEmpty && notes.isEmpty && sshCredentials.isEmpty) {
-        final indexBytes = await _githubService.downloadFile(Constants.indexFile);
+        final indexBytes =
+            await _githubService.downloadFile(Constants.indexFile);
         if (indexBytes == null) {
           // Both local and remote empty - nothing to push
           return PushResult(uploaded: 0);
@@ -277,7 +282,8 @@ class SyncEngine {
 
         if (isUnchanged) continue;
 
-        final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
+        final remotePath =
+            '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
 
         // Encrypt entry
         final encryptedBytes = await _encryptEntry(entry, rootKey);
@@ -313,7 +319,8 @@ class SyncEngine {
 
         if (isUnchanged) continue;
 
-        final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
+        final remotePath =
+            '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
 
         // Encrypt note
         final encryptedBytes = await _encryptNote(note, rootKey);
@@ -348,7 +355,8 @@ class SyncEngine {
 
         if (isUnchanged) continue;
 
-        final remotePath = '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
+        final remotePath =
+            '${Constants.dataFolder}/$filenameHash${Constants.fileExtension}';
 
         final encryptedBytes = await _encryptSshCredential(ssh, rootKey);
 
@@ -420,107 +428,123 @@ class SyncEngine {
   }
 
   /// Syncs the device registry with GitHub
-  Future<void> _syncDeviceRegistry(Uint8List rootKey) async {
+  Future<void> _syncDeviceRegistry() async {
     try {
-      final deviceId = await _keyStorage.getDeviceId();
-      if (deviceId == null) return;
+      await refreshDeviceRegistry(
+        keyStorage: _keyStorage,
+        cryptoManager: _cryptoManager,
+        githubService: _githubService,
+        uploadIfNeeded: true,
+      );
+    } catch (_) {
+      // Non-fatal: device registry sync failure should not block vault sync
+    }
+  }
 
-      final deviceName = await _keyStorage.getLocalDeviceName() ?? 'Unknown Device';
-      final now = DateTime.now();
-      final nowIso = now.toIso8601String();
+  /// Rebuilds the device registry from remote state and local device identity.
+  /// When [uploadIfNeeded] is false, the merged registry is cached locally only.
+  static Future<Map<String, dynamic>?> refreshDeviceRegistry({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    bool uploadIfNeeded = true,
+  }) async {
+    await keyStorage.initialize();
 
-      // Download existing registry
-      Map<String, dynamic> registry = {};
-      final registryBytes = await _githubService.downloadFile(Constants.trustedDevicesFile);
-      if (registryBytes != null) {
-        try {
-          final encryptedBox = EncryptedBox.fromBytes(registryBytes);
-          final decryptedPadded = await _cryptoManager.decryptXChaCha20(
-            box: encryptedBox,
-            key: rootKey,
-          );
-          final decryptedBytes = _cryptoManager.removeRandomPadding(decryptedPadded);
-          final jsonString = utf8.decode(decryptedBytes);
-          registry = jsonDecode(jsonString) as Map<String, dynamic>;
-        } catch (_) {
-          // Never replace a registry we could not authenticate or decrypt;
-          // doing so could erase the trusted-device list for every client.
-          return;
-        }
+    final rootKey = await keyStorage.getRootKey();
+    if (rootKey == null) return null;
+
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    final now = DateTime.now();
+    final nowIso = now.toIso8601String();
+
+    Map<String, dynamic> registry = {};
+    final registryBytes =
+        await githubService.downloadFile(Constants.trustedDevicesFile);
+    if (registryBytes != null) {
+      try {
+        final encryptedBox = EncryptedBox.fromBytes(registryBytes);
+        final decryptedPadded = await cryptoManager.decryptXChaCha20(
+          box: encryptedBox,
+          key: rootKey,
+        );
+        final decryptedBytes =
+            cryptoManager.removeRandomPadding(decryptedPadded);
+        final jsonString = utf8.decode(decryptedBytes);
+        registry = jsonDecode(jsonString) as Map<String, dynamic>;
+      } catch (_) {
+        // Never replace a registry we could not authenticate or decrypt;
+        // doing so could erase the trusted-device list for every client.
+        return null;
       }
+    }
 
-      // Ensure 'devices' list exists
-      final devices = (registry['devices'] as List<dynamic>?) ?? [];
+    final devices = (registry['devices'] as List<dynamic>?) ?? [];
+    bool found = false;
+    bool needsUpload = false;
 
-      // Update or add this device
-      bool found = false;
-      bool needsUpload = false;
-      final updatedDevices = devices.map((d) {
-        final device = d as Map<String, dynamic>;
-        if (device['deviceId'] == deviceId) {
-          found = true;
-          final previousLastSeen =
-              DateTime.tryParse(device['lastSeen'] as String? ?? '');
-          final lastSeenIsStale = previousLastSeen == null ||
-              now.difference(previousLastSeen) >= const Duration(hours: 6);
-          final nameChanged = device['name'] != deviceName;
+    final updatedDevices = devices.map((d) {
+      final device = Map<String, dynamic>.from(d as Map);
+      if (device['deviceId'] == identity.id) {
+        found = true;
+        final previousLastSeen =
+            DateTime.tryParse(device['lastSeen'] as String? ?? '');
+        final lastSeenIsStale = previousLastSeen == null ||
+            now.difference(previousLastSeen) >= const Duration(hours: 6);
+        final nameChanged = device['name'] != identity.name;
 
-          if (!lastSeenIsStale && !nameChanged) return device;
+        if (!lastSeenIsStale && !nameChanged) return device;
 
-          needsUpload = true;
-          return {
-            ...device,
-            'name': deviceName,
-            'lastSeen': nowIso,
-          };
-        }
-        return device;
-      }).toList();
-
-      if (!found) {
         needsUpload = true;
-        updatedDevices.add({
-          'deviceId': deviceId,
-          'name': deviceName,
+        return {
+          ...device,
+          'name': identity.name,
           'lastSeen': nowIso,
-          'addedAt': nowIso,
-        });
+        };
       }
+      return device;
+    }).toList();
 
-      registry['devices'] = updatedDevices;
+    if (!found) {
+      needsUpload = true;
+      updatedDevices.add({
+        'deviceId': identity.id,
+        'name': identity.name,
+        'lastSeen': nowIso,
+        'addedAt': nowIso,
+      });
+    }
 
-      if (!needsUpload) {
-        await _keyStorage.storeDeviceRegistry(jsonEncode(registry));
-        return;
-      }
+    registry['devices'] = updatedDevices;
+    final registryJson = jsonEncode(registry);
 
-      // Encrypt and upload
-      final registryJson = jsonEncode(registry);
+    if (uploadIfNeeded && needsUpload) {
       final jsonBytes = utf8.encode(registryJson);
-      final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
-      final encryptedBox = await _cryptoManager.encryptXChaCha20(
+      final paddedBytes =
+          cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+      final encryptedBox = await cryptoManager.encryptXChaCha20(
         data: paddedBytes,
         key: rootKey,
       );
 
-      await _githubService.uploadFile(
+      await githubService.uploadFile(
         path: Constants.trustedDevicesFile,
         content: encryptedBox.toBytes(),
         commitMessage: 'Update device registry',
       );
-
-      // Cache locally
-      await _keyStorage.storeDeviceRegistry(registryJson);
-    } catch (_) {
-      // Non-fatal: device registry sync failure should not block vault sync
     }
+
+    await keyStorage.storeDeviceRegistry(registryJson);
+    return registry;
   }
 
   /// Encrypts a vault entry to bytes
   Future<Uint8List> _encryptEntry(VaultEntry entry, Uint8List key) async {
     final jsonString = entry.toJsonString();
     final jsonBytes = utf8.encode(jsonString);
-    final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+    final paddedBytes =
+        _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
 
     final encryptedBox = await _cryptoManager.encryptXChaCha20(
       data: paddedBytes,
@@ -549,7 +573,8 @@ class SyncEngine {
   Future<Uint8List> _encryptNote(Note note, Uint8List key) async {
     final jsonString = jsonEncode(note.toJson());
     final jsonBytes = utf8.encode(jsonString);
-    final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+    final paddedBytes =
+        _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
 
     final encryptedBox = await _cryptoManager.encryptXChaCha20(
       data: paddedBytes,
@@ -575,10 +600,12 @@ class SyncEngine {
   }
 
   /// Encrypts an SSH credential to bytes
-  Future<Uint8List> _encryptSshCredential(SshCredential credential, Uint8List key) async {
+  Future<Uint8List> _encryptSshCredential(
+      SshCredential credential, Uint8List key) async {
     final jsonString = jsonEncode(credential.toJson());
     final jsonBytes = utf8.encode(jsonString);
-    final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+    final paddedBytes =
+        _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
 
     final encryptedBox = await _cryptoManager.encryptXChaCha20(
       data: paddedBytes,
@@ -589,7 +616,8 @@ class SyncEngine {
   }
 
   /// Decrypts an SSH credential from bytes
-  Future<SshCredential> _decryptSshCredential(Uint8List bytes, Uint8List key) async {
+  Future<SshCredential> _decryptSshCredential(
+      Uint8List bytes, Uint8List key) async {
     final encryptedBox = EncryptedBox.fromBytes(bytes);
     final decryptedPadded = await _cryptoManager.decryptXChaCha20(
       box: encryptedBox,
@@ -607,7 +635,8 @@ class SyncEngine {
   Future<Uint8List> _encryptIndex(SyncIndex index, Uint8List key) async {
     final jsonString = jsonEncode(index.toJson());
     final jsonBytes = utf8.encode(jsonString);
-    final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+    final paddedBytes =
+        _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
 
     final encryptedBox = await _cryptoManager.encryptXChaCha20(
       data: paddedBytes,

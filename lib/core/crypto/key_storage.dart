@@ -15,7 +15,8 @@ class KeyStorage {
   static const String _repoOwnerKey = 'gitvault_repo_owner';
   static const String _repoNameKey = 'gitvault_repo_name';
   static const String _biometricEnabledKey = 'gitvault_biometric_enabled';
-  static const String _clipboardClearSecondsKey = 'gitvault_clipboard_clear_seconds';
+  static const String _clipboardClearSecondsKey =
+      'gitvault_clipboard_clear_seconds';
   static const String _themeModeKey = 'gitvault_theme_mode';
   static const String _pinHashKey = 'gitvault_pin_hash';
   static const String _pinSaltKey = 'gitvault_pin_salt';
@@ -25,6 +26,10 @@ class KeyStorage {
   static const String _autoSyncIntervalKey = 'gitvault_auto_sync_interval';
   static const String _localDeviceNameKey = 'gitvault_local_device_name';
   static const String _deviceRegistryKey = 'gitvault_device_registry';
+  static const String _webBiometricCredentialIdKey =
+      'gitvault_web_biometric_credential_id';
+  static const String _webBiometricUserHandleKey =
+      'gitvault_web_biometric_user_handle';
 
   /// Initialize the storage box
   Future<void> initialize() async {
@@ -153,6 +158,35 @@ class KeyStorage {
     final value = _box.get(_biometricEnabledKey);
     if (value == null) return false; // Default to disabled
     return value == 'true';
+  }
+
+  /// Stores the WebAuthn credential used for browser biometric unlock.
+  Future<void> storeWebBiometricCredential({
+    required String credentialId,
+    required String userHandle,
+  }) async {
+    _ensureInitialized();
+    await _box.put(_webBiometricCredentialIdKey, credentialId);
+    await _box.put(_webBiometricUserHandleKey, userHandle);
+  }
+
+  /// Retrieves the registered WebAuthn credential id.
+  Future<String?> getWebBiometricCredentialId() async {
+    _ensureInitialized();
+    return _box.get(_webBiometricCredentialIdKey);
+  }
+
+  /// Retrieves the registered WebAuthn user handle.
+  Future<String?> getWebBiometricUserHandle() async {
+    _ensureInitialized();
+    return _box.get(_webBiometricUserHandleKey);
+  }
+
+  /// Removes the stored WebAuthn credential reference.
+  Future<void> clearWebBiometricCredential() async {
+    _ensureInitialized();
+    await _box.delete(_webBiometricCredentialIdKey);
+    await _box.delete(_webBiometricUserHandleKey);
   }
 
   /// Stores clipboard auto-clear seconds preference

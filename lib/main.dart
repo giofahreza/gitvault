@@ -10,8 +10,10 @@ import 'core/providers/providers.dart';
 import 'core/services/autofill_request_handler.dart';
 import 'core/services/github_service.dart';
 import 'core/services/background_sync_service.dart';
+import 'core/services/device_identity_service.dart';
 import 'core/services/persistent_ssh_service.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/web_lock_action.dart';
 import 'data/models/vault_entry.dart';
 import 'data/repositories/sync_engine.dart';
 import 'features/onboarding/onboarding_screen.dart';
@@ -90,6 +92,9 @@ void main() async {
 
   // Load persisted settings (biometric toggle, clipboard timer)
   await loadPersistedSettings(container);
+  await DeviceIdentityService(
+    keyStorage: container.read(keyStorageProvider),
+  ).ensureIdentity();
 
   final isMobile = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -221,6 +226,18 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
     }
   }
 
+  void _lockVault() {
+    if (!_authenticated || !mounted) return;
+
+    setState(() {
+      _authenticated = false;
+      _checking = true;
+      _showPinEntry = false;
+      _error = null;
+    });
+    unawaited(_attemptBiometric());
+  }
+
   /// Poll native side for pending autofill request (cold-start case).
   /// Called fire-and-forget after every successful auth path.
   Future<void> _pollPendingAutofill() async {
@@ -261,25 +278,6 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
 
   Future<void> _attemptBiometric() async {
     final biometricEnabled = ref.read(biometricEnabledProvider);
-    if (kIsWeb) {
-      final pinAuth = ref.read(pinAuthProvider);
-      final hasPIN = await pinAuth.isPinSetup();
-      if (!mounted) return;
-
-      if (hasPIN) {
-        setState(() {
-          _showPinEntry = true;
-          _checking = false;
-        });
-      } else {
-        setState(() {
-          _authenticated = true;
-          _checking = false;
-        });
-        _pollPendingAutofill();
-      }
-      return;
-    }
 
     if (!biometricEnabled) {
       // Biometric disabled — check if PIN is set up
@@ -410,6 +408,12 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(appLockSignalProvider, (previous, next) {
+      if (previous != null && previous != next) {
+        _lockVault();
+      }
+    });
+
     if (_checking) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -1182,6 +1186,17 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   labelType:
                       useExtendedRail ? null : NavigationRailLabelType.all,
                   minExtendedWidth: 200,
+                  trailing: kIsWeb
+                      ? const Expanded(
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Padding(
+                              padding: EdgeInsets.only(bottom: 16),
+                              child: WebLockAction(filled: true),
+                            ),
+                          ),
+                        )
+                      : null,
                   destinations: [
                     for (final destination in _destinations)
                       NavigationRailDestination(

@@ -10,8 +10,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/auth/biometric_auth.dart';
 import '../../core/providers/providers.dart';
 import '../../core/services/background_sync_service.dart';
+import '../../core/services/device_identity_service.dart';
 import '../../core/services/github_service.dart';
 import '../../core/services/ime_service.dart';
+import '../../core/widgets/web_lock_action.dart';
+import '../../data/repositories/sync_engine.dart';
 import '../../utils/constants.dart';
 import '../../utils/auth_helper.dart';
 import '../../utils/mnemonic_helper.dart';
@@ -161,6 +164,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
+        actions: const [
+          WebLockAction(compactOnly: true),
+        ],
       ),
       body: Focus(
         focusNode: _settingsFocusNode,
@@ -192,26 +198,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: Text(
-                    'On web, use PIN Lock for protected actions. Biometric unlock, autofill, and GitVault Keyboard are available in the Android app.',
+                    'Web biometric unlock uses your browser passkey or platform authenticator. Autofill and GitVault Keyboard are available in the Android app.',
                     style: TextStyle(fontSize: 12),
                   ),
                 ),
-              if (kIsWeb)
-                const _WebOnlySettingsTile(
-                  icon: Icons.fingerprint,
-                  title: 'Biometric Authentication',
-                  subtitle: 'Use PIN Lock on web',
-                )
-              else
-                ListTile(
+              Semantics(
+                container: true,
+                label: 'Biometric Authentication',
+                value: biometricEnabled ? 'Enabled' : 'Disabled',
+                button: true,
+                toggled: biometricEnabled,
+                child: ListTile(
                   leading: const Icon(Icons.fingerprint),
                   title: const Text('Biometric Authentication'),
-                  subtitle: Text(biometricEnabled ? 'Enabled' : 'Disabled'),
+                  subtitle: Text(
+                    biometricEnabled
+                        ? 'Enabled'
+                        : kIsWeb
+                            ? 'Use browser biometric unlock'
+                            : 'Disabled',
+                  ),
                   trailing: Switch(
                     value: biometricEnabled,
                     onChanged: (value) => _toggleBiometric(value),
                   ),
+                  onTap: () => _toggleBiometric(!biometricEnabled),
                 ),
+              ),
               pinEnabledAsync.when(
                 data: (pinEnabled) => ListTile(
                   leading: const Icon(Icons.pin),
@@ -281,7 +294,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ],
               const Divider(),
               const _SectionHeader(title: 'Devices'),
-              _DeviceListSection(),
+              _DeviceListSection(isActive: widget.isActive),
               ListTile(
                 leading: const Icon(Icons.add),
                 title: const Text('Link New Device'),
@@ -841,54 +854,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _toggleBiometric(bool enable) async {
-    if (kIsWeb) {
-      _showWebUnavailableDialog(
-        context,
-        title: 'Biometric Authentication',
-        message:
-            'Biometric unlock is available in the Android app. Use PIN lock on web.',
-      );
-      return;
-    }
-
     if (enable) {
-      // Test biometric before enabling
       try {
         final biometricAuth = ref.read(biometricAuthProvider);
-
-        // Check if biometrics are supported
         final supported = await biometricAuth.isSupported();
         if (!supported) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('Biometrics not supported on this device')),
+              SnackBar(
+                content: Text(
+                  kIsWeb
+                      ? 'Browser biometric unlock is not available in this browser or origin'
+                      : 'Biometrics not supported on this device',
+                ),
+              ),
             );
           }
           return;
         }
 
-        // Check if biometrics are enrolled
-        final enrolled = await biometricAuth.isDeviceEnrolled();
-        if (!enrolled) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text(
-                      'No fingerprint or face enrolled. Please set up biometrics in device settings first.')),
-            );
-          }
-          return;
-        }
-
-        // Test authentication
-        final result = await biometricAuth.authenticate(
+        final result = await biometricAuth.setup(
           reason: 'Verify biometric authentication',
-          biometricOnly: false,
         );
 
         if (result) {
-          // Success! Enable biometrics
           ref.read(biometricEnabledProvider.notifier).state = true;
           await ref.read(keyStorageProvider).setBiometricEnabled(true);
           if (mounted) {
@@ -918,9 +907,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         }
       }
     } else {
-      // Disable biometrics (no test needed)
+      final keyStorage = ref.read(keyStorageProvider);
       ref.read(biometricEnabledProvider.notifier).state = false;
-      await ref.read(keyStorageProvider).setBiometricEnabled(false);
+      await keyStorage.setBiometricEnabled(false);
+      if (kIsWeb) {
+        await keyStorage.clearWebBiometricCredential();
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Biometric authentication disabled')),
@@ -2534,6 +2526,12 @@ void _showEraseRepoDialog(
 }
 
 class _DeviceListSection extends ConsumerStatefulWidget {
+  final bool isActive;
+
+  const _DeviceListSection({
+    required this.isActive,
+  });
+
   @override
   ConsumerState<_DeviceListSection> createState() => _DeviceListSectionState();
 }
@@ -2549,40 +2547,104 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
     _loadDevices();
   }
 
-  Future<void> _loadDevices() async {
+  @override
+  void didUpdateWidget(covariant _DeviceListSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _loadDevices();
+    }
+  }
+
+  Future<void> _loadDevices({bool uploadCurrent = false}) async {
     final keyStorage = ref.read(keyStorageProvider);
     await keyStorage.initialize();
-
-    final deviceId = await keyStorage.getDeviceId();
-    final registryJson = await keyStorage.getDeviceRegistry();
-    final localName = await keyStorage.getLocalDeviceName();
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
 
     List<Map<String, dynamic>> devices = [];
 
-    if (registryJson != null) {
-      try {
-        final registry = jsonDecode(registryJson) as Map<String, dynamic>;
-        final deviceList = registry['devices'] as List<dynamic>? ?? [];
-        devices =
-            deviceList.map((d) => Map<String, dynamic>.from(d as Map)).toList();
-      } catch (_) {}
+    try {
+      final token = await keyStorage.getGitHubToken();
+      final owner = await keyStorage.getRepoOwner();
+      final repo = await keyStorage.getRepoName();
+
+      if (token != null && owner != null && repo != null) {
+        final githubService = GitHubService(
+          accessToken: token,
+          repoOwner: owner,
+          repoName: repo,
+        );
+        try {
+          final registry = await SyncEngine.refreshDeviceRegistry(
+            keyStorage: keyStorage,
+            cryptoManager: ref.read(cryptoManagerProvider),
+            githubService: githubService,
+            uploadIfNeeded: uploadCurrent,
+          );
+          final deviceList = registry?['devices'] as List<dynamic>? ?? [];
+          devices = deviceList
+              .map((d) => Map<String, dynamic>.from(d as Map))
+              .toList();
+        } finally {
+          githubService.dispose();
+        }
+      }
+    } catch (_) {}
+
+    if (devices.isEmpty) {
+      final registryJson = await keyStorage.getDeviceRegistry();
+      if (registryJson != null) {
+        try {
+          final registry = jsonDecode(registryJson) as Map<String, dynamic>;
+          final deviceList = registry['devices'] as List<dynamic>? ?? [];
+          devices = deviceList
+              .map((d) => Map<String, dynamic>.from(d as Map))
+              .toList();
+        } catch (_) {}
+      }
     }
 
-    // If no devices from registry, show at least this device
     if (devices.isEmpty) {
       devices = [
         {
-          'deviceId': deviceId ?? 'unknown',
-          'name': localName ?? 'This Device',
+          'deviceId': identity.id,
+          'name': identity.name,
           'lastSeen': DateTime.now().toIso8601String(),
         }
       ];
+    } else {
+      final localIndex =
+          devices.indexWhere((device) => device['deviceId'] == identity.id);
+      if (localIndex >= 0) {
+        devices[localIndex] = {
+          ...devices[localIndex],
+          'deviceId': identity.id,
+          'name': identity.name,
+        };
+      } else {
+        devices.add({
+          'deviceId': identity.id,
+          'name': identity.name,
+          'lastSeen': DateTime.now().toIso8601String(),
+        });
+      }
     }
+
+    devices.sort((a, b) {
+      final aIsLocal = a['deviceId'] == identity.id;
+      final bIsLocal = b['deviceId'] == identity.id;
+      if (aIsLocal != bIsLocal) return aIsLocal ? -1 : 1;
+
+      final aSeen = DateTime.tryParse(a['lastSeen'] as String? ?? '');
+      final bSeen = DateTime.tryParse(b['lastSeen'] as String? ?? '');
+      return (bSeen ?? DateTime.fromMillisecondsSinceEpoch(0))
+          .compareTo(aSeen ?? DateTime.fromMillisecondsSinceEpoch(0));
+    });
 
     if (mounted) {
       setState(() {
         _devices = devices;
-        _localDeviceId = deviceId;
+        _localDeviceId = identity.id;
         _loaded = true;
       });
     }
@@ -2618,8 +2680,12 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
     return Column(
       children: _devices.map((device) {
         final isThisDevice = device['deviceId'] == _localDeviceId;
-        final name = device['name'] as String? ?? 'Unknown Device';
-        final lastSeen = _formatLastSeen(device['lastSeen'] as String?);
+        final name = (device['name'] as String?) ??
+            (device['deviceName'] as String?) ??
+            'Unknown Device';
+        final lastSeen = _formatLastSeen(
+          device['lastSeen'] as String? ?? device['lastSeenAt'] as String?,
+        );
 
         return ListTile(
           leading: Icon(
@@ -2695,7 +2761,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
                 final keyStorage = ref.read(keyStorageProvider);
                 await keyStorage.storeLocalDeviceName(name);
                 Navigator.pop(ctx);
-                _loadDevices();
+                _loadDevices(uploadCurrent: true);
               }
             },
             child: const Text('Save'),

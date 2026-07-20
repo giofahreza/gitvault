@@ -30,8 +30,11 @@ final keyStorageProvider = Provider<KeyStorage>((ref) {
 
 /// Provider for BiometricAuth singleton
 final biometricAuthProvider = Provider<BiometricAuth>((ref) {
-  return BiometricAuth();
+  return BiometricAuth(keyStorage: ref.watch(keyStorageProvider));
 });
+
+/// Incrementing signal used to request an app lock from any authenticated UI.
+final appLockSignalProvider = StateProvider<int>((ref) => 0);
 
 /// Provider for DuressManager
 final duressManagerProvider = Provider<DuressManager>((ref) {
@@ -104,7 +107,8 @@ final notesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
 });
 
 /// Provider for archived notes list
-final archivedNotesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
+final archivedNotesProvider =
+    FutureProvider.autoDispose<List<Note>>((ref) async {
   final repo = ref.watch(notesRepositoryProvider);
   await repo.initialize();
   return repo.getArchivedNotes();
@@ -169,6 +173,7 @@ Future<void> loadPersistedSettings(ProviderContainer container) async {
   final autoSyncInterval = await keyStorage.getAutoSyncInterval();
   container.read(biometricEnabledProvider.notifier).state = biometric;
   container.read(clipboardClearSecondsProvider.notifier).state = clipboard;
-  container.read(themeModeProvider.notifier).state = AppThemeMode.fromString(themeMode);
+  container.read(themeModeProvider.notifier).state =
+      AppThemeMode.fromString(themeMode);
   container.read(autoSyncIntervalProvider.notifier).state = autoSyncInterval;
 }

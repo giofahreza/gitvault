@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/providers.dart';
 import '../../core/services/github_service.dart';
+import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/vault_entry.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/pointer_focus.dart';
@@ -151,6 +152,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                 ),
               ],
             ),
+          const WebLockAction(compactOnly: true),
         ],
       ),
       body: entriesAsync.when(
