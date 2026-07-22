@@ -240,7 +240,7 @@ class _SshScreenState extends ConsumerState<SshScreen> {
 
 String? _sshUnsupportedReason() {
   if (kIsWeb) {
-    return 'Direct SSH and ping require raw TCP sockets, which browsers do not provide. Use the Android app, or connect through an SSH-over-WebSocket proxy.';
+    return 'Browsers cannot open SSH connections directly. Use the Android app for SSH and ping, or connect through an SSH-over-WebSocket proxy if your server provides one.';
   }
   return sshTransportUnsupportedReason();
 }

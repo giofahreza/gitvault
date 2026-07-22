@@ -10,6 +10,7 @@ import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/vault_entry.dart';
 import '../../utils/totp_generator.dart';
 import '../../utils/auth_helper.dart';
+import '../../utils/clipboard_feedback.dart';
 import '../../utils/pointer_focus.dart';
 
 List<String> _availableVaultGroups(Iterable<VaultEntry> entries) {
@@ -256,33 +257,31 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     );
 
     if (authenticated && mounted) {
-      _performCopy(entry);
+      await _performCopy(entry);
     }
   }
 
-  void _performCopy(VaultEntry entry) {
-    Clipboard.setData(ClipboardData(text: entry.password));
+  Future<void> _performCopy(VaultEntry entry) async {
+    final copied = await copyTextWithFeedback(
+      context,
+      text: entry.password,
+      successMessage: 'Password copied to clipboard',
+      failureMessage:
+          'Could not copy password. Check browser clipboard permission and try again.',
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+    );
+    if (!copied || !mounted) return;
+
     _copyFeedbackTimer?.cancel();
     setState(() => _copiedPasswordUuid = entry.uuid);
     _copyFeedbackTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _copiedPasswordUuid = null);
     });
 
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Password copied to clipboard'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-        ),
-      );
-
     // Auto-clear clipboard after configured seconds
     final seconds = ref.read(clipboardClearSecondsProvider);
     Future.delayed(Duration(seconds: seconds), () {
-      Clipboard.setData(const ClipboardData(text: ''));
+      clearClipboardSilently();
     });
   }
 
@@ -328,14 +327,14 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           }
         },
         onCopyPassword: () => _copyPassword(entry),
-        onCopyUsername: () {
-          Clipboard.setData(ClipboardData(text: entry.username));
-          ScaffoldMessenger.of(sheetContext).showSnackBar(
-            const SnackBar(
-                content: Text('Username copied'),
-                duration: Duration(seconds: 2)),
-          );
-        },
+        onCopyUsername: () => copyTextWithFeedback(
+          context,
+          text: entry.username,
+          successMessage: 'Username copied',
+          failureMessage:
+              'Could not copy username. Check browser clipboard permission and try again.',
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+        ),
       ),
     );
   }
@@ -1200,16 +1199,14 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
           children: [
             Expanded(
               child: GestureDetector(
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: code));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Copied: $code'),
-                      duration: const Duration(seconds: 2),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                },
+                onTap: () => copyTextWithFeedback(
+                  context,
+                  text: code,
+                  successMessage: '2FA code copied',
+                  failureMessage:
+                      'Could not copy 2FA code. Check browser clipboard permission and try again.',
+                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+                ),
                 onLongPress: widget.onEdit,
                 child: Container(
                   padding:
@@ -1257,16 +1254,14 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
             IconButton(
               tooltip: 'Copy 2FA code',
               icon: const Icon(Icons.copy_outlined, size: 20),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: code));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Copied: $code'),
-                    duration: const Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
+              onPressed: () => copyTextWithFeedback(
+                context,
+                text: code,
+                successMessage: '2FA code copied',
+                failureMessage:
+                    'Could not copy 2FA code. Check browser clipboard permission and try again.',
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+              ),
             ),
             IconButton(
               tooltip: 'Edit 2FA',

@@ -17,8 +17,10 @@ import '../../core/widgets/web_lock_action.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/constants.dart';
 import '../../utils/auth_helper.dart';
+import '../../utils/clipboard_feedback.dart';
 import '../../utils/mnemonic_helper.dart';
 import '../../utils/pointer_focus.dart';
+import '../../utils/recovery_phrase_grid.dart';
 import '../device_linking/link_device_screen.dart';
 import 'background_sync_settings.dart';
 
@@ -41,6 +43,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final FocusNode _settingsFocusNode;
   bool _duressConfigured = false;
   bool _duressStatusLoading = true;
+  bool _biometricBusy = false;
 
   @override
   void initState() {
@@ -212,17 +215,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   leading: const Icon(Icons.fingerprint),
                   title: const Text('Biometric Authentication'),
                   subtitle: Text(
-                    biometricEnabled
-                        ? 'Enabled'
-                        : kIsWeb
-                            ? 'Use browser biometric unlock'
-                            : 'Disabled',
+                    _biometricBusy
+                        ? 'Setting up...'
+                        : biometricEnabled
+                            ? 'Enabled'
+                            : kIsWeb
+                                ? 'Use browser biometric unlock'
+                                : 'Disabled',
                   ),
                   trailing: Switch(
                     value: biometricEnabled,
-                    onChanged: (value) => _toggleBiometric(value),
+                    onChanged: _biometricBusy
+                        ? null
+                        : (value) => _toggleBiometric(value),
                   ),
-                  onTap: () => _toggleBiometric(!biometricEnabled),
+                  onTap: _biometricBusy
+                      ? null
+                      : () => _toggleBiometric(!biometricEnabled),
                 ),
               ),
               pinEnabledAsync.when(
@@ -267,14 +276,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               if (kIsWeb) ...[
                 const _WebOnlySettingsTile(
-                  icon: Icons.auto_awesome,
-                  title: 'System-wide Autofill',
-                  subtitle: 'Available in the Android app',
-                ),
-                const _WebOnlySettingsTile(
-                  icon: Icons.keyboard,
-                  title: 'GitVault Keyboard',
-                  subtitle: 'Available in the Android app',
+                  icon: Icons.android,
+                  title: 'Android App Features',
+                  subtitle:
+                      'System-wide Autofill and GitVault Keyboard are available in the Android app',
                 ),
               ] else ...[
                 ListTile(
@@ -298,6 +303,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.add),
                 title: const Text('Link New Device'),
+                subtitle: const Text('Transfer this vault to another device'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Navigator.of(context).push(
@@ -854,6 +860,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _toggleBiometric(bool enable) async {
+    if (_biometricBusy) return;
+    if (mounted) setState(() => _biometricBusy = true);
+
     if (enable) {
       try {
         final biometricAuth = ref.read(biometricAuthProvider);
@@ -870,6 +879,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             );
           }
+          if (mounted) setState(() => _biometricBusy = false);
           return;
         }
 
@@ -888,8 +898,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('Authentication failed or cancelled')),
+              SnackBar(
+                content: Text(
+                  kIsWeb
+                      ? 'Browser biometric setup was cancelled or blocked. Check passkey support and try again.'
+                      : 'Authentication failed or cancelled',
+                ),
+              ),
             );
           }
         }
@@ -919,6 +934,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       }
     }
+
+    if (mounted) setState(() => _biometricBusy = false);
   }
 
   String _getThemeLabel(AppThemeMode mode) {
@@ -1116,6 +1133,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Navigator.pop(ctx);
               },
             ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 16, 8),
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1398,6 +1425,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final mnemonic = MnemonicHelper.rootKeyToMnemonic(rootKey);
       final formattedMnemonic =
           MnemonicHelper.formatMnemonicForDisplay(mnemonic);
+      final mnemonicWords = mnemonic.split(' ');
 
       if (context.mounted) {
         var recoveryCopied = false;
@@ -1441,11 +1469,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         label:
                             'Your 24-word recovery phrase: $formattedMnemonic',
                         child: ExcludeSemantics(
-                          child: SelectableText(
-                            formattedMnemonic,
-                            style: const TextStyle(
-                                fontFamily: 'monospace', fontSize: 11),
-                          ),
+                          child: RecoveryPhraseGrid(words: mnemonicWords),
                         ),
                       ),
                     ),
@@ -1458,20 +1482,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: const Text('Close'),
                 ),
                 FilledButton.icon(
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: mnemonic));
+                  onPressed: () async {
+                    final copied = await copyTextWithFeedback(
+                      context,
+                      text: mnemonic,
+                      successMessage: 'Recovery phrase copied to clipboard',
+                      failureMessage:
+                          'Could not copy recovery phrase. Copy the words manually instead.',
+                      margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+                    );
+                    if (!copied || !dialogContext.mounted) return;
                     recoveryCopyTimer?.cancel();
                     setDialogState(() => recoveryCopied = true);
-                    ScaffoldMessenger.of(context)
-                      ..hideCurrentSnackBar()
-                      ..showSnackBar(
-                        const SnackBar(
-                          content: Text('Recovery phrase copied to clipboard'),
-                          duration: Duration(seconds: 2),
-                          behavior: SnackBarBehavior.floating,
-                          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-                        ),
-                      );
                     recoveryCopyTimer = Timer(const Duration(seconds: 2), () {
                       if (dialogContext.mounted) {
                         setDialogState(() => recoveryCopied = false);
@@ -1864,16 +1886,34 @@ Future<void> showGitHubSetupDialog(
     context: context,
     barrierDismissible: true,
     builder: (ctx) => StatefulBuilder(
-      builder: (dialogContext, setState) => AlertDialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        title: Text(isEditing ? 'Edit GitHub Sync' : 'Connect GitHub Sync'),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+      builder: (dialogContext, setState) {
+        final size = MediaQuery.sizeOf(dialogContext);
+        final mobileLayout = size.width < 600;
+        final contentWidth = mobileLayout
+            ? (size.width > 80 ? size.width - 48 : size.width)
+                .clamp(0.0, 520.0)
+                .toDouble()
+            : 520.0;
+
+        return AlertDialog(
+          insetPadding: mobileLayout
+              ? EdgeInsets.zero
+              : const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          shape: mobileLayout
+              ? const RoundedRectangleBorder(borderRadius: BorderRadius.zero)
+              : null,
+          title: Text(isEditing ? 'Edit GitHub Sync' : 'Connect GitHub Sync'),
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: contentWidth,
+              minWidth: mobileLayout ? contentWidth : 0,
+              maxHeight: mobileLayout ? size.height - 196 : double.infinity,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 Text(
                   isEditing
                       ? 'Update the private GitHub repository used for encrypted backup storage.'
@@ -1965,8 +2005,8 @@ Future<void> showGitHubSetupDialog(
               ],
             ),
           ),
-        ),
-        actions: [
+          ),
+          actions: [
           TextButton(
             onPressed: validating ? null : () => Navigator.pop(ctx),
             child: const Text('Cancel'),
@@ -2132,8 +2172,9 @@ Future<void> showGitHubSetupDialog(
                   )
                 : const Text('Save & Validate'),
           ),
-        ],
-      ),
+          ],
+        );
+      },
     ),
   );
 
@@ -2559,6 +2600,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
   List<Map<String, dynamic>> _devices = [];
   String? _localDeviceId;
   bool _loaded = false;
+  bool _hasGitHubCredentials = false;
 
   @override
   void initState() {
@@ -2581,6 +2623,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
         await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
 
     List<Map<String, dynamic>> devices = [];
+    var hasGitHubCredentials = false;
 
     try {
       final token = await keyStorage.getGitHubToken();
@@ -2588,6 +2631,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
       final repo = await keyStorage.getRepoName();
 
       if (token != null && owner != null && repo != null) {
+        hasGitHubCredentials = true;
         final githubService = GitHubService(
           accessToken: token,
           repoOwner: owner,
@@ -2664,6 +2708,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
       setState(() {
         _devices = devices;
         _localDeviceId = identity.id;
+        _hasGitHubCredentials = hasGitHubCredentials;
         _loaded = true;
       });
     }
@@ -2697,7 +2742,21 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Column(
-      children: _devices.map((device) {
+      children: [
+        if (_devices.length <= 1)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Text(
+              _hasGitHubCredentials
+                  ? 'Other devices appear here after they sync or are linked to this vault.'
+                  : 'Only this device is shown until GitHub Sync or device linking is set up.',
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ..._devices.map((device) {
         final isThisDevice = device['deviceId'] == _localDeviceId;
         final name = (device['name'] as String?) ??
             (device['deviceName'] as String?) ??
@@ -2713,7 +2772,13 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
           ),
           title: Row(
             children: [
-              Text(name),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               if (isThisDevice) ...[
                 const SizedBox(width: 8),
                 Container(
@@ -2738,7 +2803,8 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
           subtitle: Text('Last seen: $lastSeen'),
           onTap: isThisDevice ? () => _editDeviceName(context) : null,
         );
-      }).toList(),
+        }),
+      ],
     );
   }
 

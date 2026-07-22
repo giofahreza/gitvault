@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,7 @@ import '../../core/services/foreground_sync_service.dart';
 import '../../core/widgets/group_selector_field.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/vault_entry.dart';
+import '../../utils/clipboard_feedback.dart';
 import '../../utils/pointer_focus.dart';
 import '../../utils/totp_generator.dart';
 import 'totp_scanner_screen.dart';
@@ -303,24 +305,59 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
           ),
         ),
       ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'scan_qr',
-            onPressed: _scanQrCode,
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Scan QR Code'),
+      floatingActionButton: Semantics(
+        label: 'Add 2FA code',
+        button: true,
+        child: FloatingActionButton(
+          tooltip: 'Add 2FA code',
+          onPressed: _showAddTotpActions,
+          child: const Icon(Icons.add),
+        ),
+      ),
+    );
+  }
+
+  void _showAddTotpActions() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.add),
+                title: const Text('Add 2FA Code'),
+                subtitle: const Text('Enter setup details manually'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showAddTotpDialog();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.qr_code_scanner),
+                title: const Text('Scan QR Code'),
+                subtitle: Text(kIsWeb
+                    ? 'Paste an OTP setup link on web'
+                    : 'Use the camera to scan a setup QR'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _scanQrCode();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.import_export),
+                title: const Text('Import from Google Authenticator'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _importFromGoogleAuth();
+                },
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          FloatingActionButton.extended(
-            heroTag: 'add_manual',
-            onPressed: () => _showAddTotpDialog(),
-            icon: const Icon(Icons.add),
-            label: const Text('Add 2FA Code'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -952,20 +989,19 @@ class _TotpCodeCardState extends State<_TotpCodeCard> {
     return code;
   }
 
-  void _copyCode(String code) {
-    Clipboard.setData(ClipboardData(text: code));
+  Future<void> _copyCode(String code) async {
+    final copied = await copyTextWithFeedback(
+      context,
+      text: code,
+      successMessage: '2FA code copied',
+      failureMessage:
+          'Could not copy 2FA code. Check browser clipboard permission and try again.',
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+    );
+    if (!copied || !mounted) return;
+
     _copiedTimer?.cancel();
     setState(() => _copied = true);
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('2FA code copied'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-        ),
-      );
     _copiedTimer = Timer(
       const Duration(seconds: 2),
       () {

@@ -232,6 +232,11 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
               tooltip: 'Change color',
               onPressed: _isClosing ? null : _showColorPicker,
             ),
+            IconButton(
+              icon: Icon(Icons.tag_outlined, color: textColor),
+              tooltip: 'Add tag',
+              onPressed: _isClosing ? null : _addTag,
+            ),
             if (widget.note != null) ...[
               IconButton(
                 icon: Icon(Icons.archive_outlined, color: textColor),
@@ -334,13 +339,6 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
               ],
             ),
           ),
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _isClosing ? null : _addTag,
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-          icon: const Icon(Icons.tag),
-          label: const Text('Add Tag'),
         ),
       ),
     );
@@ -697,47 +695,61 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
   void _addTag() {
     final tagController = TextEditingController();
     final tagFocus = FocusNode();
+    String? error;
 
     showDialog(
       context: context,
       builder: (context) {
-        void submitTag() {
+        void submitTag(StateSetter setDialogState) {
           final tag = tagController.text.trim();
-          if (tag.isNotEmpty && !_tags.contains(tag)) {
-            setState(() {
-              _tags.add(tag);
-              _markChanged();
-            });
+          if (tag.isEmpty) {
+            setDialogState(() => error = 'Tag name is required');
+            return;
           }
+          if (_tags.contains(tag)) {
+            setDialogState(() => error = 'This tag already exists');
+            return;
+          }
+
+          setState(() {
+            _tags.add(tag);
+            _markChanged();
+          });
           Navigator.pop(context);
         }
 
-        return AlertDialog(
-          title: const Text('Add Tag'),
-          content: PointerFocus(
-            focusNode: tagFocus,
-            child: TextField(
-              controller: tagController,
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Add Tag'),
+            content: PointerFocus(
               focusNode: tagFocus,
-              decoration: const InputDecoration(
-                hintText: 'Tag name',
-                border: OutlineInputBorder(),
+              child: TextField(
+                controller: tagController,
+                focusNode: tagFocus,
+                decoration: InputDecoration(
+                  labelText: 'Tag name',
+                  border: const OutlineInputBorder(),
+                  errorText: error,
+                ),
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                onChanged: (_) {
+                  if (error != null) setDialogState(() => error = null);
+                },
+                onSubmitted: (_) => submitTag(setDialogState),
               ),
-              autofocus: true,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => submitTag(),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => submitTag(setDialogState),
+                child: const Text('Add'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: submitTag,
-              child: const Text('Add'),
-            ),
-          ],
         );
       },
     ).whenComplete(() {

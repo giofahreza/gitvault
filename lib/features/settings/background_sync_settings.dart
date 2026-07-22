@@ -262,7 +262,8 @@ class _BackgroundSyncSettingsState
                         ? 'Automatically sync vault in background'
                         : 'Set up GitHub Sync first'),
                     value: _isEnabled,
-                    onChanged: _toggleBackgroundSync,
+                    onChanged:
+                        _hasGitHubCredentials ? _toggleBackgroundSync : null,
                   ),
                 ),
                 const SizedBox(height: 16),

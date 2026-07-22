@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/providers.dart';
+import '../../utils/clipboard_feedback.dart';
 import '../../utils/mnemonic_helper.dart';
 import '../../utils/pointer_focus.dart';
+import '../../utils/recovery_phrase_grid.dart';
 
 /// Initial onboarding screen for first-time setup
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -67,28 +68,47 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     : null,
                 controlsBuilder: (context, details) {
                   final isLastStep = _currentStep == 2;
+                  final narrow = MediaQuery.sizeOf(context).width < 520;
+                  final continueButton = FilledButton(
+                    onPressed: _completing ? null : details.onStepContinue,
+                    child: _completing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : Text(isLastStep ? 'Get Started' : 'Continue'),
+                  );
+                  final backButton = TextButton(
+                    onPressed: details.onStepCancel,
+                    child: const Text('Back'),
+                  );
+
+                  if (narrow) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          continueButton,
+                          if (_currentStep > 0 && !_completing) ...[
+                            const SizedBox(height: 8),
+                            backButton,
+                          ],
+                        ],
+                      ),
+                    );
+                  }
+
                   return Padding(
                     padding: const EdgeInsets.only(top: 16),
                     child: Row(
                       children: [
-                        FilledButton(
-                          onPressed:
-                              _completing ? null : details.onStepContinue,
-                          child: _completing
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.white),
-                                )
-                              : Text(isLastStep ? 'Get Started' : 'Continue'),
-                        ),
+                        continueButton,
                         if (_currentStep > 0 && !_completing) ...[
                           const SizedBox(width: 8),
-                          TextButton(
-                            onPressed: details.onStepCancel,
-                            child: const Text('Back'),
-                          ),
+                          backButton,
                         ],
                       ],
                     ),
@@ -257,13 +277,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                         label:
                                             'Your 24-word recovery phrase: ${MnemonicHelper.formatMnemonicForDisplay(_generatedMnemonic!)}',
                                         child: ExcludeSemantics(
-                                          child: SelectableText(
-                                            MnemonicHelper
-                                                .formatMnemonicForDisplay(
-                                                    _generatedMnemonic!),
-                                            style: const TextStyle(
-                                                fontFamily: 'monospace',
-                                                fontSize: 11),
+                                          child: RecoveryPhraseGrid(
+                                            words:
+                                                _generatedMnemonic!.split(' '),
                                           ),
                                         ),
                                       ),
@@ -272,15 +288,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                 ),
                                 const SizedBox(height: 12),
                                 OutlinedButton.icon(
-                                  onPressed: () {
-                                    Clipboard.setData(ClipboardData(
-                                        text: _generatedMnemonic!));
-                                    setState(() => _recoveryKeyCopied = true);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                          content: Text(
-                                              'Recovery phrase copied to clipboard')),
+                                  onPressed: () async {
+                                    final copied = await copyTextWithFeedback(
+                                      context,
+                                      text: _generatedMnemonic!,
+                                      successMessage:
+                                          'Recovery phrase copied to clipboard',
+                                      failureMessage:
+                                          'Could not copy recovery phrase. Copy the words manually instead.',
                                     );
+                                    if (copied && mounted) {
+                                      setState(
+                                          () => _recoveryKeyCopied = true);
+                                    }
                                   },
                                   icon: Icon(_recoveryKeyCopied
                                       ? Icons.check

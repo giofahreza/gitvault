@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 import '../../core/services/persistent_ssh_service.dart';
+import '../../utils/clipboard_feedback.dart';
 import 'terminal_clipboard_shortcuts.dart';
 
 /// Enhanced SSH Terminal Screen with Termux-like features
@@ -512,14 +513,15 @@ class _SshPersistentTerminalScreenState
     if (selection != null) {
       final text = _terminal.buffer.getText(selection);
       if (text.isNotEmpty) {
-        Clipboard.setData(ClipboardData(text: text));
+        unawaited(copyTextWithFeedback(
+          context,
+          text: text,
+          successMessage: 'Copied to clipboard',
+          failureMessage:
+              'Could not copy selection. Check clipboard permission and try again.',
+          duration: const Duration(seconds: 1),
+        ));
         _terminalController.clearSelection();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Copied to clipboard'),
-            duration: Duration(seconds: 1),
-          ),
-        );
       }
     }
   }

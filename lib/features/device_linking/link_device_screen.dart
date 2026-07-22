@@ -11,6 +11,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/providers/providers.dart';
 import '../../core/crypto/blind_handshake.dart';
 import '../../core/services/background_sync_service.dart';
+import '../../utils/clipboard_feedback.dart';
 import '../../utils/constants.dart';
 import '../../utils/pointer_focus.dart';
 
@@ -389,9 +390,19 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
                                   message: 'Copy transfer code',
                                   child: FilledButton.tonalIcon(
                                     onPressed: () async {
-                                      await Clipboard.setData(
-                                          ClipboardData(text: payload.qrData));
+                                      final copied =
+                                          await copyTextWithFeedback(
+                                        context,
+                                        text: payload.qrData,
+                                        successMessage:
+                                            'Transfer code copied',
+                                        failureMessage:
+                                            'Could not copy transfer code. Show the code and copy it manually instead.',
+                                        margin: const EdgeInsets.fromLTRB(
+                                            16, 0, 16, 88),
+                                      );
                                       if (!mounted) return;
+                                      if (!copied) return;
                                       _copyFeedbackTimer?.cancel();
                                       setState(
                                           () => _transferCodeCopied = true);
@@ -404,18 +415,6 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
                                           }
                                         },
                                       );
-                                      ScaffoldMessenger.of(context)
-                                        ..hideCurrentSnackBar()
-                                        ..showSnackBar(
-                                          const SnackBar(
-                                            content:
-                                                Text('Transfer code copied'),
-                                            duration: Duration(seconds: 2),
-                                            behavior: SnackBarBehavior.floating,
-                                            margin: EdgeInsets.fromLTRB(
-                                                16, 0, 16, 88),
-                                          ),
-                                        );
                                     },
                                     icon: Icon(_transferCodeCopied
                                         ? Icons.check
@@ -800,8 +799,21 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
   }
 
   Future<void> _pasteFromClipboard() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text?.trim();
+    String? text;
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      text = data?.text?.trim();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Browser blocked clipboard access. Paste the transfer code manually.'),
+        ),
+      );
+      return;
+    }
+
     if (text == null || text.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -810,7 +822,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       return;
     }
     setState(() {
-      _codeController.text = text;
+      _codeController.text = text!;
       _codeError = null;
     });
   }

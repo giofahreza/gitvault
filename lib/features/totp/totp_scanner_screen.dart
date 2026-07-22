@@ -170,16 +170,23 @@ class _TotpScannerScreenState extends State<TotpScannerScreen> {
   }
 
   Future<void> _pasteOtpLink() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text?.trim();
-    if (text == null || text.isEmpty) {
-      setState(() => _webError = 'Clipboard is empty');
-      return;
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim();
+      if (!mounted) return;
+      if (text == null || text.isEmpty) {
+        setState(() => _webError = 'Clipboard is empty');
+        return;
+      }
+      setState(() {
+        _uriController.text = text;
+        _webError = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _webError =
+          'Browser blocked clipboard access. Paste the setup link manually.');
     }
-    setState(() {
-      _uriController.text = text;
-      _webError = null;
-    });
   }
 
   void _submitOtpLink() {

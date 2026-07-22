@@ -7,6 +7,7 @@ import 'package:xterm/xterm.dart';
 
 import '../../core/services/ssh_connection_manager.dart';
 import '../../data/models/ssh_credential.dart';
+import '../../utils/clipboard_feedback.dart';
 import 'terminal_clipboard_shortcuts.dart';
 
 /// SSH terminal screen using dartssh2 + xterm
@@ -217,16 +218,17 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
     final text = _terminal.buffer.getText(selection);
     if (text.isEmpty) return;
 
-    Clipboard.setData(ClipboardData(text: text));
+    unawaited(copyTextWithFeedback(
+      context,
+      text: text,
+      successMessage: 'Copied to clipboard',
+      failureMessage:
+          'Could not copy selection. Check clipboard permission and try again.',
+      duration: const Duration(seconds: 1),
+    ));
     if (clearSelection) {
       _terminalController.clearSelection();
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Copied to clipboard'),
-        duration: Duration(seconds: 1),
-      ),
-    );
   }
 
   Future<void> _showKeyboardPicker() async {
