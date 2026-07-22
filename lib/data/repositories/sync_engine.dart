@@ -12,6 +12,7 @@ import '../models/sync_index.dart';
 import 'vault_repository.dart';
 import 'notes_repository.dart';
 import 'ssh_repository.dart';
+import 'sync_tombstone_store.dart';
 import '../../core/services/device_identity_service.dart';
 
 /// Manages synchronization between local vault and GitHub storage
@@ -124,6 +125,9 @@ class SyncEngine {
       // Decrypt index
       final syncIndex = await _decryptIndex(indexBytes, rootKey);
       _lastRemoteIndex = syncIndex;
+      final localDeletedAtMap = await SyncTombstoneStore.loadDeletedAtMap(
+        box: _syncMetadataBox,
+      );
 
       // Verify monotonic counter (anti-rollback)
       final localCounter = await _getLocalCounter();
@@ -150,6 +154,15 @@ class SyncEngine {
         try {
           // Try as password entry
           final remoteEntry = await _decryptEntry(fileBytes, rootKey);
+          if (await _remoteItemLosesToDeletion(
+            uuid: uuid,
+            remoteModifiedAt: remoteEntry.modifiedAt,
+            remoteIndex: syncIndex,
+            localDeletedAtMap: localDeletedAtMap,
+          )) {
+            conflicts++;
+            continue;
+          }
 
           // Check if we have local version
           final localEntry = await _vaultRepository.getEntry(uuid);
@@ -173,6 +186,15 @@ class SyncEngine {
 
             // Check if we have local version
             final localNote = await _notesRepository.getNote(uuid);
+            if (await _remoteItemLosesToDeletion(
+              uuid: uuid,
+              remoteModifiedAt: remoteNote.modifiedAt,
+              remoteIndex: syncIndex,
+              localDeletedAtMap: localDeletedAtMap,
+            )) {
+              conflicts++;
+              continue;
+            }
 
             if (localNote == null) {
               // It may have been created locally after the read above, so the
@@ -196,6 +218,15 @@ class SyncEngine {
                     await _decryptSshCredential(fileBytes, rootKey);
 
                 final localSsh = await _sshRepository!.getCredential(uuid);
+                if (await _remoteItemLosesToDeletion(
+                  uuid: uuid,
+                  remoteModifiedAt: remoteSsh.modifiedAt,
+                  remoteIndex: syncIndex,
+                  localDeletedAtMap: localDeletedAtMap,
+                )) {
+                  conflicts++;
+                  continue;
+                }
 
                 if (localSsh == null) {
                   await _sshRepository!.saveCredential(remoteSsh);
@@ -217,6 +248,10 @@ class SyncEngine {
         }
       }
 
+      final deletionResult = await _applyRemoteDeletions(syncIndex);
+      downloaded += deletionResult.downloaded;
+      conflicts += deletionResult.conflicts;
+
       // Update local counter
       await _setLocalCounter(syncIndex.monotonicCounter);
 
@@ -237,9 +272,20 @@ class SyncEngine {
       final sshCredentials = _sshRepository != null
           ? await _sshRepository!.getAllCredentials()
           : <SshCredential>[];
+      final localDeletedAtMap = await SyncTombstoneStore.loadDeletedAtMap(
+        box: _syncMetadataBox,
+      );
+      final localItemUuids = <String>{
+        ...entries.map((entry) => entry.uuid),
+        ...notes.map((note) => note.uuid),
+        ...sshCredentials.map((ssh) => ssh.uuid),
+      };
 
       // If no local data, check if remote index exists
-      if (entries.isEmpty && notes.isEmpty && sshCredentials.isEmpty) {
+      if (entries.isEmpty &&
+          notes.isEmpty &&
+          sshCredentials.isEmpty &&
+          localDeletedAtMap.isEmpty) {
         final indexBytes =
             await _githubService.downloadFile(Constants.indexFile);
         if (indexBytes == null) {
@@ -260,9 +306,84 @@ class SyncEngine {
       final Map<String, String> uuidToContentHashMap = {
         ...?_lastRemoteIndex?.uuidToContentHashMap,
       };
+      final Map<String, String> uuidToDeletedAtMap = {
+        ...?_lastRemoteIndex?.uuidToDeletedAtMap,
+      };
+      _mergeDeletedAtMaps(uuidToDeletedAtMap, localDeletedAtMap);
+      final remotePathsToDelete = <String>{};
+      final tombstoneChangedUuids = <String>{};
+      final remoteIndex = _lastRemoteIndex;
+      final deletionTimestamp = DateTime.now().toUtc();
+
+      void markDeleted(String uuid, DateTime deletedAt) {
+        final remoteFilenameHash = remoteIndex?.uuidToHashMap[uuid];
+        if (remoteFilenameHash != null) {
+          remotePathsToDelete.add(
+            '${Constants.dataFolder}/$remoteFilenameHash${Constants.fileExtension}',
+          );
+        }
+
+        final removedFromActiveIndex = uuidToHashMap.remove(uuid) != null ||
+            uuidToContentHashMap.remove(uuid) != null;
+        final existingDeletedAt =
+            SyncTombstoneStore.parseDeletedAt(uuidToDeletedAtMap[uuid]);
+
+        if (existingDeletedAt == null || deletedAt.isAfter(existingDeletedAt)) {
+          uuidToDeletedAtMap[uuid] = deletedAt.toUtc().toIso8601String();
+          tombstoneChangedUuids.add(uuid);
+        } else if (removedFromActiveIndex) {
+          tombstoneChangedUuids.add(uuid);
+        }
+      }
+
+      for (final remoteEntry in remoteIndex?.uuidToHashMap.entries ??
+          const Iterable<MapEntry<String, String>>.empty()) {
+        final uuid = remoteEntry.key;
+        if (localItemUuids.contains(uuid) ||
+            _remoteItemsNeedingRepair.contains(uuid)) {
+          continue;
+        }
+
+        final deletedAt = SyncTombstoneStore.parseDeletedAt(
+              uuidToDeletedAtMap[uuid],
+            ) ??
+            deletionTimestamp;
+        markDeleted(uuid, deletedAt);
+        await SyncTombstoneStore.recordDeletion(
+          uuid,
+          deletedAt: deletedAt,
+          box: _syncMetadataBox,
+        );
+      }
+
+      Future<bool> localItemLosesToDeletion(
+        String uuid,
+        DateTime localModifiedAt,
+      ) async {
+        final deletedAt =
+            SyncTombstoneStore.parseDeletedAt(uuidToDeletedAtMap[uuid]);
+        if (deletedAt == null) return false;
+
+        if (!localModifiedAt.isAfter(deletedAt)) {
+          markDeleted(uuid, deletedAt);
+          return true;
+        }
+
+        uuidToDeletedAtMap.remove(uuid);
+        tombstoneChangedUuids.add(uuid);
+        await SyncTombstoneStore.clearDeletion(
+          uuid,
+          box: _syncMetadataBox,
+        );
+        return false;
+      }
 
       // Upload each password entry
       for (final entry in entries) {
+        if (await localItemLosesToDeletion(entry.uuid, entry.modifiedAt)) {
+          continue;
+        }
+
         // Generate deterministic filename hash
         final filenameHash = await _cryptoManager.hmacSha256(
           key: rootKey,
@@ -300,6 +421,10 @@ class SyncEngine {
 
       // Upload each note
       for (final note in notes) {
+        if (await localItemLosesToDeletion(note.uuid, note.modifiedAt)) {
+          continue;
+        }
+
         // Generate deterministic filename hash
         final filenameHash = await _cryptoManager.hmacSha256(
           key: rootKey,
@@ -337,6 +462,10 @@ class SyncEngine {
 
       // Upload each SSH credential
       for (final ssh in sshCredentials) {
+        if (await localItemLosesToDeletion(ssh.uuid, ssh.modifiedAt)) {
+          continue;
+        }
+
         final filenameHash = await _cryptoManager.hmacSha256(
           key: rootKey,
           data: ssh.uuid,
@@ -376,10 +505,13 @@ class SyncEngine {
             remoteIndex.uuidToContentHashMap,
             uuidToContentHashMap,
           );
+      final tombstoneMapChanged = remoteIndex == null ||
+          !_mapsEqual(remoteIndex.uuidToDeletedAtMap, uuidToDeletedAtMap);
 
       // Do not create a new GitHub commit when the encrypted data set is
       // already current.
-      if (!indexChanged) {
+      if (!indexChanged && !tombstoneMapChanged) {
+        await _deleteRemoteFiles(remotePathsToDelete);
         return PushResult(uploaded: uploaded);
       }
 
@@ -390,6 +522,7 @@ class SyncEngine {
         monotonicCounter: newCounter,
         uuidToHashMap: uuidToHashMap,
         uuidToContentHashMap: uuidToContentHashMap,
+        uuidToDeletedAtMap: uuidToDeletedAtMap,
       );
 
       final indexBytes = await _encryptIndex(syncIndex, rootKey);
@@ -402,7 +535,9 @@ class SyncEngine {
       // Update local counter
       await _setLocalCounter(newCounter);
 
-      return PushResult(uploaded: uploaded);
+      await _deleteRemoteFiles(remotePathsToDelete);
+
+      return PushResult(uploaded: uploaded + tombstoneChangedUuids.length);
     } catch (e) {
       throw SyncException('Push failed: $e');
     }
@@ -425,6 +560,165 @@ class SyncEngine {
       if (b[entry.key] != entry.value) return false;
     }
     return true;
+  }
+
+  void _mergeDeletedAtMaps(
+    Map<String, String> target,
+    Map<String, String> source,
+  ) {
+    for (final entry in source.entries) {
+      final sourceDeletedAt =
+          SyncTombstoneStore.parseDeletedAt(entry.value);
+      if (sourceDeletedAt == null) continue;
+
+      final targetDeletedAt =
+          SyncTombstoneStore.parseDeletedAt(target[entry.key]);
+      if (targetDeletedAt == null || sourceDeletedAt.isAfter(targetDeletedAt)) {
+        target[entry.key] = sourceDeletedAt.toIso8601String();
+      }
+    }
+  }
+
+  Future<bool> _remoteItemLosesToDeletion({
+    required String uuid,
+    required DateTime remoteModifiedAt,
+    required SyncIndex remoteIndex,
+    required Map<String, String> localDeletedAtMap,
+  }) async {
+    final remoteDeletedAt =
+        SyncTombstoneStore.parseDeletedAt(remoteIndex.uuidToDeletedAtMap[uuid]);
+    final localDeletedAt =
+        SyncTombstoneStore.parseDeletedAt(localDeletedAtMap[uuid]);
+
+    final winningDeletedAt = _laterDeletedAt(remoteDeletedAt, localDeletedAt);
+    if (winningDeletedAt == null) return false;
+
+    if (!remoteModifiedAt.isAfter(winningDeletedAt)) {
+      return true;
+    }
+
+    if (localDeletedAt != null) {
+      localDeletedAtMap.remove(uuid);
+      await SyncTombstoneStore.clearDeletion(
+        uuid,
+        box: _syncMetadataBox,
+      );
+    }
+
+    return false;
+  }
+
+  DateTime? _laterDeletedAt(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isAfter(b) ? a : b;
+  }
+
+  Future<void> _deleteRemoteFiles(Set<String> remotePaths) async {
+    for (final path in remotePaths) {
+      try {
+        await _githubService.deleteFile(
+          path: path,
+          commitMessage: 'Delete removed vault item',
+        );
+      } catch (_) {
+        // Non-fatal: the encrypted index is the source of truth.
+      }
+    }
+  }
+
+  Future<PullResult> _applyRemoteDeletions(SyncIndex syncIndex) async {
+    int deleted = 0;
+    int conflicts = 0;
+
+    for (final entry in syncIndex.uuidToDeletedAtMap.entries) {
+      final deletedAt = SyncTombstoneStore.parseDeletedAt(entry.value);
+      if (deletedAt == null) continue;
+
+      final localItem = await _getLocalItem(entry.key);
+      if (localItem == null) {
+        await SyncTombstoneStore.recordDeletion(
+          entry.key,
+          deletedAt: deletedAt,
+          box: _syncMetadataBox,
+        );
+        continue;
+      }
+
+      if (localItem.modifiedAt.isAfter(deletedAt)) {
+        await SyncTombstoneStore.clearDeletion(
+          entry.key,
+          box: _syncMetadataBox,
+        );
+        conflicts++;
+        continue;
+      }
+
+      await _deleteLocalItem(localItem, deletedAt);
+      deleted++;
+    }
+
+    return PullResult(downloaded: deleted, conflicts: conflicts);
+  }
+
+  Future<_LocalSyncItem?> _getLocalItem(String uuid) async {
+    try {
+      final entry = await _vaultRepository.getEntry(uuid);
+      if (entry != null) {
+        return _LocalSyncItem(
+          type: _LocalSyncItemType.vault,
+          uuid: uuid,
+          modifiedAt: entry.modifiedAt,
+        );
+      }
+    } catch (_) {}
+
+    try {
+      final note = await _notesRepository.getNote(uuid);
+      if (note != null) {
+        return _LocalSyncItem(
+          type: _LocalSyncItemType.note,
+          uuid: uuid,
+          modifiedAt: note.modifiedAt,
+        );
+      }
+    } catch (_) {}
+
+    try {
+      final sshRepository = _sshRepository;
+      if (sshRepository != null) {
+        final credential = await sshRepository.getCredential(uuid);
+        if (credential != null) {
+          return _LocalSyncItem(
+            type: _LocalSyncItemType.ssh,
+            uuid: uuid,
+            modifiedAt: credential.modifiedAt,
+          );
+        }
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  Future<void> _deleteLocalItem(
+    _LocalSyncItem item,
+    DateTime deletedAt,
+  ) async {
+    switch (item.type) {
+      case _LocalSyncItemType.vault:
+        await _vaultRepository.deleteEntry(item.uuid, deletedAt: deletedAt);
+        break;
+      case _LocalSyncItemType.note:
+        await _notesRepository.deleteNote(item.uuid, deletedAt: deletedAt);
+        break;
+      case _LocalSyncItemType.ssh:
+        await _sshRepository?.deleteCredential(
+          item.uuid,
+          deletedAt: deletedAt,
+        );
+        break;
+    }
   }
 
   /// Syncs the device registry with GitHub
@@ -712,6 +1006,20 @@ class SyncEngine {
     // Don't close the box, just mark as not needing initialization
     // The box will remain open for future sync operations
   }
+}
+
+enum _LocalSyncItemType { vault, note, ssh }
+
+class _LocalSyncItem {
+  final _LocalSyncItemType type;
+  final String uuid;
+  final DateTime modifiedAt;
+
+  _LocalSyncItem({
+    required this.type,
+    required this.uuid,
+    required this.modifiedAt,
+  });
 }
 
 class SyncResult {

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/providers/providers.dart';
+import '../../core/services/foreground_sync_service.dart';
 import '../../utils/google_auth_migration.dart';
 
 /// Screen for importing TOTP accounts from Google Authenticator
@@ -12,10 +13,12 @@ class GoogleAuthImportScreen extends ConsumerStatefulWidget {
   const GoogleAuthImportScreen({super.key, this.migrationUri});
 
   @override
-  ConsumerState<GoogleAuthImportScreen> createState() => _GoogleAuthImportScreenState();
+  ConsumerState<GoogleAuthImportScreen> createState() =>
+      _GoogleAuthImportScreenState();
 }
 
-class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen> {
+class _GoogleAuthImportScreenState
+    extends ConsumerState<GoogleAuthImportScreen> {
   List<MigrationAccount> _accounts = [];
   Set<int> _selectedIndices = {};
   bool _importing = false;
@@ -44,8 +47,7 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
           _accounts.addAll(newAccounts);
           // Select all newly added accounts
           _selectedIndices.addAll(
-            List.generate(newAccounts.length, (i) => currentCount + i)
-          );
+              List.generate(newAccounts.length, (i) => currentCount + i));
           _qrCodesScanned++;
           _scanning = false;
           _error = null;
@@ -74,8 +76,8 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(_qrCodesScanned > 0
-          ? 'Scan More QR Codes'
-          : 'Scan Google Authenticator Export'),
+            ? 'Scan More QR Codes'
+            : 'Scan Google Authenticator Export'),
         actions: [
           if (_qrCodesScanned > 0)
             TextButton(
@@ -139,7 +141,8 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                 if (_qrCodesScanned > 0) ...[
                   const SizedBox(height: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       color: Colors.green,
                       borderRadius: BorderRadius.circular(20),
@@ -219,12 +222,17 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                       children: [
                         Text(
                           '${accounts.length} accounts found',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                         if (_qrCodesScanned > 0)
                           Text(
                             'Scanned $_qrCodesScanned QR code${_qrCodesScanned == 1 ? '' : 's'}',
-                            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant),
                           ),
                       ],
                     ),
@@ -235,12 +243,15 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                         if (_selectedIndices.length == accounts.length) {
                           _selectedIndices.clear();
                         } else {
-                          _selectedIndices = Set.from(List.generate(accounts.length, (i) => i));
+                          _selectedIndices = Set.from(
+                              List.generate(accounts.length, (i) => i));
                         }
                       });
                     },
                     child: Text(
-                      _selectedIndices.length == accounts.length ? 'Deselect All' : 'Select All',
+                      _selectedIndices.length == accounts.length
+                          ? 'Deselect All'
+                          : 'Select All',
                     ),
                   ),
                 ],
@@ -248,11 +259,13 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
               const SizedBox(height: 8),
               // Scan More button
               OutlinedButton.icon(
-                onPressed: _importing ? null : () {
-                  setState(() {
-                    _scanning = true;
-                  });
-                },
+                onPressed: _importing
+                    ? null
+                    : () {
+                        setState(() {
+                          _scanning = true;
+                        });
+                      },
                 icon: const Icon(Icons.qr_code_scanner, size: 18),
                 label: const Text('Scan More QR Codes'),
                 style: OutlinedButton.styleFrom(
@@ -292,7 +305,8 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                   account.name.isNotEmpty && account.issuer.isNotEmpty
                       ? account.name
                       : account.type.toUpperCase(),
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
                 secondary: CircleAvatar(
                   child: Text(
@@ -318,7 +332,8 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
                     )
                   : const Icon(Icons.import_export),
               label: Text(
@@ -351,8 +366,9 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
       int skipped = 0;
 
       for (final index in _selectedIndices) {
-        final account = _accounts![index];
-        final normalizedSecret = account.secret.toUpperCase().replaceAll(' ', '');
+        final account = _accounts[index];
+        final normalizedSecret =
+            account.secret.toUpperCase().replaceAll(' ', '');
 
         // Skip if duplicate
         if (existingSecrets.contains(normalizedSecret)) {
@@ -373,9 +389,16 @@ class _GoogleAuthImportScreenState extends ConsumerState<GoogleAuthImportScreen>
       }
 
       ref.invalidate(vaultEntriesProvider);
+      if (imported > 0) {
+        ForegroundSyncService.scheduleSync(
+          reason: 'totp import completed',
+          debounce: const Duration(seconds: 1),
+        );
+      }
 
       if (mounted) {
-        String message = 'Imported $imported account${imported == 1 ? '' : 's'} successfully';
+        String message =
+            'Imported $imported account${imported == 1 ? '' : 's'} successfully';
         if (skipped > 0) {
           message += ' ($skipped duplicate${skipped == 1 ? '' : 's'} skipped)';
         }

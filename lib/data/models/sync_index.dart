@@ -13,6 +13,9 @@ class SyncIndex with _$SyncIndex {
     // these do not reveal note or credential contents to GitHub. Older indexes
     // omit this field and simply perform one full upload to populate it.
     @Default(<String, String>{}) Map<String, String> uuidToContentHashMap,
+    // Encrypted deletion tombstones. Values are UTC ISO-8601 timestamps, used
+    // for last-write-wins conflict checks against each item's modifiedAt.
+    @Default(<String, String>{}) Map<String, String> uuidToDeletedAtMap,
   }) = _SyncIndex;
 
   factory SyncIndex.fromJson(Map<String, dynamic> json) =>

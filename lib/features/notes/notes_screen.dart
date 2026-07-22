@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../core/providers/providers.dart';
+import '../../core/services/foreground_sync_service.dart';
 import '../../core/theme/note_colors.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/note.dart';
@@ -217,13 +219,18 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final crossAxisCount = width >= 1200
-            ? 4
-            : width >= 840
-                ? 3
-                : width >= 520
-                    ? 2
-                    : 1;
+        final isMobileApp = !kIsWeb &&
+            (defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS);
+        final crossAxisCount = isMobileApp
+            ? 1
+            : width >= 1200
+                ? 4
+                : width >= 840
+                    ? 3
+                    : width >= 520
+                        ? 2
+                        : 1;
 
         return MasonryGridView.count(
           crossAxisCount: crossAxisCount,
@@ -321,6 +328,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     await repo.initialize();
     await repo.reorderNotes(reordered.map((n) => n.uuid).toList());
     ref.invalidate(notesProvider);
+    ForegroundSyncService.scheduleSync(
+      reason: 'notes reordered',
+      debounce: const Duration(seconds: 2),
+    );
   }
 
   void _navigateToEditor(Note? note) async {
@@ -338,6 +349,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final updated = note.copyWith(isPinned: !note.isPinned);
     await repo.updateNote(updated);
     ref.invalidate(notesProvider);
+    ForegroundSyncService.scheduleSync(
+      reason: 'note pin changed',
+      debounce: const Duration(seconds: 2),
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -356,6 +371,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     await repo.updateNote(updated);
     ref.invalidate(notesProvider);
     ref.invalidate(archivedNotesProvider);
+    ForegroundSyncService.scheduleSync(
+      reason: 'note archived',
+      debounce: const Duration(seconds: 2),
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -368,6 +387,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               await repo.updateNote(undone);
               ref.invalidate(notesProvider);
               ref.invalidate(archivedNotesProvider);
+              ForegroundSyncService.scheduleSync(
+                reason: 'note archive undone',
+                debounce: const Duration(seconds: 2),
+              );
             },
           ),
         ),
@@ -457,6 +480,10 @@ class _ArchivedNotesScreen extends ConsumerWidget {
                   await repo.updateNote(updated);
                   ref.invalidate(notesProvider);
                   ref.invalidate(archivedNotesProvider);
+                  ForegroundSyncService.scheduleSync(
+                    reason: 'note unarchived',
+                    debounce: const Duration(seconds: 2),
+                  );
 
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -491,6 +518,10 @@ class _ArchivedNotesScreen extends ConsumerWidget {
                     await repo.deleteNote(note.uuid);
                     ref.invalidate(notesProvider);
                     ref.invalidate(archivedNotesProvider);
+                    ForegroundSyncService.scheduleSync(
+                      reason: 'archived note deleted',
+                      debounce: const Duration(seconds: 1),
+                    );
                   }
                 },
               );

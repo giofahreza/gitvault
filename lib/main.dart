@@ -8,14 +8,13 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'core/auth/biometric_auth.dart';
 import 'core/providers/providers.dart';
 import 'core/services/autofill_request_handler.dart';
-import 'core/services/github_service.dart';
 import 'core/services/background_sync_service.dart';
 import 'core/services/device_identity_service.dart';
+import 'core/services/foreground_sync_service.dart';
 import 'core/services/persistent_ssh_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/web_lock_action.dart';
 import 'data/models/vault_entry.dart';
-import 'data/repositories/sync_engine.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/vault/vault_screen.dart';
 import 'features/totp/totp_codes_page.dart';
@@ -143,6 +142,58 @@ class GitVaultApp extends ConsumerWidget {
       themeMode: themeMode.toThemeMode(),
       home: const AppShell(),
     );
+  }
+}
+
+class ForegroundSyncScope extends ConsumerStatefulWidget {
+  final Widget child;
+
+  const ForegroundSyncScope({super.key, required this.child});
+
+  @override
+  ConsumerState<ForegroundSyncScope> createState() =>
+      _ForegroundSyncScopeState();
+}
+
+class _ForegroundSyncScopeState extends ConsumerState<ForegroundSyncScope> {
+  @override
+  void initState() {
+    super.initState();
+    ForegroundSyncService.syncRevision.addListener(_handleSyncCompleted);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(ForegroundSyncService.startPeriodicSync());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    ForegroundSyncService.syncRevision.removeListener(_handleSyncCompleted);
+    ForegroundSyncService.stopPeriodicSync();
+    super.dispose();
+  }
+
+  void _handleSyncCompleted() {
+    if (!mounted) return;
+    ref.invalidate(vaultRepositoryProvider);
+    ref.invalidate(vaultEntriesProvider);
+    ref.invalidate(notesRepositoryProvider);
+    ref.invalidate(notesProvider);
+    ref.invalidate(sshRepositoryProvider);
+    ref.invalidate(sshCredentialsProvider);
+    ref.invalidate(archivedNotesProvider);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<int>(autoSyncIntervalProvider, (previous, next) {
+      if (previous != next) {
+        unawaited(ForegroundSyncService.refreshPeriodicSync());
+      }
+    });
+
+    return widget.child;
   }
 }
 
@@ -430,7 +481,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           domain: pendingRequest['domain'],
         );
       }
-      return const MainScreen();
+      return const ForegroundSyncScope(child: MainScreen());
     }
 
     if (_showPinEntry) {

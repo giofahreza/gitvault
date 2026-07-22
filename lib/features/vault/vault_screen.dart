@@ -4,13 +4,23 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/providers.dart';
-import '../../core/services/github_service.dart';
+import '../../core/services/foreground_sync_service.dart';
+import '../../core/widgets/group_selector_field.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/vault_entry.dart';
-import '../../data/repositories/sync_engine.dart';
 import '../../utils/totp_generator.dart';
 import '../../utils/auth_helper.dart';
 import '../../utils/pointer_focus.dart';
+
+List<String> _availableVaultGroups(Iterable<VaultEntry> entries) {
+  final groups = <String>[];
+  for (final entry in entries) {
+    if (entry.tags.isEmpty) continue;
+    final group = entry.tags.first.trim();
+    if (group.isNotEmpty) groups.add(group);
+  }
+  return groups;
+}
 
 /// Main vault screen displaying all password entries grouped by category
 class VaultScreen extends ConsumerStatefulWidget {
@@ -311,8 +321,10 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             await repo.initialize();
             await repo.deleteEntry(entry.uuid);
             ref.invalidate(vaultEntriesProvider);
-            // Auto-sync after delete (in background)
-            _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
+            _scheduleVaultSync(
+              reason: 'password entry deleted',
+              debounce: const Duration(seconds: 1),
+            );
           }
         },
         onCopyPassword: () => _copyPassword(entry),
@@ -335,8 +347,10 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
         entry: entry,
         onSaved: () {
           ref.invalidate(vaultEntriesProvider);
-          // Auto-sync after edit (in background)
-          _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
+          _scheduleVaultSync(
+            reason: 'password entry saved',
+            debounce: const Duration(seconds: 2),
+          );
         },
         onDelete: () => _showDeleteConfirmation(entry),
       ),
@@ -370,8 +384,10 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       await repo.initialize();
       await repo.deleteEntry(entry.uuid);
       ref.invalidate(vaultEntriesProvider);
-      // Auto-sync after delete (in background)
-      _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
+      _scheduleVaultSync(
+        reason: 'password entry deleted',
+        debounce: const Duration(seconds: 1),
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -384,73 +400,14 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     }
   }
 
-  Future<void> _syncVault() async {
-    final keyStorage = ref.read(keyStorageProvider);
-    await keyStorage.initialize();
-    final hasGitHub = await keyStorage.hasGitHubCredentials();
-
-    if (!hasGitHub) {
-      return;
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Syncing...')),
-      );
-    }
-
-    try {
-      final token = await keyStorage.getGitHubToken();
-      final owner = await keyStorage.getRepoOwner();
-      final name = await keyStorage.getRepoName();
-
-      if (token == null || owner == null || name == null) {
-        throw Exception(
-            'GitHub credentials incomplete. Please reconfigure in Settings.');
-      }
-
-      final githubService = GitHubService(
-        accessToken: token,
-        repoOwner: owner,
-        repoName: name,
-      );
-
-      final syncEngine = SyncEngine(
-        vaultRepository: ref.read(vaultRepositoryProvider),
-        notesRepository: ref.read(notesRepositoryProvider),
-        sshRepository: ref.read(sshRepositoryProvider),
-        githubService: githubService,
-        cryptoManager: ref.read(cryptoManagerProvider),
-        keyStorage: keyStorage,
-      );
-
-      await syncEngine.initialize();
-      final result = await syncEngine.sync();
-      syncEngine.dispose(); // Don't close the box, just dispose resources
-      githubService.dispose();
-
-      ref.invalidate(vaultEntriesProvider);
-
-      if (mounted) {
-        String message;
-        if (result.pushed == 0 && result.pulled == 0) {
-          message = 'Synced (up to date)';
-        } else {
-          message = 'Synced: ${result.pushed} pushed, ${result.pulled} pulled';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(message),
-              backgroundColor: Theme.of(context).colorScheme.tertiary),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync failed: $e')),
-        );
-      }
-    }
+  void _scheduleVaultSync({
+    required String reason,
+    Duration debounce = const Duration(seconds: 2),
+  }) {
+    ForegroundSyncService.scheduleSync(
+      reason: reason,
+      debounce: debounce,
+    );
   }
 
   void _showAddEntryDialog() {
@@ -459,8 +416,10 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
       builder: (context) => AddEntryDialog(
         onSaved: () {
           ref.invalidate(vaultEntriesProvider);
-          // Auto-sync after create (in background)
-          _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
+          _scheduleVaultSync(
+            reason: 'password entry created',
+            debounce: const Duration(seconds: 2),
+          );
         },
       ),
     );
@@ -662,6 +621,10 @@ class _EntryDetailsSheet extends ConsumerWidget {
       final updated = entry.copyWith(totpSecret: null);
       await repo.updateEntry(updated);
       ref.invalidate(vaultEntriesProvider);
+      ForegroundSyncService.scheduleSync(
+        reason: 'entry 2fa removed',
+        debounce: const Duration(seconds: 1),
+      );
 
       if (context.mounted) {
         Navigator.pop(context); // Close the details sheet
@@ -966,6 +929,10 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final availableGroups = _availableVaultGroups(
+      ref.watch(vaultEntriesProvider).valueOrNull ?? const <VaultEntry>[],
+    );
+
     return AlertDialog(
       title: const Text('Add Password'),
       content: SingleChildScrollView(
@@ -1059,19 +1026,13 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
                   order: const NumericFocusOrder(4),
                   child: PointerFocus(
                     focusNode: _groupFocus,
-                    child: TextFormField(
+                    child: GroupSelectorField(
                       controller: _groupController,
                       focusNode: _groupFocus,
-                      decoration: const InputDecoration(
-                        labelText: 'Group (optional)',
-                        hintText: 'e.g., Social, Work, Finance',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.folder_outlined),
-                      ),
+                      availableGroups: availableGroups,
                       enabled: !_saving,
-                      textCapitalization: TextCapitalization.words,
                       textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) => _focusNext(_urlFocus),
+                      onSubmitted: (_) => _focusNext(_urlFocus),
                     ),
                   ),
                 ),
@@ -1425,6 +1386,10 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final availableGroups = _availableVaultGroups(
+      ref.watch(vaultEntriesProvider).valueOrNull ?? const <VaultEntry>[],
+    );
+
     return AlertDialog(
       title: const Text('Edit Password'),
       content: SingleChildScrollView(
@@ -1517,19 +1482,13 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
                   order: const NumericFocusOrder(4),
                   child: PointerFocus(
                     focusNode: _groupFocus,
-                    child: TextFormField(
+                    child: GroupSelectorField(
                       controller: _groupController,
                       focusNode: _groupFocus,
-                      decoration: const InputDecoration(
-                        labelText: 'Group (optional)',
-                        hintText: 'e.g., Social, Work, Finance',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.folder_outlined),
-                      ),
+                      availableGroups: availableGroups,
                       enabled: !_saving,
-                      textCapitalization: TextCapitalization.words,
                       textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) => _focusNext(_urlFocus),
+                      onSubmitted: (_) => _focusNext(_urlFocus),
                     ),
                   ),
                 ),

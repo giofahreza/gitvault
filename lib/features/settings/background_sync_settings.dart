@@ -4,6 +4,7 @@ import '../../core/providers/providers.dart';
 import '../../core/services/background_sync_service.dart';
 import '../../core/services/battery_optimization_manager.dart';
 import '../../core/services/connectivity_manager.dart';
+import '../../core/services/foreground_sync_service.dart';
 
 enum BackgroundSyncSettingsResult { setupGitHub }
 
@@ -77,6 +78,8 @@ class _BackgroundSyncSettingsState
     }
 
     setState(() => _isLoading = true);
+    final keyStorage = ref.read(keyStorageProvider);
+    await keyStorage.initialize();
 
     if (value) {
       await BackgroundSyncService.enableBackgroundSync(
@@ -84,10 +87,15 @@ class _BackgroundSyncSettingsState
         requireWifi: _requireWifi,
         requireCharging: _requireCharging,
       );
+      await keyStorage.setAutoSyncInterval(_syncInterval);
+      ref.read(autoSyncIntervalProvider.notifier).state = _syncInterval;
     } else {
       await BackgroundSyncService.disableBackgroundSync();
+      await keyStorage.setAutoSyncInterval(0);
+      ref.read(autoSyncIntervalProvider.notifier).state = 0;
     }
 
+    await ForegroundSyncService.refreshPeriodicSync();
     await _loadSettings();
   }
 
@@ -103,6 +111,11 @@ class _BackgroundSyncSettingsState
         requireWifi: _requireWifi,
         requireCharging: _requireCharging,
       );
+      final keyStorage = ref.read(keyStorageProvider);
+      await keyStorage.initialize();
+      await keyStorage.setAutoSyncInterval(value);
+      ref.read(autoSyncIntervalProvider.notifier).state = value;
+      await ForegroundSyncService.refreshPeriodicSync();
     }
 
     await _loadSettings();
@@ -170,15 +183,24 @@ class _BackgroundSyncSettingsState
     );
 
     try {
-      final result = await BackgroundSyncService.performSyncNow();
+      final result = await ForegroundSyncService.syncNow(
+        reason: 'manual sync from settings',
+      );
+      if (result == null) {
+        throw ForegroundSyncService.lastError ??
+            Exception('GitHub sync is not configured.');
+      }
 
       if (mounted) {
         // Invalidate repository providers — this cascades to invalidate all
         // list providers (vaultEntriesProvider, notesProvider, etc.) and forces
         // fresh repository instances so newly synced Hive data is always read.
         ref.invalidate(vaultRepositoryProvider);
+        ref.invalidate(vaultEntriesProvider);
         ref.invalidate(notesRepositoryProvider);
+        ref.invalidate(notesProvider);
         ref.invalidate(sshRepositoryProvider);
+        ref.invalidate(sshCredentialsProvider);
         ref.invalidate(archivedNotesProvider);
 
         ScaffoldMessenger.of(context).hideCurrentSnackBar();

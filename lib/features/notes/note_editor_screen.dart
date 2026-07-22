@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/providers.dart';
+import '../../core/services/foreground_sync_service.dart';
 import '../../core/theme/note_colors.dart';
 import '../../data/models/note.dart';
 import '../../data/repositories/notes_repository.dart';
@@ -778,6 +779,10 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
         await _saveQueue;
         await _repository.initialize();
         await _repository.deleteNote(widget.note!.uuid);
+        ForegroundSyncService.scheduleSync(
+          reason: 'note deleted',
+          debounce: const Duration(seconds: 1),
+        );
         await _closeEditor();
       } catch (error) {
         _discardPendingChanges = false;
@@ -801,6 +806,10 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
     try {
       final updated = _persistedNote!.copyWith(isArchived: true);
       _persistedNote = await _repository.updateNote(updated);
+      ForegroundSyncService.scheduleSync(
+        reason: 'note archived',
+        debounce: const Duration(seconds: 1),
+      );
       _hasChanges = false;
       _discardPendingChanges = true;
       await _closeEditor();
@@ -914,6 +923,10 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
 
     try {
       await operation;
+      ForegroundSyncService.scheduleSync(
+        reason: 'note saved',
+        debounce: const Duration(seconds: 8),
+      );
       if (revision > _savedRevision) _savedRevision = revision;
       _hasChanges = _changeRevision > _savedRevision;
       _lastSaveError = null;

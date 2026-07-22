@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/crypto/crypto_manager.dart';
 import '../../core/crypto/key_storage.dart';
 import '../models/ssh_credential.dart';
+import 'sync_tombstone_store.dart';
 
 /// Repository for managing encrypted SSH credentials
 class SshRepository {
@@ -66,11 +67,13 @@ class SshRepository {
   }
 
   /// Delete an SSH credential
-  Future<void> deleteCredential(String uuid) async {
+  Future<void> deleteCredential(String uuid, {DateTime? deletedAt}) async {
     if (!_isInitialized) {
       throw StateError('SshRepository not initialized');
     }
+    final deletionTime = deletedAt ?? DateTime.now();
     await _sshBox.delete(uuid);
+    await SyncTombstoneStore.recordDeletion(uuid, deletedAt: deletionTime);
   }
 
   /// Save a credential (for sync engine)

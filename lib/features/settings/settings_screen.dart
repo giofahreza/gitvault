@@ -9,10 +9,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/biometric_auth.dart';
 import '../../core/providers/providers.dart';
-import '../../core/services/background_sync_service.dart';
 import '../../core/services/device_identity_service.dart';
 import '../../core/services/github_service.dart';
 import '../../core/services/ime_service.dart';
+import '../../core/services/foreground_sync_service.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/constants.dart';
@@ -2035,6 +2035,7 @@ Future<void> showGitHubSetupDialog(
                         repoOwner: owner,
                         repoName: repo,
                       );
+                      unawaited(ForegroundSyncService.refreshPeriodicSync());
 
                       if (context.mounted) {
                         Navigator.pop(ctx);
@@ -2061,12 +2062,20 @@ Future<void> showGitHubSetupDialog(
                           );
 
                           try {
-                            final result =
-                                await BackgroundSyncService.performSyncNow();
+                            final result = await ForegroundSyncService.syncNow(
+                              reason: 'GitHub sync configured',
+                            );
+                            if (result == null) {
+                              throw ForegroundSyncService.lastError ??
+                                  Exception('GitHub sync is not configured.');
+                            }
                             if (context.mounted) {
                               ref.invalidate(vaultRepositoryProvider);
+                              ref.invalidate(vaultEntriesProvider);
                               ref.invalidate(notesRepositoryProvider);
+                              ref.invalidate(notesProvider);
                               ref.invalidate(sshRepositoryProvider);
+                              ref.invalidate(sshCredentialsProvider);
                               ref.invalidate(archivedNotesProvider);
 
                               ScaffoldMessenger.of(context)
@@ -2329,6 +2338,7 @@ Future<void> _showEnterRecoveryCodeDialog(
                         repoOwner: owner,
                         repoName: repo,
                       );
+                      unawaited(ForegroundSyncService.refreshPeriodicSync());
 
                       if (context.mounted) {
                         Navigator.pop(ctx);
@@ -2356,13 +2366,21 @@ Future<void> _showEnterRecoveryCodeDialog(
                         );
 
                         try {
-                          final result =
-                              await BackgroundSyncService.performSyncNow();
+                          final result = await ForegroundSyncService.syncNow(
+                            reason: 'recovery phrase restored',
+                          );
+                          if (result == null) {
+                            throw ForegroundSyncService.lastError ??
+                                Exception('GitHub sync is not configured.');
+                          }
 
                           if (context.mounted) {
                             ref.invalidate(vaultRepositoryProvider);
+                            ref.invalidate(vaultEntriesProvider);
                             ref.invalidate(notesRepositoryProvider);
+                            ref.invalidate(notesProvider);
                             ref.invalidate(sshRepositoryProvider);
+                            ref.invalidate(sshCredentialsProvider);
                             ref.invalidate(archivedNotesProvider);
 
                             ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -2499,6 +2517,7 @@ void _showEraseRepoDialog(
                 repoOwner: owner,
                 repoName: repo,
               );
+              unawaited(ForegroundSyncService.refreshPeriodicSync());
 
               if (context.mounted) {
                 Navigator.pop(ctx);

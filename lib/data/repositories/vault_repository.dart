@@ -6,6 +6,7 @@ import '../../core/crypto/crypto_manager.dart';
 import '../../core/crypto/key_storage.dart';
 import '../../core/services/credential_cache_service.dart';
 import '../models/vault_entry.dart';
+import 'sync_tombstone_store.dart';
 
 /// Orchestrates encryption and local storage of vault entries
 class VaultRepository {
@@ -160,12 +161,14 @@ class VaultRepository {
   }
 
   /// Deletes an entry
-  Future<void> deleteEntry(String uuid) async {
+  Future<void> deleteEntry(String uuid, {DateTime? deletedAt}) async {
     if (!_isInitialized) {
       throw StateError('VaultRepository not initialized');
     }
 
+    final deletionTime = deletedAt ?? DateTime.now();
     await _localVaultBox.delete(uuid);
+    await SyncTombstoneStore.recordDeletion(uuid, deletedAt: deletionTime);
 
     // Update IME credential cache after deletion
     await _updateCredentialCache();

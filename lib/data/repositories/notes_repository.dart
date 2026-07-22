@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/crypto/crypto_manager.dart';
 import '../../core/crypto/key_storage.dart';
 import '../models/note.dart';
+import 'sync_tombstone_store.dart';
 
 /// Repository for managing encrypted notes (separate from vault entries)
 class NotesRepository {
@@ -84,11 +85,15 @@ class NotesRepository {
   }
 
   /// Delete a note
-  Future<void> deleteNote(String uuid) async {
+  Future<void> deleteNote(String uuid, {DateTime? deletedAt}) async {
     if (!_isInitialized) {
       throw StateError('NotesRepository not initialized');
     }
-    await _enqueueWrite(() => _notesBox.delete(uuid));
+    final deletionTime = deletedAt ?? DateTime.now();
+    await _enqueueWrite(() async {
+      await _notesBox.delete(uuid);
+      await SyncTombstoneStore.recordDeletion(uuid, deletedAt: deletionTime);
+    });
   }
 
   /// Save a note (for sync engine)
@@ -235,7 +240,10 @@ class NotesRepository {
     for (int i = 0; i < uuidOrder.length; i++) {
       final note = await getNote(uuidOrder[i]);
       if (note != null && note.sortOrder != i) {
-        final updated = note.copyWith(sortOrder: i);
+        final updated = note.copyWith(
+          sortOrder: i,
+          modifiedAt: DateTime.now(),
+        );
         await _saveNote(updated);
       }
     }

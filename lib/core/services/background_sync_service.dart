@@ -58,6 +58,10 @@ class BackgroundSyncService {
     await _settingsBox!.put('require_wifi', requireWifi.toString());
     await _settingsBox!.put('require_charging', requireCharging.toString());
 
+    final keyStorage = KeyStorage();
+    await keyStorage.initialize();
+    await keyStorage.setAutoSyncInterval(intervalMinutes);
+
     if (kIsWeb) return;
 
     // Schedule periodic sync
@@ -85,6 +89,10 @@ class BackgroundSyncService {
     if (_settingsBox == null) await initialize();
 
     await _settingsBox!.put('enabled', 'false');
+    final keyStorage = KeyStorage();
+    await keyStorage.initialize();
+    await keyStorage.setAutoSyncInterval(0);
+
     if (kIsWeb) return;
     await Workmanager().cancelByUniqueName(_taskName);
   }

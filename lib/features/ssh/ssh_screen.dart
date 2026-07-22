@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../core/providers/providers.dart';
+import '../../core/services/foreground_sync_service.dart';
 import '../../core/services/ssh_platform/ssh_platform_support.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/ssh_credential.dart';
@@ -179,6 +180,10 @@ class _SshScreenState extends ConsumerState<SshScreen> {
       builder: (context) => _SshCredentialDialog(
         onSaved: () {
           ref.invalidate(sshCredentialsProvider);
+          ForegroundSyncService.scheduleSync(
+            reason: 'ssh credential saved',
+            debounce: const Duration(seconds: 2),
+          );
         },
       ),
     );
@@ -191,6 +196,10 @@ class _SshScreenState extends ConsumerState<SshScreen> {
         credential: credential,
         onSaved: () {
           ref.invalidate(sshCredentialsProvider);
+          ForegroundSyncService.scheduleSync(
+            reason: 'ssh credential saved',
+            debounce: const Duration(seconds: 2),
+          );
         },
       ),
     );
@@ -221,6 +230,10 @@ class _SshScreenState extends ConsumerState<SshScreen> {
       await repo.initialize();
       await repo.deleteCredential(credential.uuid);
       ref.invalidate(sshCredentialsProvider);
+      ForegroundSyncService.scheduleSync(
+        reason: 'ssh credential deleted',
+        debounce: const Duration(seconds: 1),
+      );
     }
   }
 }

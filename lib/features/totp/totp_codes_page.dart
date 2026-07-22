@@ -4,14 +4,24 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/providers.dart';
-import '../../core/services/github_service.dart';
+import '../../core/services/foreground_sync_service.dart';
+import '../../core/widgets/group_selector_field.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/vault_entry.dart';
-import '../../data/repositories/sync_engine.dart';
 import '../../utils/pointer_focus.dart';
 import '../../utils/totp_generator.dart';
 import 'totp_scanner_screen.dart';
 import 'google_auth_import_screen.dart';
+
+List<String> _availableTotpGroups(Iterable<VaultEntry> entries) {
+  final groups = <String>[];
+  for (final entry in entries) {
+    if (entry.tags.isEmpty) continue;
+    final group = entry.tags.first.trim();
+    if (group.isNotEmpty) groups.add(group);
+  }
+  return groups;
+}
 
 /// Dedicated 2FA codes page - shows all TOTP codes grouped by category
 class TotpCodesPage extends ConsumerStatefulWidget {
@@ -360,7 +370,10 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
       await repo.initialize();
       await repo.deleteEntry(entry.uuid);
       ref.invalidate(vaultEntriesProvider);
-      _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
+      _scheduleTotpSync(
+        reason: 'totp entry deleted',
+        debounce: const Duration(seconds: 1),
+      );
     }
   }
 
@@ -379,6 +392,9 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
     final groupFocus = FocusNode();
     bool saving = false;
     bool showSecret = false;
+    final availableGroups = _availableTotpGroups(
+      ref.read(vaultEntriesProvider).valueOrNull ?? const <VaultEntry>[],
+    );
 
     Future<void> saveTotp(
       BuildContext dialogContext,
@@ -405,7 +421,10 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
         );
         await repo.updateEntry(updated);
         ref.invalidate(vaultEntriesProvider);
-        _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
+        _scheduleTotpSync(
+          reason: 'totp entry saved',
+          debounce: const Duration(seconds: 2),
+        );
         if (dialogContext.mounted) Navigator.pop(dialogContext);
       } catch (e) {
         setDialogState(() => saving = false);
@@ -509,19 +528,13 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                   const SizedBox(height: 12),
                   PointerFocus(
                     focusNode: groupFocus,
-                    child: TextFormField(
+                    child: GroupSelectorField(
                       controller: groupController,
                       focusNode: groupFocus,
-                      decoration: const InputDecoration(
-                        labelText: 'Group (optional)',
-                        hintText: 'e.g., Social, Work, Finance',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.folder_outlined),
-                      ),
-                      textCapitalization: TextCapitalization.words,
+                      availableGroups: availableGroups,
                       enabled: !saving,
                       textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) =>
+                      onSubmitted: (_) =>
                           saveTotp(dialogContext, setDialogState),
                     ),
                   ),
@@ -581,39 +594,14 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
     });
   }
 
-  Future<void> _syncVault() async {
-    final keyStorage = ref.read(keyStorageProvider);
-    await keyStorage.initialize();
-    final hasGitHub = await keyStorage.hasGitHubCredentials();
-    if (!hasGitHub) return;
-
-    try {
-      final token = await keyStorage.getGitHubToken();
-      final owner = await keyStorage.getRepoOwner();
-      final name = await keyStorage.getRepoName();
-      if (token == null || owner == null || name == null) return;
-
-      final githubService = GitHubService(
-        accessToken: token,
-        repoOwner: owner,
-        repoName: name,
-      );
-
-      final syncEngine = SyncEngine(
-        vaultRepository: ref.read(vaultRepositoryProvider),
-        notesRepository: ref.read(notesRepositoryProvider),
-        sshRepository: ref.read(sshRepositoryProvider),
-        githubService: githubService,
-        cryptoManager: ref.read(cryptoManagerProvider),
-        keyStorage: keyStorage,
-      );
-
-      await syncEngine.initialize();
-      await syncEngine.sync();
-      syncEngine.dispose();
-      githubService.dispose();
-      ref.invalidate(vaultEntriesProvider);
-    } catch (_) {}
+  void _scheduleTotpSync({
+    required String reason,
+    Duration debounce = const Duration(seconds: 2),
+  }) {
+    ForegroundSyncService.scheduleSync(
+      reason: reason,
+      debounce: debounce,
+    );
   }
 
   Future<void> _scanQrCode() async {
@@ -661,7 +649,10 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
         initialSecret: secret,
         onSaved: () {
           ref.invalidate(vaultEntriesProvider);
-          _syncVault().catchError((e) => debugPrint('Auto-sync failed: $e'));
+          _scheduleTotpSync(
+            reason: 'totp entry created',
+            debounce: const Duration(seconds: 2),
+          );
         },
       ),
     );
@@ -1044,6 +1035,10 @@ class _AddTotpDialogState extends ConsumerState<_AddTotpDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final availableGroups = _availableTotpGroups(
+      ref.watch(vaultEntriesProvider).valueOrNull ?? const <VaultEntry>[],
+    );
+
     return AlertDialog(
       title: const Text('Add 2FA Code'),
       content: SingleChildScrollView(
@@ -1119,19 +1114,13 @@ class _AddTotpDialogState extends ConsumerState<_AddTotpDialog> {
               const SizedBox(height: 12),
               PointerFocus(
                 focusNode: _groupFocus,
-                child: TextFormField(
+                child: GroupSelectorField(
                   controller: _groupController,
                   focusNode: _groupFocus,
-                  decoration: const InputDecoration(
-                    labelText: 'Group (optional)',
-                    hintText: 'e.g., Social, Work, Finance',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.folder_outlined),
-                  ),
+                  availableGroups: availableGroups,
                   enabled: !_saving,
-                  textCapitalization: TextCapitalization.words,
                   textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _save2faCode(),
+                  onSubmitted: (_) => _save2faCode(),
                 ),
               ),
             ],
