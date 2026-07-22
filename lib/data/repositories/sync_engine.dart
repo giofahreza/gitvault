@@ -498,7 +498,6 @@ class SyncEngine {
         uploaded++;
       }
 
-      final remoteIndex = _lastRemoteIndex;
       final indexChanged = remoteIndex == null ||
           !_mapsEqual(remoteIndex.uuidToHashMap, uuidToHashMap) ||
           !_mapsEqual(
