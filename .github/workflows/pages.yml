@@ -1,0 +1,123 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/pages.yml"
+      - "assets/**"
+      - "docs/**"
+      - "lib/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "screenshots/**"
+      - "web/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build + Deploy GitHub Pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.1"
+          cache: true
+
+      - name: Enable web support
+        run: flutter config --enable-web
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate model code
+        run: flutter pub run build_runner build --delete-conflicting-outputs
+
+      - name: Derive web version
+        run: |
+          TAG="$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --abbrev=0 2>/dev/null || true)"
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            VERSION="$(awk '/^version:/ { print $2; exit }' pubspec.yaml | cut -d+ -f1)"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Could not derive a semantic version for the web build"
+            exit 1
+          fi
+          BUILD_NUMBER="$(echo "$VERSION" | awk -F. '{ print ($1 * 1000000) + ($2 * 1000) + $3 }')"
+          echo "GITVAULT_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "GITVAULT_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Build Flutter web
+        run: |
+          flutter build web --release --base-href "/app/" \
+            --pwa-strategy=none \
+            --dart-define "GITVAULT_VERSION=$GITVAULT_VERSION" \
+            --dart-define "GITVAULT_BUILD_NUMBER=$GITVAULT_BUILD_NUMBER"
+
+      - name: Prepare Pages artifact
+        run: |
+          rm -rf pages-dist
+          mkdir -p pages-dist/app
+          cp -R docs/. pages-dist/
+          cp -R build/web/. pages-dist/app/
+          mkdir -p pages-dist/screenshots pages-dist/assets/icon
+          cp -R screenshots/. pages-dist/screenshots/
+          cp assets/icon/gitvault_new.jpeg pages-dist/assets/icon/gitvault_new.jpeg
+          cp build/web/index.html pages-dist/app/404.html
+          cat > pages-dist/app/flutter_service_worker.js <<'EOF'
+          self.addEventListener('install', () => {
+            self.skipWaiting();
+          });
+
+          self.addEventListener('activate', (event) => {
+            event.waitUntil((async () => {
+              if (self.caches) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map((key) => caches.delete(key)));
+              }
+              await self.clients.claim();
+              await self.registration.unregister();
+            })());
+          });
+          EOF
+          touch pages-dist/.nojekyll
+          test -f pages-dist/CNAME
+          test -f pages-dist/index.html
+          test -f pages-dist/wiki.html
+          test -f pages-dist/wiki.js
+          test -f pages-dist/app/index.html
+          grep -q '<base href="/app/">' pages-dist/app/index.html
+          grep -q '<base href="/app/">' pages-dist/app/404.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+          path: pages-dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
