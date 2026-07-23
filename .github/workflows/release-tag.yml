@@ -172,14 +172,24 @@ jobs:
 
       - name: Build Flutter web
         run: |
-          flutter build web --release --base-href "/gitvault/" \
+          flutter build web --release --base-href "/app/" \
             --dart-define "GITVAULT_VERSION=$RELEASE_VERSION" \
             --dart-define "GITVAULT_BUILD_NUMBER=$RELEASE_BUILD_NUMBER"
 
-      - name: Prepare GitHub Pages SPA fallback
+      - name: Prepare GitHub Pages site
         run: |
-          cp build/web/index.html build/web/404.html
-          touch build/web/.nojekyll
+          rm -rf pages-dist
+          mkdir -p pages-dist/app
+          cp -R docs/. pages-dist/
+          cp -R build/web/. pages-dist/app/
+          mkdir -p pages-dist/screenshots pages-dist/assets/icon
+          cp -R screenshots/. pages-dist/screenshots/
+          cp assets/icon/gitvault_new.jpeg pages-dist/assets/icon/gitvault_new.jpeg
+          cp build/web/index.html pages-dist/app/404.html
+          touch pages-dist/.nojekyll
+          test -f pages-dist/CNAME
+          test -f pages-dist/index.html
+          test -f pages-dist/app/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -188,7 +198,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/web
+          path: pages-dist
 
       - name: Deploy to GitHub Pages
         id: deployment
