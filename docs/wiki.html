@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="GitVault wiki for setting up the encrypted vault, using passwords, notes, 2FA, SSH entries, sync, connected devices, and recovery."
+    >
+    <title>GitVault Wiki</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@500;650;750;850;900&family=Space+Grotesk:wght@700&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="icon" type="image/jpeg" href="assets/icon/gitvault_new.jpeg">
+    <link rel="stylesheet" href="styles.css?v=wiki-browse-20260723">
+  </head>
+  <body class="manual-body wiki-body">
+    <a class="skip-link" href="#wiki-content">Skip to wiki article</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="GitVault home">
+        <img src="assets/icon/gitvault_new.jpeg" alt="" width="32" height="32">
+        <span>GitVault</span>
+      </a>
+      <nav aria-label="Wiki navigation">
+        <a href="/" aria-label="Landing page">Home</a>
+        <a href="/app/" aria-label="Open web app">App</a>
+        <a href="https://github.com/giofahreza/gitvault/releases/latest" aria-label="Download APK">APK</a>
+        <a class="nav-action" href="https://github.com/giofahreza/gitvault" aria-label="View source">Source</a>
+      </nav>
+    </header>
+
+    <main class="manual-page">
+      <section class="manual-hero">
+        <p class="eyebrow">GitVault wiki</p>
+        <h1>Step-by-step user guide.</h1>
+        <p>
+          A practical wiki for using every GitVault feature on web and Android:
+          setup, unlock, passwords, notes, 2FA, SSH, sync, devices, recovery,
+          and troubleshooting.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="/app/">Open Web App</a>
+          <a class="button secondary" href="#wiki-browser">Browse Wiki</a>
+        </div>
+      </section>
+
+      <div id="wiki-browser" class="manual-layout">
+        <aside class="manual-toc" aria-label="Wiki pages">
+          <p class="manual-toc-label">Wiki pages</p>
+          <a href="#feature-index">Feature Index</a>
+          <a href="#first-setup">First Setup</a>
+          <a href="#unlock-lock">Unlock and Lock</a>
+          <a href="#passwords">Passwords</a>
+          <a href="#notes">Notes</a>
+          <a href="#totp">2FA Codes</a>
+          <a href="#ssh">SSH</a>
+          <a href="#sync-devices">Sync and Devices</a>
+          <a href="#settings">Settings</a>
+          <a href="#recovery">Recovery</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </aside>
+
+        <div id="wiki-content" class="manual-content" aria-live="polite">
+          <section id="feature-index" class="manual-card wiki-page">
+            <p class="eyebrow">Index</p>
+            <h2>Feature index</h2>
+            <p class="wiki-lead">
+              Use this page like a wiki. Each article explains what the feature
+              is for, when to use it, and the exact steps to complete the task.
+            </p>
+            <div class="wiki-index">
+              <a href="#first-setup"><span>Setup</span><strong>Create your vault</strong></a>
+              <a href="#unlock-lock"><span>Access</span><strong>Unlock and lock</strong></a>
+              <a href="#passwords"><span>Vault</span><strong>Passwords</strong></a>
+              <a href="#notes"><span>Vault</span><strong>Notes</strong></a>
+              <a href="#totp"><span>Security</span><strong>2FA codes</strong></a>
+              <a href="#ssh"><span>Admin</span><strong>SSH entries</strong></a>
+              <a href="#sync-devices"><span>Sync</span><strong>Devices and sync</strong></a>
+              <a href="#settings"><span>Control</span><strong>Settings</strong></a>
+              <a href="#recovery"><span>Recovery</span><strong>Restore access</strong></a>
+              <a href="#troubleshooting"><span>Fixes</span><strong>Troubleshooting</strong></a>
+            </div>
+          </section>
+
+          <section id="first-setup" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>First setup</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Applies to</dt><dd>Web and Android</dd></div>
+                <div><dt>Time</dt><dd>5-10 minutes</dd></div>
+                <div><dt>Needed</dt><dd>Recovery storage and optional GitHub account</dd></div>
+              </dl>
+            </div>
+            <p class="wiki-lead">
+              Complete these steps before saving real secrets. The most important
+              task is saving the recovery phrase outside GitVault.
+            </p>
+            <ol class="wiki-steps">
+              <li><span>1</span><div><strong>Open GitVault.</strong><p>Open the web app on desktop, or install the Android APK for mobile use.</p></div></li>
+              <li><span>2</span><div><strong>Choose the create-vault flow.</strong><p>Use this when you are starting fresh and do not already have a GitVault vault.</p></div></li>
+              <li><span>3</span><div><strong>Save the recovery phrase.</strong><p>Write it down or store it in a secure offline place. Do not save it inside GitVault.</p></div></li>
+              <li><span>4</span><div><strong>Create your PIN.</strong><p>Pick the PIN length you want to use. On web, you can type the PIN using the keyboard.</p></div></li>
+              <li><span>5</span><div><strong>Open the empty vault.</strong><p>Confirm that you can unlock the vault before adding passwords, notes, or 2FA codes.</p></div></li>
+              <li><span>6</span><div><strong>Set up sync if you use more than one device.</strong><p>Connect a private GitHub repository from settings, then run the first sync.</p></div></li>
+            </ol>
+            <div class="wiki-note danger"><strong>Do not skip recovery.</strong><p>If you lose the recovery phrase and cannot unlock the vault, GitVault cannot read the encrypted vault data for you.</p></div>
+          </section>
+
+          <section id="unlock-lock" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>Unlock and lock</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Applies to</dt><dd>Web and Android</dd></div>
+                <div><dt>Use when</dt><dd>Opening or leaving the vault</dd></div>
+              </dl>
+            </div>
+            <h3>Unlock with PIN</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open the app.</strong><p>The unlock screen appears when the vault is locked.</p></div></li>
+              <li><span>2</span><div><strong>Enter the full PIN.</strong><p>Use your keyboard on web or the on-screen keypad on mobile.</p></div></li>
+              <li><span>3</span><div><strong>Wait for verification.</strong><p>If the PIN is correct, GitVault opens the vault. If it is wrong repeatedly, wait for throttling to finish.</p></div></li>
+            </ol>
+            <h3>Enable biometric unlock</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Unlock with PIN first.</strong><p>Biometric unlock must be enabled from an already-unlocked vault.</p></div></li>
+              <li><span>2</span><div><strong>Open settings.</strong><p>Find the biometric unlock setting on web or Android.</p></div></li>
+              <li><span>3</span><div><strong>Turn biometric unlock on.</strong><p>Approve the browser or device prompt. Use this only on trusted devices.</p></div></li>
+            </ol>
+            <h3>Lock manually</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Use the lock button.</strong><p>On web, use the visible lock action before stepping away.</p></div></li>
+              <li><span>2</span><div><strong>Confirm the lock screen appears.</strong><p>The vault is protected again when the unlock screen is shown.</p></div></li>
+            </ol>
+          </section>
+
+          <section id="passwords" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>Passwords</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Stores</dt><dd>Login credentials</dd></div>
+                <div><dt>Optional</dt><dd>URL, notes, group, TOTP secret</dd></div>
+              </dl>
+            </div>
+            <h3>Add a password</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open the Passwords feature.</strong><p>Use the password tab or menu item in the app.</p></div></li>
+              <li><span>2</span><div><strong>Select add.</strong><p>Open the add-password form.</p></div></li>
+              <li><span>3</span><div><strong>Fill the required fields.</strong><p>Add a title, username, and password. Add URL and notes when helpful.</p></div></li>
+              <li><span>4</span><div><strong>Choose or create a group.</strong><p>Pick an existing group from the dropdown or create a new group in the same control.</p></div></li>
+              <li><span>5</span><div><strong>Add TOTP if the login has 2FA.</strong><p>Paste the TOTP secret only if you want the code inside the same password record.</p></div></li>
+              <li><span>6</span><div><strong>Save and sync.</strong><p>After saving, wait for sync if you use multiple devices.</p></div></li>
+            </ol>
+            <h3>Use a saved password</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Search or open the group.</strong><p>Find the entry by title, username, URL, or group.</p></div></li>
+              <li><span>2</span><div><strong>Copy the needed field.</strong><p>Use copy buttons for username, password, or TOTP code instead of selecting text manually.</p></div></li>
+              <li><span>3</span><div><strong>Let clipboard auto-clear when configured.</strong><p>If clipboard auto-clear is enabled, GitVault clears copied secrets after the configured delay.</p></div></li>
+            </ol>
+            <h3>Edit or delete a password</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open the password detail.</strong><p>Review the current data before changing it.</p></div></li>
+              <li><span>2</span><div><strong>Choose edit or delete.</strong><p>Use edit for normal updates. Delete only when you no longer need the entry.</p></div></li>
+              <li><span>3</span><div><strong>Save and confirm sync.</strong><p>Check another device after sync if the entry is important.</p></div></li>
+            </ol>
+          </section>
+
+          <section id="notes" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>Notes</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Stores</dt><dd>Private text and checklists</dd></div>
+                <div><dt>Tools</dt><dd>Pin, color, tags, archive, search</dd></div>
+              </dl>
+            </div>
+            <h3>Create a note</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open Notes.</strong><p>Use the notes tab or menu item.</p></div></li>
+              <li><span>2</span><div><strong>Select add note.</strong><p>Open the note editor.</p></div></li>
+              <li><span>3</span><div><strong>Add a title and content.</strong><p>Use notes for recovery codes, secure checklists, or private reference text.</p></div></li>
+              <li><span>4</span><div><strong>Set color, tags, or pin.</strong><p>Pin important notes and use colors or tags to make groups easier to scan.</p></div></li>
+              <li><span>5</span><div><strong>Save the note.</strong><p>Wait for sync if you need the note on another device.</p></div></li>
+            </ol>
+            <h3>Find and organize notes</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Use search.</strong><p>Search by title, content, tag, or other visible note details.</p></div></li>
+              <li><span>2</span><div><strong>Switch list or grid when available.</strong><p>Use the view that is easiest for the current screen size.</p></div></li>
+              <li><span>3</span><div><strong>Archive old notes.</strong><p>Archive notes you do not need daily but do not want to delete.</p></div></li>
+            </ol>
+          </section>
+
+          <section id="totp" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>2FA codes</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Stores</dt><dd>TOTP authenticator secrets</dd></div>
+                <div><dt>Output</dt><dd>Time-based 6 digit codes</dd></div>
+              </dl>
+            </div>
+            <h3>Add a 2FA code manually</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open 2FA Codes.</strong><p>Use the 2FA or authenticator feature in the app.</p></div></li>
+              <li><span>2</span><div><strong>Select add.</strong><p>Open the form for a new authenticator entry.</p></div></li>
+              <li><span>3</span><div><strong>Enter account details.</strong><p>Add issuer, account name, and the TOTP secret from the service you are protecting.</p></div></li>
+              <li><span>4</span><div><strong>Choose or create a group.</strong><p>Use the group dropdown to keep 2FA entries organized.</p></div></li>
+              <li><span>5</span><div><strong>Save and verify.</strong><p>Confirm that GitVault shows a live code and countdown.</p></div></li>
+            </ol>
+            <h3>Import from Google Authenticator</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Export from Google Authenticator.</strong><p>Use the export flow in Google Authenticator.</p></div></li>
+              <li><span>2</span><div><strong>Use the correct GitVault import path.</strong><p>On web, paste the export link. On mobile, scan the export QR code when scanner support is available.</p></div></li>
+              <li><span>3</span><div><strong>Review entries before saving.</strong><p>Make sure imported names and issuers are understandable.</p></div></li>
+            </ol>
+            <h3>Use a 2FA code</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open the 2FA entry.</strong><p>Wait for the countdown if the current code is nearly expired.</p></div></li>
+              <li><span>2</span><div><strong>Copy the code.</strong><p>Paste it into the service login form before the timer resets.</p></div></li>
+            </ol>
+          </section>
+
+          <section id="ssh" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>SSH entries</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Stores</dt><dd>SSH host credentials</dd></div>
+                <div><dt>Best on</dt><dd>Android for terminal workflows</dd></div>
+              </dl>
+            </div>
+            <h3>Add an SSH entry</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open SSH.</strong><p>Use the SSH feature in the app.</p></div></li>
+              <li><span>2</span><div><strong>Select add.</strong><p>Open the SSH entry form.</p></div></li>
+              <li><span>3</span><div><strong>Enter connection details.</strong><p>Add host, username, and port. Use a clear title if the host name is not obvious.</p></div></li>
+              <li><span>4</span><div><strong>Add credential data.</strong><p>Save the password or key information required for your workflow.</p></div></li>
+              <li><span>5</span><div><strong>Save and sync.</strong><p>Run sync before expecting the SSH entry on another device.</p></div></li>
+            </ol>
+            <h3>Use an SSH entry</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open the saved entry.</strong><p>Review host, username, and port before connecting.</p></div></li>
+              <li><span>2</span><div><strong>Copy fields or launch terminal when available.</strong><p>On Android, use the terminal experience when supported by the app build and device.</p></div></li>
+              <li><span>3</span><div><strong>Lock when finished.</strong><p>Lock GitVault after working with server credentials.</p></div></li>
+            </ol>
+          </section>
+
+          <section id="sync-devices" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>Sync and devices</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Storage</dt><dd>Private GitHub repository</dd></div>
+                <div><dt>Data sent</dt><dd>Encrypted vault files only</dd></div>
+              </dl>
+            </div>
+            <h3>Set up GitHub sync</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Create an empty private repository.</strong><p>Use your normal GitHub account. Keep the repository private.</p></div></li>
+              <li><span>2</span><div><strong>Create a fine-grained token.</strong><p>Grant only the repository access GitVault needs, such as metadata read and contents read/write.</p></div></li>
+              <li><span>3</span><div><strong>Open GitVault settings.</strong><p>Go to sync settings and paste the repository and token details.</p></div></li>
+              <li><span>4</span><div><strong>Run the first sync.</strong><p>Wait for a successful sync state before closing the app.</p></div></li>
+            </ol>
+            <h3>Add another device</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Install or open GitVault on the new device.</strong><p>Use web for browser access or Android APK for mobile access.</p></div></li>
+              <li><span>2</span><div><strong>Use restore or link flow.</strong><p>Follow the app flow for connecting to an existing vault.</p></div></li>
+              <li><span>3</span><div><strong>Connect the same GitHub repository.</strong><p>Use the same sync storage so devices share encrypted vault files.</p></div></li>
+              <li><span>4</span><div><strong>Open connected devices.</strong><p>After sync, check settings to confirm the device appears.</p></div></li>
+            </ol>
+            <h3>Sync daily changes</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Save the change.</strong><p>Edit or add the entry on the current device.</p></div></li>
+              <li><span>2</span><div><strong>Wait for sync.</strong><p>Do not immediately switch devices if sync is still running.</p></div></li>
+              <li><span>3</span><div><strong>Open the other device and sync.</strong><p>If changes do not appear, manually trigger sync or reopen the app.</p></div></li>
+            </ol>
+          </section>
+
+          <section id="settings" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>Settings</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Contains</dt><dd>Security, sync, devices, theme, app info</dd></div>
+              </dl>
+            </div>
+            <div class="wiki-table-wrap">
+              <table class="wiki-table">
+                <thead>
+                  <tr><th>Setting</th><th>Use it for</th><th>Recommended habit</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>PIN</td><td>Change local unlock behavior.</td><td>Use a PIN length you can reliably enter.</td></tr>
+                  <tr><td>Biometric unlock</td><td>Unlock faster on trusted devices.</td><td>Enable only on personal devices.</td></tr>
+                  <tr><td>Clipboard auto-clear</td><td>Clear copied secrets automatically.</td><td>Use a short delay for shared environments.</td></tr>
+                  <tr><td>GitHub sync</td><td>Connect encrypted storage.</td><td>Check token permissions and sync status.</td></tr>
+                  <tr><td>Connected devices</td><td>Review linked web and mobile devices.</td><td>Remove or rotate access after losing a device.</td></tr>
+                  <tr><td>Theme</td><td>Adjust the app appearance.</td><td>Pick the theme that is easiest to scan.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="recovery" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>Recovery</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Priority</dt><dd>High</dd></div>
+                <div><dt>Needed</dt><dd>Recovery phrase and sync access</dd></div>
+              </dl>
+            </div>
+            <h3>Restore on a new device</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Open GitVault on the new device.</strong><p>Choose the restore or existing-vault flow.</p></div></li>
+              <li><span>2</span><div><strong>Enter the recovery information.</strong><p>Use the recovery phrase you saved during first setup.</p></div></li>
+              <li><span>3</span><div><strong>Connect sync storage.</strong><p>Use the same private GitHub repository and valid token.</p></div></li>
+              <li><span>4</span><div><strong>Verify entries.</strong><p>Check passwords, notes, 2FA codes, and settings before relying on the device.</p></div></li>
+            </ol>
+            <h3>If a device is lost</h3>
+            <ol class="wiki-steps compact">
+              <li><span>1</span><div><strong>Assume copied secrets may be exposed.</strong><p>Rotate important passwords, especially accounts used on that device.</p></div></li>
+              <li><span>2</span><div><strong>Rotate the GitHub token.</strong><p>Create a new token and stop using the old one.</p></div></li>
+              <li><span>3</span><div><strong>Review connected devices.</strong><p>Open GitVault on a trusted device and check device status after sync.</p></div></li>
+            </ol>
+          </section>
+
+          <section id="troubleshooting" class="manual-card wiki-page">
+            <div class="wiki-heading">
+              <div>
+                <p class="eyebrow">Article</p>
+                <h2>Troubleshooting</h2>
+              </div>
+              <dl class="wiki-meta">
+                <div><dt>Use when</dt><dd>A workflow does not complete</dd></div>
+              </dl>
+            </div>
+            <div class="wiki-table-wrap">
+              <table class="wiki-table">
+                <thead>
+                  <tr><th>Problem</th><th>Likely cause</th><th>What to do</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Sync fails</td><td>Network, repository, token, or permission problem.</td><td>Check internet access, token expiry, repository name, and contents read/write permission.</td></tr>
+                  <tr><td>PIN input is slow</td><td>Wrong attempts triggered throttling.</td><td>Wait for the timer and use keyboard input on web.</td></tr>
+                  <tr><td>Device is not listed</td><td>The device has not synced or linked yet.</td><td>Unlock GitVault on that device and run sync.</td></tr>
+                  <tr><td>2FA import fails</td><td>Wrong import method for the platform.</td><td>Paste the export link on web or scan the QR on mobile when supported.</td></tr>
+                  <tr><td>New entry missing on another device</td><td>Sync has not completed on one side.</td><td>Sync the device that made the change, then sync the other device.</td></tr>
+                  <tr><td>Biometric unlock unavailable</td><td>Browser or device does not expose biometric support.</td><td>Use PIN unlock or try a supported browser/device.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <span>GitVault wiki.</span>
+      <span class="footer-links">
+        <a href="/">Landing</a>
+        <a href="/app/">Open App</a>
+      </span>
+    </footer>
+    <script type="module" src="wiki.js?v=wiki-browse-20260723"></script>
+  </body>
+</html>
