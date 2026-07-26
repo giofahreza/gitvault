@@ -11,57 +11,85 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/providers/providers.dart';
 import '../../core/crypto/blind_handshake.dart';
 import '../../core/services/background_sync_service.dart';
+import '../../core/services/github_service.dart';
+import '../../data/repositories/sync_engine.dart';
 import '../../utils/clipboard_feedback.dart';
 import '../../utils/constants.dart';
 import '../../utils/pointer_focus.dart';
 
 /// Screen for linking a new device via QR code + PIN
 class LinkDeviceScreen extends ConsumerStatefulWidget {
-  const LinkDeviceScreen({super.key});
+  final bool initialIsSource;
+  final bool allowRoleSwitch;
+
+  const LinkDeviceScreen({
+    super.key,
+    this.initialIsSource = true,
+    this.allowRoleSwitch = true,
+  });
 
   @override
   ConsumerState<LinkDeviceScreen> createState() => _LinkDeviceScreenState();
 }
 
 class _LinkDeviceScreenState extends ConsumerState<LinkDeviceScreen> {
-  bool _isSource = true;
+  late bool _isSource;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSource = widget.initialIsSource;
+  }
+
+  @override
+  void didUpdateWidget(covariant LinkDeviceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialIsSource != widget.initialIsSource) {
+      _isSource = widget.initialIsSource;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final title = widget.allowRoleSwitch
+        ? 'Link New Device'
+        : (_isSource ? 'Show Link Code' : 'Link This Device');
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Link New Device'),
+        title: Text(title),
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Semantics(
-              container: true,
-              label: 'Device linking role',
-              value: _isSource
-                  ? 'This device shows the QR code'
-                  : 'This device scans or pastes the transfer code',
-              child: SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(
-                    value: true,
-                    label: Text('This Device'),
-                    icon: Icon(Icons.qr_code),
-                  ),
-                  ButtonSegment(
-                    value: false,
-                    label: Text('New Device'),
-                    icon: Icon(Icons.qr_code_scanner),
-                  ),
-                ],
-                selected: {_isSource},
-                onSelectionChanged: (Set<bool> selected) {
-                  setState(() => _isSource = selected.first);
-                },
+          if (widget.allowRoleSwitch)
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Semantics(
+                container: true,
+                label: 'Device linking role',
+                value: _isSource
+                    ? 'This device shows the QR code'
+                    : 'This device scans or pastes the transfer code',
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(
+                      value: true,
+                      label: Text('This Device'),
+                      icon: Icon(Icons.qr_code),
+                    ),
+                    ButtonSegment(
+                      value: false,
+                      label: Text('New Device'),
+                      icon: Icon(Icons.qr_code_scanner),
+                    ),
+                  ],
+                  selected: {_isSource},
+                  onSelectionChanged: (Set<bool> selected) {
+                    setState(() => _isSource = selected.first);
+                  },
+                ),
               ),
             ),
-          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Text(
@@ -152,12 +180,31 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
       final repoName = await keyStorage.getRepoName() ?? '';
       final hasGitHub =
           githubToken.isNotEmpty && repoOwner.isNotEmpty && repoName.isNotEmpty;
+      String? deviceInviteId;
+
+      if (hasGitHub) {
+        final githubService = GitHubService(
+          accessToken: githubToken,
+          repoOwner: repoOwner,
+          repoName: repoName,
+        );
+        try {
+          deviceInviteId = await SyncEngine.createPendingDeviceInvite(
+            keyStorage: keyStorage,
+            cryptoManager: ref.read(cryptoManagerProvider),
+            githubService: githubService,
+          );
+        } finally {
+          githubService.dispose();
+        }
+      }
 
       final payload = await blindHandshake.generateLinkingPayload(
         rootKey: rootKey,
         githubToken: githubToken,
         repoOwner: repoOwner,
         repoName: repoName,
+        deviceInviteId: deviceInviteId,
       );
 
       if (mounted) {
@@ -390,12 +437,10 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
                                   message: 'Copy transfer code',
                                   child: FilledButton.tonalIcon(
                                     onPressed: () async {
-                                      final copied =
-                                          await copyTextWithFeedback(
+                                      final copied = await copyTextWithFeedback(
                                         context,
                                         text: payload.qrData,
-                                        successMessage:
-                                            'Transfer code copied',
+                                        successMessage: 'Transfer code copied',
                                         failureMessage:
                                             'Could not copy transfer code. Show the code and copy it manually instead.',
                                         margin: const EdgeInsets.fromLTRB(
@@ -902,10 +947,19 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
           repoOwner: linkingData.repoOwner,
           repoName: linkingData.repoName,
         );
+        final credentialsSignal = ref.read(
+          githubCredentialsSignalProvider.notifier,
+        );
+        credentialsSignal.state = credentialsSignal.state + 1;
       }
 
       // Register this device with a name
       await keyStorage.storeLocalDeviceName('Linked Device');
+      await keyStorage.storeDeviceRegistrationMethod('link');
+      final deviceInviteId = linkingData.deviceInviteId;
+      if (deviceInviteId != null && deviceInviteId.isNotEmpty) {
+        await keyStorage.storePendingDeviceInviteId(deviceInviteId);
+      }
 
       // Refresh state so the vault is accessible
       ref.invalidate(isVaultSetupProvider);
@@ -954,15 +1008,39 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
         await keyStorage.storeLocalDeviceName(deviceName);
       }
 
+      String? registryWarning;
+      if (hasGitHub) {
+        if (!mounted) return;
+        setState(() => _statusMessage = 'Registering this device...');
+        final githubService = GitHubService(
+          accessToken: linkingData.githubToken,
+          repoOwner: linkingData.repoOwner,
+          repoName: linkingData.repoName,
+        );
+        try {
+          await SyncEngine.refreshDeviceRegistry(
+            keyStorage: keyStorage,
+            cryptoManager: ref.read(cryptoManagerProvider),
+            githubService: githubService,
+            uploadIfNeeded: true,
+          );
+        } catch (e) {
+          registryWarning = 'Device linked, but invite verification failed: $e';
+        } finally {
+          githubService.dispose();
+        }
+      }
+
       // If GitHub was configured, run an immediate sync to pull vault data
       if (hasGitHub) {
         if (kIsWeb) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text(
-                'Device linked and GitHub sync configured. Run sync manually from Settings on web.',
+                registryWarning ??
+                    'Device linked and registered. Run sync manually from Settings on web.',
               ),
-              duration: Duration(seconds: 5),
+              duration: const Duration(seconds: 5),
             ),
           );
         } else {
@@ -1020,7 +1098,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       }
 
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       if (mounted) {

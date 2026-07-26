@@ -20,6 +20,7 @@ class BlindHandshake {
     required String githubToken,
     required String repoOwner,
     required String repoName,
+    String? deviceInviteId,
   }) async {
     // Generate random 6-digit PIN
     final pin = _generatePIN();
@@ -31,6 +32,7 @@ class BlindHandshake {
       'repoOwner': repoOwner,
       'repoName': repoName,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
+      if (deviceInviteId != null) 'deviceInviteId': deviceInviteId,
     };
 
     final payloadJson = jsonEncode(payload);
@@ -80,6 +82,7 @@ class BlindHandshake {
     final repoOwner = payload['repoOwner'] as String;
     final repoName = payload['repoName'] as String;
     final timestamp = payload['timestamp'] as int;
+    final deviceInviteId = payload['deviceInviteId'] as String?;
 
     // Verify timestamp (reject if older than 5 minutes)
     final age = DateTime.now().millisecondsSinceEpoch - timestamp;
@@ -92,6 +95,7 @@ class BlindHandshake {
       githubToken: githubToken,
       repoOwner: repoOwner,
       repoName: repoName,
+      deviceInviteId: deviceInviteId,
     );
   }
 
@@ -132,7 +136,8 @@ class BlindHandshake {
     );
 
     final pinBytes = utf8.encode(pin);
-    final salt = utf8.encode('gitvault-blind-handshake'); // Fixed salt for deterministic derivation
+    final salt = utf8.encode(
+        'gitvault-blind-handshake'); // Fixed salt for deterministic derivation
 
     final hash = await argon2id.deriveKey(
       secretKey: SecretKey(pinBytes),
@@ -169,12 +174,14 @@ class LinkingData {
   final String githubToken;
   final String repoOwner;
   final String repoName;
+  final String? deviceInviteId;
 
   LinkingData({
     required this.rootKey,
     required this.githubToken,
     required this.repoOwner,
     required this.repoName,
+    this.deviceInviteId,
   });
 }
 

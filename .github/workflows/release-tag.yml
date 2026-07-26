@@ -173,8 +173,16 @@ jobs:
       - name: Build Flutter web
         run: |
           flutter build web --release --base-href "/app/" \
+            --pwa-strategy=none \
             --dart-define "GITVAULT_VERSION=$RELEASE_VERSION" \
             --dart-define "GITVAULT_BUILD_NUMBER=$RELEASE_BUILD_NUMBER"
+
+      - name: Verify compiled web version
+        run: |
+          if ! grep -R "$RELEASE_VERSION" build/web >/dev/null; then
+            echo "::error::Compiled web bundle does not contain release version $RELEASE_VERSION"
+            exit 1
+          fi
 
       - name: Prepare GitHub Pages site
         run: |
@@ -186,10 +194,32 @@ jobs:
           cp -R screenshots/. pages-dist/screenshots/
           cp assets/icon/gitvault_new.jpeg pages-dist/assets/icon/gitvault_new.jpeg
           cp build/web/index.html pages-dist/app/404.html
+          cat > pages-dist/app/flutter_service_worker.js <<'EOF'
+          self.addEventListener('install', (event) => {
+            self.skipWaiting();
+          });
+
+          self.addEventListener('activate', (event) => {
+            event.waitUntil((async () => {
+              if (self.caches) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map((key) => caches.delete(key)));
+              }
+              await self.clients.claim();
+              await self.registration.unregister();
+              const clients = await self.clients.matchAll({ type: 'window' });
+              for (const client of clients) {
+                client.navigate(client.url);
+              }
+            })());
+          });
+          EOF
           touch pages-dist/.nojekyll
           test -f pages-dist/CNAME
           test -f pages-dist/index.html
           test -f pages-dist/app/index.html
+          grep -q '<base href="/app/">' pages-dist/app/index.html
+          grep -q '<base href="/app/">' pages-dist/app/404.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

@@ -340,6 +340,10 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final compact = MediaQuery.sizeOf(context).width < 520;
+    final endpoint =
+        '${widget.credential.username}@${widget.credential.host}:${widget.credential.port}';
+    final compactEndpoint =
+        '${widget.credential.username}@${widget.credential.host}';
     final connectButton = FilledButton.tonalIcon(
       style: FilledButton.styleFrom(
         minimumSize: Size(compact ? 94 : 116, 40),
@@ -371,9 +375,35 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
                 )
               : Icon(Icons.terminal, color: colorScheme.onPrimaryContainer),
         ),
-        title: Text(widget.credential.label),
-        subtitle: Text(
-            '${widget.credential.username}@${widget.credential.host}:${widget.credential.port}'),
+        isThreeLine: compact,
+        title: Text(
+          widget.credential.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: compact
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    compactEndpoint,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'Port ${widget.credential.port}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              )
+            : Text(
+                endpoint,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

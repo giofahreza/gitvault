@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../crypto/crypto_manager.dart';
 import '../crypto/key_storage.dart';
@@ -35,6 +36,24 @@ final biometricAuthProvider = Provider<BiometricAuth>((ref) {
 
 /// Incrementing signal used to request an app lock from any authenticated UI.
 final appLockSignalProvider = StateProvider<int>((ref) => 0);
+
+/// Incrementing signal used to refresh UI that reflects GitHub credentials.
+final githubCredentialsSignalProvider = StateProvider<int>((ref) => 0);
+
+/// Storage-backed signal emitted whenever GitHub credentials change.
+final githubCredentialsRevisionProvider =
+    ChangeNotifierProvider<ValueNotifier<int>>((ref) {
+  return KeyStorage.githubCredentialsRevision;
+});
+
+/// Provider for checking if GitHub Sync credentials are configured.
+final githubCredentialsConfiguredProvider = FutureProvider<bool>((ref) async {
+  ref.watch(githubCredentialsSignalProvider);
+  ref.watch(githubCredentialsRevisionProvider).value;
+  final keyStorage = ref.watch(keyStorageProvider);
+  await keyStorage.initialize();
+  return keyStorage.hasGitHubCredentials();
+});
 
 /// Provider for DuressManager
 final duressManagerProvider = Provider<DuressManager>((ref) {

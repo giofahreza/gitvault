@@ -202,6 +202,51 @@ GitVault stores your encrypted vault in a private GitHub repository.
 
 ### 3. Enable System-wide Autofill
 
+### 3. Add or Restore Devices
+
+GitVault has two device flows. Use **Link New Device** when you still have one trusted device. Use **Restore Device** only when you are setting up a device from the recovery phrase.
+
+#### Add a device with Link New Device
+
+Use this when your old phone/browser is still available.
+
+1. On the trusted device, open Settings → **Link New Device**
+2. Keep **This Device** selected and show the QR code or copy the transfer code
+3. On the new device, open **Link New Device** → **New Device**
+4. Scan the QR code or paste the transfer code
+5. Enter the 6-digit PIN shown on the trusted device
+6. Name the new device
+
+The source device creates a short-lived encrypted invite. The new device is marked trusted only after it consumes that invite.
+
+#### Restore a device with recovery phrase
+
+Use this when installing GitVault on a device that was not linked from another trusted device.
+
+1. Configure GitHub Sync with the existing repository and your current/old GitHub token
+2. When GitVault detects existing vault data, choose **Restore with Recovery Phrase**
+3. Enter the 24-word recovery phrase
+4. GitVault creates a recovery approval request and waits for another trusted device
+
+If another trusted device is available:
+
+1. Open GitVault on that device
+2. Go to Settings → Devices
+3. Approve the recovery request
+4. Return to the new device and wait for approval, or tap **Check Approval**
+
+If all trusted devices are lost:
+
+1. Create a **new** GitHub token for the same vault repository
+2. Return to GitVault on the recovering device
+3. Tap **Use New Token**
+4. Paste the newly generated token
+5. After recovery succeeds, revoke the old token in GitHub
+
+This lost-device path requires both the old token and a newly generated token. The old token proves access to the existing vault repository. The new token proves current control of the GitHub account.
+
+### 4. Enable System-wide Autofill
+
 #### Samsung (Galaxy S-series, One UI):
 ```
 Settings → General Management → Passwords, Passkeys, and Autofill
@@ -216,7 +261,7 @@ Settings → System → Languages & input → Autofill service → GitVault
 #### Verify:
 Open Chrome → go to any login page → tap username field → you should see GitVault in the autofill dropdown.
 
-### 4. Enable GitVault Keyboard (IME)
+### 5. Enable GitVault Keyboard (IME)
 
 1. Settings → **GitVault Keyboard** → tap **Enable**
 2. Follow the system prompt to enable the input method

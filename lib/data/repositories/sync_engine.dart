@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:hive/hive.dart';
+import 'package:uuid/uuid.dart';
 import '../../core/crypto/crypto_manager.dart';
 import '../../core/crypto/key_storage.dart';
 import '../../core/services/github_service.dart';
@@ -19,6 +20,18 @@ import '../../core/services/device_identity_service.dart';
 /// Implements "Smart Sync" with conflict resolution via Last Write Wins
 /// Syncs both password entries and notes to the same GitHub data folder
 class SyncEngine {
+  static const String deviceRegistrationMethodSetup = 'setup';
+  static const String deviceRegistrationMethodRecovery = 'recovery';
+  static const String deviceRegistrationMethodRecoveryApproved =
+      'recovery_approved';
+  static const String deviceRegistrationMethodRecoveryTokenRotated =
+      'recovery_token_rotated';
+  static const String deviceRegistrationMethodLink = 'link';
+  static const String deviceRegistrationMethodSync = 'sync';
+  static const String deviceRegistrationMethodRecognized = 'recognized';
+  static const Duration pendingDeviceInviteLifetime = Duration(minutes: 10);
+  static const Duration pendingDeviceApprovalLifetime = Duration(seconds: 30);
+
   static Future<SyncResult>? _activeSync;
 
   final VaultRepository _vaultRepository;
@@ -74,6 +87,33 @@ class SyncEngine {
     });
     _activeSync = operation;
     return operation;
+  }
+
+  /// Pulls remote vault content after a device recovery completes.
+  ///
+  /// Recovery has just proven access to the remote vault, so the first action
+  /// must be a deterministic download. Running the full pull-then-push sync here
+  /// can join an older in-flight sync and leave the recovered device with an
+  /// empty local vault until a later manual sync.
+  Future<SyncResult> restoreFromGitHub() async {
+    if (!_isInitialized) {
+      throw StateError('SyncEngine not initialized');
+    }
+
+    final rootKey = await _keyStorage.getRootKey();
+    if (rootKey == null) {
+      throw StateError('No root key found');
+    }
+
+    final pullResult = await _pullFromGitHub(rootKey);
+    await _syncDeviceRegistry();
+    await _setLastSyncTime(DateTime.now());
+
+    return SyncResult(
+      pulled: pullResult.downloaded,
+      pushed: 0,
+      conflicts: pullResult.conflicts,
+    );
   }
 
   Future<SyncResult> _performSync() async {
@@ -566,8 +606,7 @@ class SyncEngine {
     Map<String, String> source,
   ) {
     for (final entry in source.entries) {
-      final sourceDeletedAt =
-          SyncTombstoneStore.parseDeletedAt(entry.value);
+      final sourceDeletedAt = SyncTombstoneStore.parseDeletedAt(entry.value);
       if (sourceDeletedAt == null) continue;
 
       final targetDeletedAt =
@@ -736,6 +775,459 @@ class SyncEngine {
 
   /// Rebuilds the device registry from remote state and local device identity.
   /// When [uploadIfNeeded] is false, the merged registry is cached locally only.
+  static Future<String> createPendingDeviceInvite({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+  }) async {
+    await keyStorage.initialize();
+
+    final rootKey = await keyStorage.getRootKey();
+    if (rootKey == null) {
+      throw StateError('No root key found');
+    }
+
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    final now = DateTime.now();
+    final nowIso = now.toIso8601String();
+    final inviteId = const Uuid().v4();
+
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) {
+      throw StateError('Could not read device registry');
+    }
+    final invites = _pendingDeviceInvites(registry, now);
+    invites.add({
+      'inviteId': inviteId,
+      'createdAt': nowIso,
+      'expiresAt': now.add(pendingDeviceInviteLifetime).toIso8601String(),
+      'createdByDeviceId': identity.id,
+      'createdByName': identity.name,
+    });
+    registry['pendingDeviceInvites'] = invites;
+
+    await _uploadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+      registry: registry,
+      commitMessage: 'Create device link invite',
+    );
+
+    return inviteId;
+  }
+
+  static Future<void> recognizeDeviceRegistration({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required String deviceId,
+  }) async {
+    await keyStorage.initialize();
+
+    final rootKey = await keyStorage.getRootKey();
+    if (rootKey == null) {
+      throw StateError('No root key found');
+    }
+
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) {
+      throw StateError('Could not read device registry');
+    }
+    final devices = (registry['devices'] as List<dynamic>? ?? [])
+        .map((device) => Map<String, dynamic>.from(device as Map))
+        .toList();
+    final index =
+        devices.indexWhere((device) => device['deviceId'] == deviceId);
+    if (index < 0) return;
+
+    final nowIso = DateTime.now().toIso8601String();
+    devices[index] = {
+      ...devices[index],
+      'registrationMethod': deviceRegistrationMethodRecognized,
+      'recognizedAt': nowIso,
+      'recognizedByDeviceId': identity.id,
+      'recognizedByName': identity.name,
+    };
+    registry['devices'] = devices;
+
+    await _uploadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+      registry: registry,
+      commitMessage: 'Recognize connected device',
+    );
+  }
+
+  static Future<String> createPendingRecoveryApproval({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required Uint8List rootKey,
+  }) async {
+    await keyStorage.initialize();
+
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    final now = DateTime.now();
+    final approvalId = const Uuid().v4();
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) {
+      throw StateError('Could not read device registry');
+    }
+
+    final approvals = _deviceApprovalRequests(registry, now: now);
+    approvals.add({
+      'approvalId': approvalId,
+      'deviceId': identity.id,
+      'deviceName': identity.name,
+      'requestType': 'recovery',
+      'status': 'pending',
+      'requestedAt': now.toIso8601String(),
+      'expiresAt': now.add(pendingDeviceApprovalLifetime).toIso8601String(),
+    });
+    registry['pendingDeviceApprovals'] = approvals;
+
+    await _uploadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+      registry: registry,
+      commitMessage: 'Request device recovery approval',
+    );
+
+    return approvalId;
+  }
+
+  static Future<DeviceApprovalStatus> getDeviceApprovalStatus({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required Uint8List rootKey,
+    required String approvalId,
+  }) async {
+    await keyStorage.initialize();
+
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) {
+      throw StateError('Could not read device registry');
+    }
+
+    final approvals = _deviceApprovalRequests(
+      registry,
+      includeExpiredPending: true,
+    );
+    for (final approval in approvals) {
+      if (approval['approvalId'] != approvalId) continue;
+
+      final status = approval['status'] as String? ?? 'pending';
+      if (status == 'approved') {
+        if (!_approvalWasAnsweredBeforeExpiry(approval)) {
+          return DeviceApprovalStatus.expired(approval);
+        }
+        return DeviceApprovalStatus.approved(approval);
+      }
+      if (status == 'denied') {
+        if (!_approvalWasAnsweredBeforeExpiry(approval)) {
+          return DeviceApprovalStatus.expired(approval);
+        }
+        return DeviceApprovalStatus.denied(approval);
+      }
+      if (_approvalIsExpired(approval, DateTime.now())) {
+        return DeviceApprovalStatus.expired(approval);
+      }
+      return DeviceApprovalStatus.pending(approval);
+    }
+
+    return DeviceApprovalStatus.expired(null);
+  }
+
+  static Future<void> respondToDeviceApproval({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required String approvalId,
+    required bool approved,
+  }) async {
+    await keyStorage.initialize();
+
+    final rootKey = await keyStorage.getRootKey();
+    if (rootKey == null) {
+      throw StateError('No root key found');
+    }
+
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) {
+      throw StateError('Could not read device registry');
+    }
+
+    final approvals = _deviceApprovalRequests(
+      registry,
+      includeExpiredPending: true,
+    );
+    final index = approvals
+        .indexWhere((approval) => approval['approvalId'] == approvalId);
+    if (index < 0) {
+      throw StateError('Recovery request was not found');
+    }
+
+    final approval = approvals[index];
+    final currentStatus = approval['status'] as String? ?? 'pending';
+    if (currentStatus != 'pending') {
+      throw StateError('Recovery request was already answered');
+    }
+
+    final now = DateTime.now();
+    final nowIso = now.toIso8601String();
+    if (_approvalIsExpired(approval, now)) {
+      approvals[index] = {
+        ...approval,
+        'status': 'expired',
+        'expiredAt': nowIso,
+      };
+      registry['pendingDeviceApprovals'] = approvals;
+      await _uploadDeviceRegistry(
+        keyStorage: keyStorage,
+        cryptoManager: cryptoManager,
+        githubService: githubService,
+        rootKey: rootKey,
+        registry: registry,
+        commitMessage: 'Expire device recovery request',
+      );
+      throw StateError(
+          'Recovery request expired. Ask the new device to try again.');
+    }
+
+    approvals[index] = {
+      ...approval,
+      'status': approved ? 'approved' : 'denied',
+      'respondedAt': nowIso,
+      'respondedByDeviceId': identity.id,
+      'respondedByName': identity.name,
+    };
+    registry['pendingDeviceApprovals'] = approvals;
+
+    await _uploadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+      registry: registry,
+      commitMessage: approved
+          ? 'Approve device recovery request'
+          : 'Deny device recovery request',
+    );
+  }
+
+  static Future<void> completeApprovedRecovery({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required Uint8List rootKey,
+    required String approvalId,
+  }) async {
+    await keyStorage.initialize();
+
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) {
+      throw StateError('Could not read device registry');
+    }
+
+    final approvals = _deviceApprovalRequests(
+      registry,
+      includeExpiredPending: true,
+    );
+    Map<String, dynamic>? approval;
+    for (final item in approvals) {
+      if (item['approvalId'] == approvalId) {
+        approval = item;
+        break;
+      }
+    }
+    if (approval == null ||
+        approval['status'] != 'approved' ||
+        !_approvalWasAnsweredBeforeExpiry(approval)) {
+      throw StateError('Recovery request was not approved within 30 seconds');
+    }
+
+    final nowIso = DateTime.now().toIso8601String();
+    final devices = (registry['devices'] as List<dynamic>? ?? [])
+        .map((device) => Map<String, dynamic>.from(device as Map))
+        .toList();
+    final device = {
+      'deviceId': identity.id,
+      'name': identity.name,
+      'lastSeen': nowIso,
+      'addedAt': nowIso,
+      'registrationMethod': deviceRegistrationMethodRecoveryApproved,
+      'recoveryApprovalId': approvalId,
+      'approvedByDeviceId': approval['respondedByDeviceId'],
+      'approvedByName': approval['respondedByName'],
+      'approvedAt': approval['respondedAt'],
+    };
+    final index = devices.indexWhere((item) => item['deviceId'] == identity.id);
+    if (index >= 0) {
+      devices[index] = {...devices[index], ...device};
+    } else {
+      devices.add(device);
+    }
+    registry['devices'] = devices;
+
+    final approvalIndex =
+        approvals.indexWhere((item) => item['approvalId'] == approvalId);
+    if (approvalIndex >= 0) {
+      approvals[approvalIndex] = {
+        ...approvals[approvalIndex],
+        'completedAt': nowIso,
+      };
+      registry['pendingDeviceApprovals'] = approvals;
+    }
+
+    await _uploadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+      registry: registry,
+      commitMessage: 'Complete approved device recovery',
+    );
+  }
+
+  static Future<void> completeTokenRotatedRecovery({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required Uint8List rootKey,
+    required String oldToken,
+    required String newToken,
+    required String approvalId,
+  }) async {
+    await keyStorage.initialize();
+
+    if (oldToken.trim() == newToken.trim()) {
+      throw StateError('Use a newly generated GitHub token.');
+    }
+
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) {
+      throw StateError('Could not read device registry');
+    }
+
+    final oldFingerprint = await _githubTokenFingerprint(
+      cryptoManager: cryptoManager,
+      rootKey: rootKey,
+      token: oldToken,
+    );
+    final newFingerprint = await _githubTokenFingerprint(
+      cryptoManager: cryptoManager,
+      rootKey: rootKey,
+      token: newToken,
+    );
+    if (oldFingerprint == newFingerprint ||
+        registry['activeGitHubTokenFingerprint'] == newFingerprint) {
+      throw StateError('Use a newly generated GitHub token.');
+    }
+
+    final nowIso = DateTime.now().toIso8601String();
+    final devices = (registry['devices'] as List<dynamic>? ?? [])
+        .map((device) => Map<String, dynamic>.from(device as Map))
+        .toList();
+    final device = {
+      'deviceId': identity.id,
+      'name': identity.name,
+      'lastSeen': nowIso,
+      'addedAt': nowIso,
+      'registrationMethod': deviceRegistrationMethodRecoveryTokenRotated,
+      'recoveryApprovalId': approvalId,
+      'tokenRotatedAt': nowIso,
+    };
+    final index = devices.indexWhere((item) => item['deviceId'] == identity.id);
+    if (index >= 0) {
+      devices[index] = {...devices[index], ...device};
+    } else {
+      devices.add(device);
+    }
+    registry['devices'] = devices;
+    registry['previousGitHubTokenFingerprint'] =
+        registry['activeGitHubTokenFingerprint'] ?? oldFingerprint;
+    registry['activeGitHubTokenFingerprint'] = newFingerprint;
+    registry['tokenRotatedAt'] = nowIso;
+    registry['tokenRotatedByDeviceId'] = identity.id;
+    registry['tokenRotatedByName'] = identity.name;
+
+    final approvals = _deviceApprovalRequests(
+      registry,
+      includeExpiredPending: true,
+    );
+    final approvalIndex =
+        approvals.indexWhere((item) => item['approvalId'] == approvalId);
+    if (approvalIndex >= 0) {
+      approvals[approvalIndex] = {
+        ...approvals[approvalIndex],
+        'status': 'recovered_with_new_token',
+        'completedAt': nowIso,
+      };
+      registry['pendingDeviceApprovals'] = approvals;
+    }
+
+    await _uploadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+      registry: registry,
+      commitMessage: 'Complete token-rotated device recovery',
+    );
+  }
+
   static Future<Map<String, dynamic>?> refreshDeviceRegistry({
     required KeyStorage keyStorage,
     required CryptoManager cryptoManager,
@@ -749,36 +1241,68 @@ class SyncEngine {
 
     final identity =
         await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    final registrationMethod = await keyStorage.getDeviceRegistrationMethod();
+    final pendingInviteId = await keyStorage.getPendingDeviceInviteId();
     final now = DateTime.now();
     final nowIso = now.toIso8601String();
 
-    Map<String, dynamic> registry = {};
-    final registryBytes =
-        await githubService.downloadFile(Constants.trustedDevicesFile);
-    if (registryBytes != null) {
-      try {
-        final encryptedBox = EncryptedBox.fromBytes(registryBytes);
-        final decryptedPadded = await cryptoManager.decryptXChaCha20(
-          box: encryptedBox,
-          key: rootKey,
-        );
-        final decryptedBytes =
-            cryptoManager.removeRandomPadding(decryptedPadded);
-        final jsonString = utf8.decode(decryptedBytes);
-        registry = jsonDecode(jsonString) as Map<String, dynamic>;
-      } catch (_) {
-        // Never replace a registry we could not authenticate or decrypt;
-        // doing so could erase the trusted-device list for every client.
-        return null;
-      }
-    }
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) return null;
 
     final devices = (registry['devices'] as List<dynamic>?) ?? [];
+    final pendingInvites = _pendingDeviceInvites(registry, now);
+    final rawPendingInvites =
+        registry['pendingDeviceInvites'] as List<dynamic>?;
+    if (rawPendingInvites != null &&
+        rawPendingInvites.length != pendingInvites.length) {
+      registry['pendingDeviceInvites'] = pendingInvites;
+    }
+    Map<String, dynamic>? pendingInvite;
+    if (pendingInviteId != null) {
+      for (final invite in pendingInvites) {
+        if (invite['inviteId'] == pendingInviteId) {
+          pendingInvite = invite;
+          break;
+        }
+      }
+    }
+    final registrationIsInviteVerified =
+        registrationMethod == deviceRegistrationMethodLink &&
+            pendingInvite != null;
+    final verifiedInvite = registrationIsInviteVerified ? pendingInvite : null;
+    final linkInviteRejected =
+        registrationMethod == deviceRegistrationMethodLink &&
+            pendingInviteId != null &&
+            pendingInvite == null;
+    final resolvedRegistrationMethod =
+        registrationMethod == deviceRegistrationMethodLink &&
+                verifiedInvite == null
+            ? deviceRegistrationMethodSync
+            : registrationMethod;
     bool found = false;
-    bool needsUpload = false;
+    bool needsUpload = rawPendingInvites != null &&
+        rawPendingInvites.length != pendingInvites.length;
 
     final updatedDevices = devices.map((d) {
       final device = Map<String, dynamic>.from(d as Map);
+      final isUnverifiedRemoteDevice =
+          device['deviceId'] != identity.id && _isUnverifiedDevice(device);
+      if (isUnverifiedRemoteDevice &&
+          (device['firstSeenByDeviceId'] as String?)?.isEmpty != false) {
+        needsUpload = true;
+        return {
+          ...device,
+          'firstSeenByDeviceId': identity.id,
+          'firstSeenByName': identity.name,
+          'firstSeenAt': nowIso,
+        };
+      }
+
       if (device['deviceId'] == identity.id) {
         found = true;
         final previousLastSeen =
@@ -786,15 +1310,29 @@ class SyncEngine {
         final lastSeenIsStale = previousLastSeen == null ||
             now.difference(previousLastSeen) >= const Duration(hours: 6);
         final nameChanged = device['name'] != identity.name;
+        final methodChanged = resolvedRegistrationMethod != null &&
+            device['registrationMethod'] != resolvedRegistrationMethod;
 
-        if (!lastSeenIsStale && !nameChanged) return device;
+        if (!lastSeenIsStale && !nameChanged && !methodChanged) {
+          return device;
+        }
 
         needsUpload = true;
-        return {
+        final updated = {
           ...device,
           'name': identity.name,
           'lastSeen': nowIso,
         };
+        if (resolvedRegistrationMethod != null) {
+          updated['registrationMethod'] = resolvedRegistrationMethod;
+        }
+        if (verifiedInvite != null) {
+          updated['linkedInviteId'] = pendingInviteId;
+          updated['linkedByDeviceId'] = verifiedInvite['createdByDeviceId'];
+          updated['linkedByName'] = verifiedInvite['createdByName'];
+          updated['linkedAt'] = nowIso;
+        }
+        return updated;
       }
       return device;
     }).toList();
@@ -806,30 +1344,173 @@ class SyncEngine {
         'name': identity.name,
         'lastSeen': nowIso,
         'addedAt': nowIso,
+        'registrationMethod':
+            resolvedRegistrationMethod ?? deviceRegistrationMethodSync,
+        if (verifiedInvite != null) ...{
+          'linkedInviteId': pendingInviteId,
+          'linkedByDeviceId': verifiedInvite['createdByDeviceId'],
+          'linkedByName': verifiedInvite['createdByName'],
+          'linkedAt': nowIso,
+        },
       });
+    }
+
+    if (verifiedInvite != null) {
+      needsUpload = true;
+      pendingInvites.removeWhere(
+        (invite) => invite['inviteId'] == pendingInviteId,
+      );
+      registry['pendingDeviceInvites'] = pendingInvites;
+      await keyStorage.clearPendingDeviceInviteId();
+    } else if (linkInviteRejected) {
+      await keyStorage.clearPendingDeviceInviteId();
     }
 
     registry['devices'] = updatedDevices;
     final registryJson = jsonEncode(registry);
 
     if (uploadIfNeeded && needsUpload) {
-      final jsonBytes = utf8.encode(registryJson);
-      final paddedBytes =
-          cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
-      final encryptedBox = await cryptoManager.encryptXChaCha20(
-        data: paddedBytes,
-        key: rootKey,
-      );
-
-      await githubService.uploadFile(
-        path: Constants.trustedDevicesFile,
-        content: encryptedBox.toBytes(),
+      await _uploadDeviceRegistry(
+        keyStorage: keyStorage,
+        cryptoManager: cryptoManager,
+        githubService: githubService,
+        rootKey: rootKey,
+        registry: registry,
         commitMessage: 'Update device registry',
       );
+    } else {
+      await keyStorage.storeDeviceRegistry(registryJson);
     }
 
-    await keyStorage.storeDeviceRegistry(registryJson);
     return registry;
+  }
+
+  static Future<Map<String, dynamic>?> _downloadDeviceRegistry({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required Uint8List rootKey,
+  }) async {
+    final registryBytes =
+        await githubService.downloadFile(Constants.trustedDevicesFile);
+    if (registryBytes == null) return <String, dynamic>{};
+
+    try {
+      final encryptedBox = EncryptedBox.fromBytes(registryBytes);
+      final decryptedPadded = await cryptoManager.decryptXChaCha20(
+        box: encryptedBox,
+        key: rootKey,
+      );
+      final decryptedBytes = cryptoManager.removeRandomPadding(decryptedPadded);
+      final jsonString = utf8.decode(decryptedBytes);
+      return jsonDecode(jsonString) as Map<String, dynamic>;
+    } catch (_) {
+      // Never replace a registry we could not authenticate or decrypt;
+      // doing so could erase the trusted-device list for every client.
+      return null;
+    }
+  }
+
+  static Future<void> _uploadDeviceRegistry({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required Uint8List rootKey,
+    required Map<String, dynamic> registry,
+    required String commitMessage,
+  }) async {
+    final registryJson = jsonEncode(registry);
+    final jsonBytes = utf8.encode(registryJson);
+    final paddedBytes =
+        cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+    final encryptedBox = await cryptoManager.encryptXChaCha20(
+      data: paddedBytes,
+      key: rootKey,
+    );
+
+    await githubService.uploadFile(
+      path: Constants.trustedDevicesFile,
+      content: encryptedBox.toBytes(),
+      commitMessage: commitMessage,
+    );
+    await keyStorage.storeDeviceRegistry(registryJson);
+  }
+
+  static List<Map<String, dynamic>> _pendingDeviceInvites(
+    Map<String, dynamic> registry,
+    DateTime now,
+  ) {
+    return (registry['pendingDeviceInvites'] as List<dynamic>? ?? [])
+        .map((invite) => Map<String, dynamic>.from(invite as Map))
+        .where((invite) {
+      final expiresAt = DateTime.tryParse(invite['expiresAt'] as String? ?? '');
+      return expiresAt != null && expiresAt.isAfter(now);
+    }).toList();
+  }
+
+  static bool _isUnverifiedDevice(Map<String, dynamic> device) {
+    final method = device['registrationMethod'] as String?;
+    if (method == null || method.isEmpty) return false;
+    return method != deviceRegistrationMethodSetup &&
+        method != deviceRegistrationMethodLink &&
+        method != deviceRegistrationMethodRecoveryApproved &&
+        method != deviceRegistrationMethodRecoveryTokenRotated &&
+        method != deviceRegistrationMethodRecognized;
+  }
+
+  static List<Map<String, dynamic>> _deviceApprovalRequests(
+    Map<String, dynamic> registry, {
+    DateTime? now,
+    bool includeExpiredPending = false,
+  }) {
+    final currentTime = now ?? DateTime.now();
+    return (registry['pendingDeviceApprovals'] as List<dynamic>? ?? [])
+        .map((approval) => Map<String, dynamic>.from(approval as Map))
+        .where((approval) {
+      final status = approval['status'] as String? ?? 'pending';
+      if (status != 'pending') return true;
+      if (includeExpiredPending) return true;
+
+      final expiresAt = DateTime.tryParse(
+        approval['expiresAt'] as String? ?? '',
+      );
+      return expiresAt != null && expiresAt.isAfter(currentTime);
+    }).toList();
+  }
+
+  static bool _approvalIsExpired(
+    Map<String, dynamic> approval,
+    DateTime now,
+  ) {
+    final expiresAt = DateTime.tryParse(
+      approval['expiresAt'] as String? ?? '',
+    );
+    return expiresAt == null || !expiresAt.isAfter(now);
+  }
+
+  static bool _approvalWasAnsweredBeforeExpiry(
+    Map<String, dynamic> approval,
+  ) {
+    final expiresAt = DateTime.tryParse(
+      approval['expiresAt'] as String? ?? '',
+    );
+    final respondedAt = DateTime.tryParse(
+      approval['respondedAt'] as String? ?? '',
+    );
+    return expiresAt != null &&
+        respondedAt != null &&
+        !respondedAt.isAfter(expiresAt);
+  }
+
+  static Future<String> _githubTokenFingerprint({
+    required CryptoManager cryptoManager,
+    required Uint8List rootKey,
+    required String token,
+  }) {
+    return cryptoManager.hmacSha256(
+      key: rootKey,
+      data: 'github-token:$token',
+    );
   }
 
   /// Encrypts a vault entry to bytes
@@ -1044,6 +1725,34 @@ class PushResult {
   final int uploaded;
 
   PushResult({required this.uploaded});
+}
+
+class DeviceApprovalStatus {
+  final String state;
+  final Map<String, dynamic>? approval;
+
+  const DeviceApprovalStatus._(this.state, this.approval);
+
+  factory DeviceApprovalStatus.pending(Map<String, dynamic> approval) {
+    return DeviceApprovalStatus._('pending', approval);
+  }
+
+  factory DeviceApprovalStatus.approved(Map<String, dynamic> approval) {
+    return DeviceApprovalStatus._('approved', approval);
+  }
+
+  factory DeviceApprovalStatus.denied(Map<String, dynamic> approval) {
+    return DeviceApprovalStatus._('denied', approval);
+  }
+
+  factory DeviceApprovalStatus.expired(Map<String, dynamic>? approval) {
+    return DeviceApprovalStatus._('expired', approval);
+  }
+
+  bool get isPending => state == 'pending';
+  bool get isApproved => state == 'approved';
+  bool get isDenied => state == 'denied';
+  bool get isExpired => state == 'expired';
 }
 
 class SyncException implements Exception {

@@ -1,10 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/providers/providers.dart';
 import '../../core/services/foreground_sync_service.dart';
 import '../../utils/google_auth_migration.dart';
+import '../../utils/pointer_focus.dart';
 
 /// Screen for importing TOTP accounts from Google Authenticator
 class GoogleAuthImportScreen extends ConsumerStatefulWidget {
@@ -25,6 +28,8 @@ class _GoogleAuthImportScreenState
   String? _error;
   bool _scanning = false;
   int _qrCodesScanned = 0;
+  final _migrationController = TextEditingController();
+  final _migrationFocus = FocusNode();
 
   @override
   void initState() {
@@ -36,11 +41,19 @@ class _GoogleAuthImportScreenState
     }
   }
 
+  @override
+  void dispose() {
+    _migrationController.clear();
+    _migrationController.dispose();
+    _migrationFocus.dispose();
+    super.dispose();
+  }
+
   void _parseMigrationData(String uri) {
     try {
       final newAccounts = GoogleAuthMigration.parseMigrationUri(uri);
       if (newAccounts.isEmpty) {
-        setState(() => _error = 'No accounts found in the QR code.');
+        setState(() => _error = 'No accounts found in the export data.');
       } else {
         setState(() {
           final currentCount = _accounts.length;
@@ -73,11 +86,15 @@ class _GoogleAuthImportScreenState
   }
 
   Widget _buildScanner() {
+    if (kIsWeb) {
+      return _buildWebMigrationPaste();
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_qrCodesScanned > 0
-            ? 'Scan More QR Codes'
-            : 'Scan Google Authenticator Export'),
+            ? 'Scan More Codes'
+            : 'Scan Google Export'),
         actions: [
           if (_qrCodesScanned > 0)
             TextButton(
@@ -175,6 +192,120 @@ class _GoogleAuthImportScreenState
     );
   }
 
+  Widget _buildWebMigrationPaste() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Import from Google Authenticator'),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.qr_code_2,
+                    size: 56,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Paste Google Authenticator export link',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 16),
+                  PointerFocus(
+                    focusNode: _migrationFocus,
+                    child: TextField(
+                      controller: _migrationController,
+                      focusNode: _migrationFocus,
+                      autofocus: true,
+                      minLines: 4,
+                      maxLines: 6,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Export link',
+                        hintText: 'otpauth-migration://offline?data=...',
+                        border: const OutlineInputBorder(),
+                        errorText: _error,
+                        errorMaxLines: 3,
+                      ),
+                      textInputAction: TextInputAction.done,
+                      onChanged: (_) {
+                        if (_error != null) {
+                          setState(() => _error = null);
+                        }
+                      },
+                      onSubmitted: (_) => _submitWebMigration(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _pasteWebMigration,
+                          icon: const Icon(Icons.content_paste),
+                          label: const Text('Paste'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _submitWebMigration,
+                          icon: const Icon(Icons.check),
+                          label: const Text('Continue'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pasteWebMigration() async {
+    final data = await Clipboard.getData('text/plain');
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      setState(() => _error = 'Clipboard is empty.');
+      return;
+    }
+    setState(() {
+      _migrationController.text = text;
+      _migrationController.selection =
+          TextSelection.collapsed(offset: text.length);
+      _error = null;
+    });
+    _submitWebMigration();
+  }
+
+  void _submitWebMigration() {
+    final text = _migrationController.text.trim();
+    if (text.isEmpty) {
+      setState(() => _error = 'Paste an export link first.');
+      return;
+    }
+    if (!text.startsWith('otpauth-migration://')) {
+      setState(() => _error = 'Use an otpauth-migration:// export link.');
+      return;
+    }
+    _parseMigrationData(text);
+  }
+
   Widget _buildBody() {
     if (_error != null) {
       return Center(
@@ -267,7 +398,8 @@ class _GoogleAuthImportScreenState
                         });
                       },
                 icon: const Icon(Icons.qr_code_scanner, size: 18),
-                label: const Text('Scan More QR Codes'),
+                label:
+                    Text(kIsWeb ? 'Paste Another Link' : 'Scan More QR Codes'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 36),
                 ),

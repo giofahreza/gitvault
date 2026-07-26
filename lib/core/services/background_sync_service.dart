@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
@@ -181,6 +180,73 @@ class BackgroundSyncService {
 
     try {
       final result = await syncEngine.sync();
+      await _recordSyncResult(success: true);
+      return result;
+    } catch (e) {
+      await _recordSyncResult(success: false, error: e.toString());
+      rethrow;
+    } finally {
+      githubService.dispose();
+    }
+  }
+
+  /// Pull remote vault content immediately without pushing local data first.
+  ///
+  /// Used by recovery flows where this device has just been trusted and the
+  /// local vault is expected to be empty or stale.
+  static Future<SyncResult> restoreFromGitHubNow() async {
+    if (_settingsBox == null) await initialize();
+
+    final keyStorage = KeyStorage();
+    await keyStorage.initialize();
+
+    final token = await keyStorage.getGitHubToken();
+    final owner = await keyStorage.getRepoOwner();
+    final repo = await keyStorage.getRepoName();
+
+    if (token == null || owner == null || repo == null) {
+      throw Exception(
+          'GitHub credentials not configured. Please set up GitHub sync in settings.');
+    }
+
+    final rootKey = await keyStorage.getRootKey();
+    if (rootKey == null) {
+      throw Exception('No root key found. Please unlock the vault first.');
+    }
+
+    final cryptoManager = CryptoManager();
+    final githubService = GitHubService(
+      accessToken: token,
+      repoOwner: owner,
+      repoName: repo,
+    );
+
+    final vaultRepository = VaultRepository(
+      cryptoManager: cryptoManager,
+      keyStorage: keyStorage,
+    );
+    final notesRepository = NotesRepository(
+      cryptoManager: cryptoManager,
+      keyStorage: keyStorage,
+    );
+    final sshRepository = SshRepository(
+      cryptoManager: cryptoManager,
+      keyStorage: keyStorage,
+    );
+
+    final syncEngine = SyncEngine(
+      vaultRepository: vaultRepository,
+      notesRepository: notesRepository,
+      sshRepository: sshRepository,
+      githubService: githubService,
+      cryptoManager: cryptoManager,
+      keyStorage: keyStorage,
+    );
+
+    await syncEngine.initialize();
+
+    try {
+      final result = await syncEngine.restoreFromGitHub();
       await _recordSyncResult(success: true);
       return result;
     } catch (e) {

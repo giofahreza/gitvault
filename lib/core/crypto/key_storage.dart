@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:hive/hive.dart';
 
 /// Manages secure storage of cryptographic keys
@@ -6,6 +7,9 @@ import 'package:hive/hive.dart';
 class KeyStorage {
   late Box<String> _box;
   bool _isInitialized = false;
+
+  static final ValueNotifier<int> githubCredentialsRevision =
+      ValueNotifier<int>(0);
 
   static const String _boxName = 'secure_keys';
   static const String _rootKeyKey = 'gitvault_root_key';
@@ -25,6 +29,12 @@ class KeyStorage {
   static const String _pinThrottleUntilKey = 'gitvault_pin_throttle_until';
   static const String _autoSyncIntervalKey = 'gitvault_auto_sync_interval';
   static const String _localDeviceNameKey = 'gitvault_local_device_name';
+  static const String _deviceRegistrationMethodKey =
+      'gitvault_device_registration_method';
+  static const String _pendingDeviceInviteIdKey =
+      'gitvault_pending_device_invite_id';
+  static const String _dismissedUnverifiedDeviceIdsKey =
+      'gitvault_dismissed_unverified_device_ids';
   static const String _deviceRegistryKey = 'gitvault_device_registry';
   static const String _webBiometricCredentialIdKey =
       'gitvault_web_biometric_credential_id';
@@ -119,6 +129,7 @@ class KeyStorage {
     await _box.put(_githubTokenKey, token);
     await _box.put(_repoOwnerKey, repoOwner);
     await _box.put(_repoNameKey, repoName);
+    githubCredentialsRevision.value++;
   }
 
   /// Retrieves GitHub token
@@ -332,6 +343,48 @@ class KeyStorage {
     return _box.get(_localDeviceNameKey);
   }
 
+  /// Stores how this device was first added to the vault.
+  Future<void> storeDeviceRegistrationMethod(String method) async {
+    _ensureInitialized();
+    await _box.put(_deviceRegistrationMethodKey, method);
+  }
+
+  /// Retrieves how this device was first added to the vault.
+  Future<String?> getDeviceRegistrationMethod() async {
+    _ensureInitialized();
+    return _box.get(_deviceRegistrationMethodKey);
+  }
+
+  /// Stores the pending invite this device consumed during Link New Device.
+  Future<void> storePendingDeviceInviteId(String inviteId) async {
+    _ensureInitialized();
+    await _box.put(_pendingDeviceInviteIdKey, inviteId);
+  }
+
+  /// Retrieves the pending invite this device consumed during Link New Device.
+  Future<String?> getPendingDeviceInviteId() async {
+    _ensureInitialized();
+    return _box.get(_pendingDeviceInviteIdKey);
+  }
+
+  /// Clears the consumed pending invite once it is written to the registry.
+  Future<void> clearPendingDeviceInviteId() async {
+    _ensureInitialized();
+    await _box.delete(_pendingDeviceInviteIdKey);
+  }
+
+  /// Stores locally dismissed device-warning ids.
+  Future<void> storeDismissedUnverifiedDeviceIds(String json) async {
+    _ensureInitialized();
+    await _box.put(_dismissedUnverifiedDeviceIdsKey, json);
+  }
+
+  /// Retrieves locally dismissed device-warning ids.
+  Future<String?> getDismissedUnverifiedDeviceIds() async {
+    _ensureInitialized();
+    return _box.get(_dismissedUnverifiedDeviceIdsKey);
+  }
+
   /// Stores device registry JSON (cached for UI)
   Future<void> storeDeviceRegistry(String json) async {
     _ensureInitialized();
@@ -348,6 +401,7 @@ class KeyStorage {
   Future<void> wipeAllKeys() async {
     _ensureInitialized();
     await _box.clear();
+    githubCredentialsRevision.value++;
   }
 
   /// Converts bytes to hex string

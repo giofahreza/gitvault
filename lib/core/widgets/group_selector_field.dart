@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class GroupSelectorField extends StatelessWidget {
+class GroupSelectorField extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final Iterable<String> availableGroups;
@@ -23,12 +23,19 @@ class GroupSelectorField extends StatelessWidget {
   });
 
   @override
+  State<GroupSelectorField> createState() => _GroupSelectorFieldState();
+}
+
+class _GroupSelectorFieldState extends State<GroupSelectorField> {
+  final _fieldKey = GlobalKey();
+
+  @override
   Widget build(BuildContext context) {
-    final groups = _normalizedGroups(availableGroups);
+    final groups = _normalizedGroups(widget.availableGroups);
 
     return RawAutocomplete<_GroupOption>(
-      textEditingController: controller,
-      focusNode: focusNode,
+      textEditingController: widget.controller,
+      focusNode: widget.focusNode,
       displayStringForOption: (option) => option.value,
       optionsBuilder: (textEditingValue) {
         final query = textEditingValue.text.trim();
@@ -50,7 +57,7 @@ class GroupSelectorField extends StatelessWidget {
       },
       onSelected: (option) {
         final value = option.value.trim();
-        controller.value = TextEditingValue(
+        widget.controller.value = TextEditingValue(
           text: value,
           selection: TextSelection.collapsed(offset: value.length),
         );
@@ -61,41 +68,51 @@ class GroupSelectorField extends StatelessWidget {
         fieldFocusNode,
         onFieldSubmitted,
       ) {
-        return TextFormField(
-          controller: fieldController,
-          focusNode: fieldFocusNode,
-          decoration: InputDecoration(
-            labelText: labelText,
-            hintText: hintText,
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.folder_outlined),
-            suffixIcon: ExcludeFocus(
-              child: IconButton(
-                tooltip: 'Show groups',
-                icon: const Icon(Icons.arrow_drop_down),
-                onPressed: enabled
-                    ? () {
-                        fieldFocusNode.requestFocus();
-                      }
-                    : null,
+        return KeyedSubtree(
+          key: _fieldKey,
+          child: TextFormField(
+            controller: fieldController,
+            focusNode: fieldFocusNode,
+            decoration: InputDecoration(
+              labelText: widget.labelText,
+              hintText: widget.hintText,
+              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.folder_outlined),
+              suffixIcon: ExcludeFocus(
+                child: IconButton(
+                  tooltip: 'Show groups',
+                  icon: const Icon(Icons.arrow_drop_down),
+                  onPressed: widget.enabled
+                      ? () {
+                          fieldFocusNode.requestFocus();
+                        }
+                      : null,
+                ),
               ),
             ),
+            enabled: widget.enabled,
+            textCapitalization: TextCapitalization.words,
+            textInputAction: widget.textInputAction,
+            onFieldSubmitted: (value) {
+              onFieldSubmitted();
+              widget.onSubmitted?.call(value);
+            },
           ),
-          enabled: enabled,
-          textCapitalization: TextCapitalization.words,
-          textInputAction: textInputAction,
-          onFieldSubmitted: (value) {
-            onFieldSubmitted();
-            onSubmitted?.call(value);
-          },
         );
       },
       optionsViewBuilder: (context, onSelected, options) {
         final optionList = options.toList(growable: false);
         final viewportWidth = MediaQuery.sizeOf(context).width;
-        final menuWidth = viewportWidth >= 480
-            ? 360.0
-            : (viewportWidth - 48).clamp(240.0, 360.0).toDouble();
+        final renderBox =
+            _fieldKey.currentContext?.findRenderObject() as RenderBox?;
+        final fieldWidth = renderBox?.size.width;
+        final maxMenuWidth =
+            (viewportWidth - 32).clamp(180.0, 360.0).toDouble();
+        final minMenuWidth = maxMenuWidth < 220 ? maxMenuWidth : 220.0;
+        final rawMenuWidth =
+            fieldWidth == null || fieldWidth <= 0 ? maxMenuWidth : fieldWidth;
+        final menuWidth =
+            rawMenuWidth.clamp(minMenuWidth, maxMenuWidth).toDouble();
 
         return Align(
           alignment: Alignment.topLeft,

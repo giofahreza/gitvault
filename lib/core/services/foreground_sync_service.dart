@@ -125,6 +125,31 @@ class ForegroundSyncService {
     return operation;
   }
 
+  static Future<SyncResult?> restoreFromGitHubNow({
+    required String reason,
+  }) async {
+    final activeSync = _activeSync;
+    if (activeSync != null) {
+      try {
+        await activeSync;
+      } catch (_) {}
+    }
+
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    _queuedAfterActiveSync = false;
+
+    late final Future<SyncResult?> operation;
+    operation = _performRestore(reason).whenComplete(() {
+      if (identical(_activeSync, operation)) {
+        _activeSync = null;
+      }
+    });
+
+    _activeSync = operation;
+    return operation;
+  }
+
   static Future<SyncResult?> _performSync(String reason) async {
     try {
       if (!await _isSyncConfigured()) {
@@ -133,6 +158,26 @@ class ForegroundSyncService {
       }
 
       final result = await BackgroundSyncService.performSyncNow();
+      lastResult = result;
+      lastError = null;
+      syncRevision.value++;
+      return result;
+    } catch (error, stackTrace) {
+      lastError = error;
+      debugPrint('[ForegroundSync] $reason failed: $error');
+      debugPrint('$stackTrace');
+      return null;
+    }
+  }
+
+  static Future<SyncResult?> _performRestore(String reason) async {
+    try {
+      if (!await _isSyncConfigured()) {
+        lastError = null;
+        return null;
+      }
+
+      final result = await BackgroundSyncService.restoreFromGitHubNow();
       lastResult = result;
       lastError = null;
       syncRevision.value++;

@@ -35,6 +35,33 @@
   <link rel="manifest" href="manifest.json?v=109">
 </head>
 <body>
+  <script>
+    (() => {
+      const clearOldFlutterCaches = async () => {
+        if ("serviceWorker" in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(
+            registrations
+              .filter((registration) => registration.scope.includes(`${location.origin}/app/`))
+              .map((registration) => registration.unregister())
+          );
+        }
+
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(
+            keys
+              .filter((key) => key.startsWith("flutter-app-cache") || key.includes("gitvault"))
+              .map((key) => caches.delete(key))
+          );
+        }
+      };
+
+      window.addEventListener("load", () => {
+        clearOldFlutterCaches().catch(() => {});
+      });
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

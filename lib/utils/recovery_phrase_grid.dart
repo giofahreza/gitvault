@@ -16,7 +16,7 @@ class RecoveryPhraseGrid extends StatelessWidget {
       builder: (context, constraints) {
         final columns = constraints.maxWidth >= 520
             ? 3
-            : constraints.maxWidth >= 360
+            : constraints.maxWidth >= 260
                 ? 2
                 : 1;
         const spacing = 8.0;
