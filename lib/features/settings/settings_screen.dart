@@ -161,6 +161,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final biometricEnabled = ref.watch(biometricEnabledProvider);
+    final authLockTimeoutSeconds = ref.watch(authLockTimeoutSecondsProvider);
     final clipboardSeconds = ref.watch(clipboardClearSecondsProvider);
     final themeMode = ref.watch(themeModeProvider);
     final pinEnabledAsync = ref.watch(pinEnabledProvider);
@@ -252,6 +253,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   leading: Icon(Icons.pin),
                   title: Text('PIN Lock'),
                   subtitle: Text('Error'),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.lock_outline),
+                title: const Text('Require Authentication'),
+                subtitle: Text(
+                  _getAuthLockTimeoutLabel(authLockTimeoutSeconds),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _showAuthLockTimeoutSettings(
+                  context,
+                  ref,
+                  authLockTimeoutSeconds,
                 ),
               ),
               ListTile(
@@ -1131,6 +1145,68 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onChanged: (value) {
                 ref.read(clipboardClearSecondsProvider.notifier).state = value!;
                 ref.read(keyStorageProvider).setClipboardClearSeconds(value);
+                Navigator.pop(ctx);
+              },
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 16, 8),
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getAuthLockTimeoutLabel(int seconds) {
+    if (seconds <= 0) return 'Immediately after leaving the app';
+    return 'After ${_formatAuthLockTimeout(seconds)} away';
+  }
+
+  String _formatAuthLockTimeout(int seconds) {
+    if (seconds <= 0) return 'Immediately';
+    if (seconds < 60) return '$seconds seconds';
+
+    final minutes = seconds ~/ 60;
+    if (minutes < 60) {
+      return minutes == 1 ? '1 minute' : '$minutes minutes';
+    }
+
+    final hours = minutes ~/ 60;
+    return hours == 1 ? '1 hour' : '$hours hours';
+  }
+
+  void _showAuthLockTimeoutSettings(
+    BuildContext context,
+    WidgetRef ref,
+    int current,
+  ) {
+    const options = [0, 30, 60, 300, 900, 3600];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Require Authentication'),
+        children: [
+          for (final seconds in options)
+            RadioListTile<int>(
+              title: Text(_formatAuthLockTimeout(seconds)),
+              subtitle: seconds <= 0
+                  ? const Text('Ask every time GitVault leaves the screen')
+                  : null,
+              value: seconds,
+              groupValue: current,
+              onChanged: (value) {
+                if (value == null) return;
+                ref.read(authLockTimeoutSecondsProvider.notifier).state = value;
+                unawaited(
+                  ref.read(keyStorageProvider).setAuthLockTimeoutSeconds(value),
+                );
                 Navigator.pop(ctx);
               },
             ),

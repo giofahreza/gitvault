@@ -19,6 +19,8 @@ class KeyStorage {
   static const String _repoOwnerKey = 'gitvault_repo_owner';
   static const String _repoNameKey = 'gitvault_repo_name';
   static const String _biometricEnabledKey = 'gitvault_biometric_enabled';
+  static const String _authLockTimeoutSecondsKey =
+      'gitvault_auth_lock_timeout_seconds';
   static const String _clipboardClearSecondsKey =
       'gitvault_clipboard_clear_seconds';
   static const String _themeModeKey = 'gitvault_theme_mode';
@@ -180,6 +182,22 @@ class KeyStorage {
     final value = _box.get(_biometricEnabledKey);
     if (value == null) return false; // Default to disabled
     return value == 'true';
+  }
+
+  /// Stores how long the app may stay inactive before requiring unlock.
+  /// A value of 0 means lock immediately when leaving the app.
+  Future<void> setAuthLockTimeoutSeconds(int seconds) async {
+    _ensureInitialized();
+    await _box.put(_authLockTimeoutSecondsKey, seconds.toString());
+  }
+
+  /// Retrieves auth lock timeout in seconds (defaults to immediate lock).
+  Future<int> getAuthLockTimeoutSeconds() async {
+    _ensureInitialized();
+    final value = _box.get(_authLockTimeoutSecondsKey);
+    final seconds = int.tryParse(value ?? '') ?? 0;
+    if (seconds < 0) return 0;
+    return seconds;
   }
 
   /// Stores the WebAuthn credential used for browser biometric unlock.

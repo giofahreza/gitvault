@@ -167,6 +167,10 @@ final pinEnabledProvider = FutureProvider<bool>((ref) async {
 /// Initialized from storage at app startup via loadPersistedSettings()
 final biometricEnabledProvider = StateProvider<bool>((ref) => true);
 
+/// Provider for auth lock timeout in seconds (0 = immediately)
+/// Initialized from storage at app startup via loadPersistedSettings()
+final authLockTimeoutSecondsProvider = StateProvider<int>((ref) => 0);
+
 /// Provider for clipboard auto-clear seconds (persisted via secure storage)
 /// Initialized from storage at app startup via loadPersistedSettings()
 final clipboardClearSecondsProvider = StateProvider<int>((ref) => 30);
@@ -187,10 +191,13 @@ Future<void> loadPersistedSettings(ProviderContainer container) async {
   final keyStorage = container.read(keyStorageProvider);
   await keyStorage.initialize(); // Initialize before use
   final biometric = await keyStorage.getBiometricEnabled();
+  final authLockTimeoutSeconds = await keyStorage.getAuthLockTimeoutSeconds();
   final clipboard = await keyStorage.getClipboardClearSeconds();
   final themeMode = await keyStorage.getThemeMode();
   final autoSyncInterval = await keyStorage.getAutoSyncInterval();
   container.read(biometricEnabledProvider.notifier).state = biometric;
+  container.read(authLockTimeoutSecondsProvider.notifier).state =
+      authLockTimeoutSeconds;
   container.read(clipboardClearSecondsProvider.notifier).state = clipboard;
   container.read(themeModeProvider.notifier).state =
       AppThemeMode.fromString(themeMode);

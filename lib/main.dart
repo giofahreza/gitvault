@@ -286,6 +286,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
   bool _checking = true;
   bool _showPinEntry = false;
   String? _error;
+  DateTime? _inactiveSince;
 
   @override
   void initState() {
@@ -302,30 +303,53 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused && _authenticated) {
-      // Only lock if biometric or PIN is configured
-      final biometricEnabled = ref.read(biometricEnabledProvider);
-      _checkAndLock(biometricEnabled);
-    } else if (state == AppLifecycleState.resumed && !_authenticated) {
-      setState(() => _checking = true);
-      _attemptBiometric();
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_handleAppResumed());
+      return;
+    }
+
+    if (_isInactiveState(state) && _authenticated) {
+      _inactiveSince ??= DateTime.now();
     }
   }
 
-  Future<void> _checkAndLock(bool biometricEnabled) async {
+  bool _isInactiveState(AppLifecycleState state) {
+    return state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached;
+  }
+
+  Future<void> _handleAppResumed() async {
+    final inactiveSince = _inactiveSince;
+    _inactiveSince = null;
+
+    if (_authenticated && inactiveSince != null) {
+      final shouldLock = await _shouldLockAfterInactive(inactiveSince);
+      if (!mounted) return;
+      if (shouldLock) {
+        _lockVault();
+      }
+      return;
+    }
+
+    if (!_authenticated) {
+      if (mounted) setState(() => _checking = true);
+      await _attemptBiometric();
+    }
+  }
+
+  Future<bool> _shouldLockAfterInactive(DateTime inactiveSince) async {
+    final biometricEnabled = ref.read(biometricEnabledProvider);
     final pinAuth = ref.read(pinAuthProvider);
     final hasPIN = await pinAuth.isPinSetup();
+    if (!biometricEnabled && !hasPIN) return false;
 
-    if (biometricEnabled || hasPIN) {
-      if (mounted) {
-        setState(() {
-          _authenticated = false;
-          _checking = true;
-          _showPinEntry = false;
-          _error = null;
-        });
-      }
-    }
+    final timeoutSeconds = ref.read(authLockTimeoutSecondsProvider);
+    if (timeoutSeconds <= 0) return true;
+
+    final inactiveFor = DateTime.now().difference(inactiveSince);
+    return inactiveFor >= Duration(seconds: timeoutSeconds);
   }
 
   void _lockVault() {
