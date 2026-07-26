@@ -15,6 +15,7 @@ import 'core/services/persistent_ssh_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/web_lock_action.dart';
 import 'data/models/vault_entry.dart';
+import 'data/repositories/sync_engine.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/vault/vault_screen.dart';
 import 'features/totp/totp_codes_page.dart';
@@ -155,23 +156,52 @@ class ForegroundSyncScope extends ConsumerStatefulWidget {
       _ForegroundSyncScopeState();
 }
 
-class _ForegroundSyncScopeState extends ConsumerState<ForegroundSyncScope> {
+class _ForegroundSyncScopeState extends ConsumerState<ForegroundSyncScope>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     ForegroundSyncService.syncRevision.addListener(_handleSyncCompleted);
+    ForegroundSyncService.trustRevision.addListener(_handleTrustChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         unawaited(ForegroundSyncService.startPeriodicSync());
+        unawaited(ForegroundSyncService.startTrustMonitoring());
       }
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     ForegroundSyncService.syncRevision.removeListener(_handleSyncCompleted);
+    ForegroundSyncService.trustRevision.removeListener(_handleTrustChanged);
     ForegroundSyncService.stopPeriodicSync();
+    ForegroundSyncService.stopTrustMonitoring();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ForegroundSyncService.refreshPeriodicSync());
+      unawaited(ForegroundSyncService.startTrustMonitoring());
+      unawaited(
+        ForegroundSyncService.checkTrustNow(
+          reason: 'app resumed',
+          force: true,
+        ),
+      );
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      ForegroundSyncService.stopTrustMonitoring();
+    }
   }
 
   void _handleSyncCompleted() {
@@ -183,6 +213,27 @@ class _ForegroundSyncScopeState extends ConsumerState<ForegroundSyncScope> {
     ref.invalidate(sshRepositoryProvider);
     ref.invalidate(sshCredentialsProvider);
     ref.invalidate(archivedNotesProvider);
+  }
+
+  void _handleTrustChanged() {
+    if (!mounted) return;
+    final error = ForegroundSyncService.lastTrustError;
+    if (error is! DeviceRevokedException) return;
+
+    ref.read(autoSyncIntervalProvider.notifier).state = 0;
+    final credentialsSignal =
+        ref.read(githubCredentialsSignalProvider.notifier);
+    credentialsSignal.state = credentialsSignal.state + 1;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    });
   }
 
   @override

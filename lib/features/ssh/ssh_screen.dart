@@ -10,6 +10,7 @@ import '../../core/services/foreground_sync_service.dart';
 import '../../core/services/ssh_platform/ssh_platform_support.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/ssh_credential.dart';
+import '../../data/repositories/sync_engine.dart';
 import '../../core/services/persistent_ssh_service.dart';
 import '../../utils/pointer_focus.dart';
 import 'ssh_persistent_terminal_screen.dart';
@@ -24,6 +25,24 @@ class SshScreen extends ConsumerStatefulWidget {
 }
 
 class _SshScreenState extends ConsumerState<SshScreen> {
+  Future<bool> _ensureTrustedForSshAction(String reason) async {
+    final trusted = await ForegroundSyncService.checkTrustNow(reason: reason);
+    if (trusted || !mounted) return trusted;
+
+    final error = ForegroundSyncService.lastTrustError;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error is DeviceRevokedException
+              ? error.message
+              : 'This device is no longer trusted.',
+        ),
+        duration: const Duration(seconds: 8),
+      ),
+    );
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final credentialsAsync = ref.watch(sshCredentialsProvider);
@@ -128,6 +147,8 @@ class _SshScreenState extends ConsumerState<SshScreen> {
   }
 
   Future<void> _connectSsh(SshCredential credential) async {
+    if (!await _ensureTrustedForSshAction('ssh credential used')) return;
+
     final unsupportedReason = _sshUnsupportedReason();
     if (unsupportedReason != null) {
       if (mounted) {
@@ -226,6 +247,7 @@ class _SshScreenState extends ConsumerState<SshScreen> {
     );
 
     if (confirm == true) {
+      if (!await _ensureTrustedForSshAction('ssh credential deleted')) return;
       final repo = ref.read(sshRepositoryProvider);
       await repo.initialize();
       await repo.deleteCredential(credential.uuid);
@@ -807,6 +829,14 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
     setState(() => _saving = true);
 
     try {
+      final trusted = await ForegroundSyncService.checkTrustNow(
+        reason: 'ssh credential saved',
+      );
+      if (!trusted) {
+        throw ForegroundSyncService.lastTrustError ??
+            StateError('This device is no longer trusted.');
+      }
+
       final repo = ref.read(sshRepositoryProvider);
       await repo.initialize();
 

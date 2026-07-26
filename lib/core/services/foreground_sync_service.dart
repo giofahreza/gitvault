@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 
+import '../crypto/crypto_manager.dart';
+import '../crypto/key_storage.dart';
 import '../../data/repositories/sync_engine.dart';
 import 'background_sync_service.dart';
+import 'github_service.dart';
 
 /// Coordinates quiet foreground sync while the unlocked app is open.
 ///
@@ -18,18 +21,26 @@ class ForegroundSyncService {
   static const String _repoOwnerKey = 'gitvault_repo_owner';
   static const String _repoNameKey = 'gitvault_repo_name';
   static const String _autoSyncIntervalKey = 'gitvault_auto_sync_interval';
+  static const Duration _trustCheckInterval = Duration(seconds: 30);
+  static const Duration _minTrustCheckGap = Duration(seconds: 15);
 
   static final ValueNotifier<int> syncRevision = ValueNotifier<int>(0);
+  static final ValueNotifier<int> trustRevision = ValueNotifier<int>(0);
 
   static Timer? _debounceTimer;
   static Timer? _periodicTimer;
+  static Timer? _trustCheckTimer;
   static Future<SyncResult?>? _activeSync;
+  static Future<bool>? _activeTrustCheck;
   static bool _queuedAfterActiveSync = false;
   static bool _periodicStarted = false;
+  static bool _trustMonitoringStarted = false;
   static int _scheduleSerial = 0;
+  static DateTime? _lastTrustCheckAt;
 
   static SyncResult? lastResult;
   static Object? lastError;
+  static Object? lastTrustError;
 
   static Future<void> startPeriodicSync() async {
     _periodicStarted = true;
@@ -69,16 +80,74 @@ class ForegroundSyncService {
     _periodicTimer = null;
   }
 
+  static Future<void> startTrustMonitoring() async {
+    _trustMonitoringStarted = true;
+    await refreshTrustMonitoring();
+    unawaited(checkTrustNow(reason: 'app unlocked', force: true));
+  }
+
+  static Future<void> refreshTrustMonitoring() async {
+    _trustCheckTimer?.cancel();
+    _trustCheckTimer = null;
+
+    if (!_trustMonitoringStarted) return;
+    if (!await _isSyncConfigured()) return;
+
+    _trustCheckTimer = Timer.periodic(
+      _trustCheckInterval,
+      (_) => unawaited(checkTrustNow(reason: 'trusted device monitor')),
+    );
+  }
+
+  static void stopTrustMonitoring() {
+    _trustMonitoringStarted = false;
+    _trustCheckTimer?.cancel();
+    _trustCheckTimer = null;
+  }
+
+  static Future<bool> checkTrustNow({
+    required String reason,
+    bool force = false,
+  }) async {
+    final activeTrustCheck = _activeTrustCheck;
+    if (activeTrustCheck != null) return activeTrustCheck;
+
+    if (!await _isSyncConfigured()) {
+      lastTrustError = null;
+      return true;
+    }
+
+    final now = DateTime.now();
+    final lastTrustCheckAt = _lastTrustCheckAt;
+    if (!force &&
+        lastTrustCheckAt != null &&
+        now.difference(lastTrustCheckAt) < _minTrustCheckGap) {
+      return lastTrustError is! DeviceRevokedException;
+    }
+
+    _lastTrustCheckAt = now;
+    late final Future<bool> operation;
+    operation = _performTrustCheck(reason).whenComplete(() {
+      if (identical(_activeTrustCheck, operation)) {
+        _activeTrustCheck = null;
+      }
+    });
+    _activeTrustCheck = operation;
+    return operation;
+  }
+
   static void scheduleSync({
     required String reason,
     Duration debounce = const Duration(seconds: 4),
   }) {
     final serial = ++_scheduleSerial;
-    unawaited(_scheduleSyncIfConfigured(
-      serial: serial,
-      reason: reason,
-      debounce: debounce,
-    ));
+    unawaited(
+      _scheduleSyncIfConfigured(
+        serial: serial,
+        reason: reason,
+        debounce: debounce,
+      ),
+    );
   }
 
   static Future<void> _scheduleSyncIfConfigured({
@@ -164,6 +233,10 @@ class ForegroundSyncService {
       return result;
     } catch (error, stackTrace) {
       lastError = error;
+      if (error is DeviceRevokedException) {
+        await refreshPeriodicSync();
+        syncRevision.value++;
+      }
       debugPrint('[ForegroundSync] $reason failed: $error');
       debugPrint('$stackTrace');
       return null;
@@ -184,9 +257,66 @@ class ForegroundSyncService {
       return result;
     } catch (error, stackTrace) {
       lastError = error;
+      if (error is DeviceRevokedException) {
+        await refreshPeriodicSync();
+        syncRevision.value++;
+      }
       debugPrint('[ForegroundSync] $reason failed: $error');
       debugPrint('$stackTrace');
       return null;
+    }
+  }
+
+  static Future<bool> _performTrustCheck(String reason) async {
+    try {
+      final keyStorage = KeyStorage();
+      await keyStorage.initialize();
+
+      final token = await keyStorage.getGitHubToken();
+      final owner = await keyStorage.getRepoOwner();
+      final repo = await keyStorage.getRepoName();
+      if (token == null ||
+          token.isEmpty ||
+          owner == null ||
+          owner.isEmpty ||
+          repo == null ||
+          repo.isEmpty) {
+        lastTrustError = null;
+        return true;
+      }
+
+      final githubService = GitHubService(
+        accessToken: token,
+        repoOwner: owner,
+        repoName: repo,
+      );
+
+      try {
+        await SyncEngine.refreshDeviceRegistry(
+          keyStorage: keyStorage,
+          cryptoManager: CryptoManager(),
+          githubService: githubService,
+          uploadIfNeeded: false,
+        );
+        lastTrustError = null;
+        return true;
+      } on DeviceRevokedException catch (error) {
+        lastTrustError = error;
+        _debounceTimer?.cancel();
+        _debounceTimer = null;
+        await refreshPeriodicSync();
+        await refreshTrustMonitoring();
+        trustRevision.value++;
+        syncRevision.value++;
+        return false;
+      } finally {
+        githubService.dispose();
+      }
+    } catch (error, stackTrace) {
+      lastTrustError = error;
+      debugPrint('[ForegroundSync] $reason trust check failed: $error');
+      debugPrint('$stackTrace');
+      return true;
     }
   }
 

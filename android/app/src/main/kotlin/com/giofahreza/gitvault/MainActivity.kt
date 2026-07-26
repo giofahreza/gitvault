@@ -10,6 +10,7 @@ import android.view.autofill.AutofillManager
 import android.service.autofill.Dataset
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillValue
+import android.view.WindowManager
 import android.widget.RemoteViews
 import android.view.inputmethod.InputMethodManager
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -242,6 +243,10 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
         super.onCreate(savedInstanceState)
 
         // Check if this is an autofill authentication request

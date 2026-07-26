@@ -8,6 +8,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import android.util.Log
+import android.view.WindowManager
 import javax.crypto.Cipher
 
 /**
@@ -30,6 +31,10 @@ class GitVaultIMEAuthActivity : FragmentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate called")
 

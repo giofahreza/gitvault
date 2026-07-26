@@ -132,6 +132,17 @@ class KeyStorage {
     githubCredentialsRevision.value++;
   }
 
+  /// Removes GitHub sync credentials without wiping the local vault key.
+  Future<void> clearGitHubCredentials() async {
+    _ensureInitialized();
+    await _box.delete(_githubTokenKey);
+    await _box.delete(_repoOwnerKey);
+    await _box.delete(_repoNameKey);
+    await _box.delete(_pendingDeviceInviteIdKey);
+    await _box.put(_autoSyncIntervalKey, '0');
+    githubCredentialsRevision.value++;
+  }
+
   /// Retrieves GitHub token
   Future<String?> getGitHubToken() async {
     _ensureInitialized();

@@ -8,6 +8,7 @@ import '../../core/services/foreground_sync_service.dart';
 import '../../core/widgets/group_selector_field.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/vault_entry.dart';
+import '../../data/repositories/sync_engine.dart';
 import '../../utils/totp_generator.dart';
 import '../../utils/auth_helper.dart';
 import '../../utils/clipboard_feedback.dart';
@@ -257,8 +258,40 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     );
 
     if (authenticated && mounted) {
+      if (!await _ensureTrustedForVaultAction('password copied')) return;
       await _performCopy(entry);
     }
+  }
+
+  Future<void> _copyUsername(String username) async {
+    if (!await _ensureTrustedForVaultAction('username copied')) return;
+    if (!mounted) return;
+    await copyTextWithFeedback(
+      context,
+      text: username,
+      successMessage: 'Username copied',
+      failureMessage:
+          'Could not copy username. Check browser clipboard permission and try again.',
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+    );
+  }
+
+  Future<bool> _ensureTrustedForVaultAction(String reason) async {
+    final trusted = await ForegroundSyncService.checkTrustNow(reason: reason);
+    if (trusted || !mounted) return trusted;
+
+    final error = ForegroundSyncService.lastTrustError;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error is DeviceRevokedException
+              ? error.message
+              : 'This device is no longer trusted.',
+        ),
+        duration: const Duration(seconds: 8),
+      ),
+    );
+    return false;
   }
 
   Future<void> _performCopy(VaultEntry entry) async {
@@ -316,6 +349,11 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
             ),
           );
           if (confirm == true) {
+            if (!await _ensureTrustedForVaultAction(
+              'password entry deleted',
+            )) {
+              return;
+            }
             final repo = ref.read(vaultRepositoryProvider);
             await repo.initialize();
             await repo.deleteEntry(entry.uuid);
@@ -327,14 +365,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           }
         },
         onCopyPassword: () => _copyPassword(entry),
-        onCopyUsername: () => copyTextWithFeedback(
-          context,
-          text: entry.username,
-          successMessage: 'Username copied',
-          failureMessage:
-              'Could not copy username. Check browser clipboard permission and try again.',
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
-        ),
+        onCopyUsername: () => _copyUsername(entry.username),
       ),
     );
   }
@@ -379,6 +410,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     );
 
     if (confirm == true) {
+      if (!await _ensureTrustedForVaultAction('password entry deleted')) return;
       final repo = ref.read(vaultRepositoryProvider);
       await repo.initialize();
       await repo.deleteEntry(entry.uuid);
@@ -796,6 +828,25 @@ class _DetailRowState extends ConsumerState<_DetailRow> {
     );
 
     if (authenticated && mounted) {
+      final trusted = await ForegroundSyncService.checkTrustNow(
+        reason: 'password viewed',
+      );
+      if (!trusted) {
+        final error = ForegroundSyncService.lastTrustError;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                error is DeviceRevokedException
+                    ? error.message
+                    : 'This device is no longer trusted.',
+              ),
+              duration: const Duration(seconds: 8),
+            ),
+          );
+        }
+        return;
+      }
       setState(() => _hidden = false);
     }
   }
@@ -1103,6 +1154,14 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
     setState(() => _saving = true);
 
     try {
+      final trusted = await ForegroundSyncService.checkTrustNow(
+        reason: 'password entry saved',
+      );
+      if (!trusted) {
+        throw ForegroundSyncService.lastTrustError ??
+            StateError('This device is no longer trusted.');
+      }
+
       final repo = ref.read(vaultRepositoryProvider);
       await repo.initialize();
 
@@ -1363,6 +1422,25 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
     );
 
     if (authenticated && mounted) {
+      final trusted = await ForegroundSyncService.checkTrustNow(
+        reason: 'password viewed',
+      );
+      if (!trusted) {
+        final error = ForegroundSyncService.lastTrustError;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                error is DeviceRevokedException
+                    ? error.message
+                    : 'This device is no longer trusted.',
+              ),
+              duration: const Duration(seconds: 8),
+            ),
+          );
+        }
+        return;
+      }
       setState(() {
         _obscurePassword = false;
         _authenticated = true;
@@ -1617,6 +1695,14 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
     setState(() => _saving = true);
 
     try {
+      final trusted = await ForegroundSyncService.checkTrustNow(
+        reason: 'password entry saved',
+      );
+      if (!trusted) {
+        throw ForegroundSyncService.lastTrustError ??
+            StateError('This device is no longer trusted.');
+      }
+
       final repo = ref.read(vaultRepositoryProvider);
       await repo.initialize();
 

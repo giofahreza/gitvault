@@ -3161,38 +3161,56 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
       List<Map<String, dynamic>> pendingApprovals = [];
       var hasGitHubCredentials = false;
 
-      try {
-        final token = await keyStorage.getGitHubToken();
-        final owner = await keyStorage.getRepoOwner();
-        final repo = await keyStorage.getRepoName();
+      final token = await keyStorage.getGitHubToken();
+      final owner = await keyStorage.getRepoOwner();
+      final repo = await keyStorage.getRepoName();
 
-        if (token != null && owner != null && repo != null) {
-          hasGitHubCredentials = true;
-          final githubService = GitHubService(
-            accessToken: token,
-            repoOwner: owner,
-            repoName: repo,
+      if (token != null && owner != null && repo != null) {
+        hasGitHubCredentials = true;
+        final githubService = GitHubService(
+          accessToken: token,
+          repoOwner: owner,
+          repoName: repo,
+        );
+        try {
+          final registry = await SyncEngine.refreshDeviceRegistry(
+            keyStorage: keyStorage,
+            cryptoManager: ref.read(cryptoManagerProvider),
+            githubService: githubService,
+            uploadIfNeeded: uploadCurrent,
           );
-          try {
-            final registry = await SyncEngine.refreshDeviceRegistry(
-              keyStorage: keyStorage,
-              cryptoManager: ref.read(cryptoManagerProvider),
-              githubService: githubService,
-              uploadIfNeeded: uploadCurrent,
-            );
-            final deviceList = registry?['devices'] as List<dynamic>? ?? [];
-            devices = deviceList
-                .map((d) => Map<String, dynamic>.from(d as Map))
-                .toList();
-            pendingApprovals = _activePendingApprovals(
-              registry,
-              localDeviceId: identity.id,
-            );
-          } finally {
-            githubService.dispose();
+          final deviceList = registry?['devices'] as List<dynamic>? ?? [];
+          devices = deviceList
+              .map((d) => Map<String, dynamic>.from(d as Map))
+              .toList();
+          pendingApprovals = _activePendingApprovals(
+            registry,
+            localDeviceId: identity.id,
+          );
+        } on DeviceRevokedException catch (e) {
+          hasGitHubCredentials = false;
+          ref.read(autoSyncIntervalProvider.notifier).state = 0;
+          final credentialsSignal = ref.read(
+            githubCredentialsSignalProvider.notifier,
+          );
+          credentialsSignal.state = credentialsSignal.state + 1;
+          unawaited(ForegroundSyncService.refreshPeriodicSync());
+
+          if (mounted && widget.isActive) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted || !widget.isActive) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(e.message),
+                  duration: const Duration(seconds: 8),
+                ),
+              );
+            });
           }
+        } finally {
+          githubService.dispose();
         }
-      } catch (_) {}
+      }
 
       if (devices.isEmpty) {
         final registryJson = await keyStorage.getDeviceRegistry();
@@ -3492,6 +3510,102 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not recognize device: $e')),
+      );
+    } finally {
+      githubService.dispose();
+      if (mounted) {
+        setState(() => _deviceActionBusy = false);
+      }
+    }
+  }
+
+  Future<void> _removeDevice(Map<String, dynamic> device) async {
+    if (_deviceActionBusy) return;
+
+    final deviceId = device['deviceId'] as String?;
+    if (deviceId == null || deviceId.isEmpty || deviceId == _localDeviceId) {
+      return;
+    }
+
+    final name = (device['name'] as String?) ??
+        (device['deviceName'] as String?) ??
+        'this device';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Device?'),
+        content: Text(
+          '$name will be removed from trusted devices. It must be linked again from a trusted device or configured with a newly generated GitHub token before it can sync again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Remove'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final keyStorage = ref.read(keyStorageProvider);
+    await keyStorage.initialize();
+    final token = await keyStorage.getGitHubToken();
+    final owner = await keyStorage.getRepoOwner();
+    final repo = await keyStorage.getRepoName();
+
+    if (token == null ||
+        token.isEmpty ||
+        owner == null ||
+        owner.isEmpty ||
+        repo == null ||
+        repo.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Configure GitHub Sync before removing devices.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _deviceActionBusy = true);
+    final githubService = GitHubService(
+      accessToken: token,
+      repoOwner: owner,
+      repoName: repo,
+    );
+
+    try {
+      await SyncEngine.revokeTrustedDevice(
+        keyStorage: keyStorage,
+        cryptoManager: ref.read(cryptoManagerProvider),
+        githubService: githubService,
+        deviceId: deviceId,
+      );
+
+      final dismissed = {..._dismissedUnverifiedDeviceIds}..remove(deviceId);
+      await keyStorage.storeDismissedUnverifiedDeviceIds(
+        jsonEncode(dismissed.toList()..sort()),
+      );
+
+      await _loadDevices();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$name removed from trusted devices')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not remove device: $e')),
       );
     } finally {
       githubService.dispose();
@@ -3894,6 +4008,18 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
               ],
             ),
             subtitle: Text(subtitle),
+            trailing: isThisDevice
+                ? null
+                : Tooltip(
+                    message: 'Remove this trusted device',
+                    child: IconButton(
+                      onPressed: _deviceActionBusy
+                          ? null
+                          : () => _removeDevice(device),
+                      icon: const Icon(Icons.delete_outline),
+                      color: colorScheme.error,
+                    ),
+                  ),
             onTap: isThisDevice ? () => _editDeviceName(context) : null,
           );
         }),

@@ -9,6 +9,7 @@ import '../../core/services/foreground_sync_service.dart';
 import '../../core/widgets/group_selector_field.dart';
 import '../../core/widgets/web_lock_action.dart';
 import '../../data/models/vault_entry.dart';
+import '../../data/repositories/sync_engine.dart';
 import '../../utils/clipboard_feedback.dart';
 import '../../utils/pointer_focus.dart';
 import '../../utils/totp_generator.dart';
@@ -84,6 +85,24 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
       return entry.tags.first;
     }
     return 'Ungrouped';
+  }
+
+  Future<bool> _ensureTrustedForTotpAction(String reason) async {
+    final trusted = await ForegroundSyncService.checkTrustNow(reason: reason);
+    if (trusted || !mounted) return trusted;
+
+    final error = ForegroundSyncService.lastTrustError;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error is DeviceRevokedException
+              ? error.message
+              : 'This device is no longer trusted.',
+        ),
+        duration: const Duration(seconds: 8),
+      ),
+    );
+    return false;
   }
 
   @override
@@ -403,6 +422,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
     );
 
     if (confirm == true) {
+      if (!await _ensureTrustedForTotpAction('totp entry deleted')) return;
       final repo = ref.read(vaultRepositoryProvider);
       await repo.initialize();
       await repo.deleteEntry(entry.uuid);
@@ -444,6 +464,14 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
 
       setDialogState(() => saving = true);
       try {
+        final trusted = await ForegroundSyncService.checkTrustNow(
+          reason: 'totp entry saved',
+        );
+        if (!trusted) {
+          throw ForegroundSyncService.lastTrustError ??
+              StateError('This device is no longer trusted.');
+        }
+
         final repo = ref.read(vaultRepositoryProvider);
         await repo.initialize();
 
@@ -990,6 +1018,27 @@ class _TotpCodeCardState extends State<_TotpCodeCard> {
   }
 
   Future<void> _copyCode(String code) async {
+    final trusted = await ForegroundSyncService.checkTrustNow(
+      reason: 'totp code copied',
+    );
+    if (!trusted) {
+      final error = ForegroundSyncService.lastTrustError;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is DeviceRevokedException
+                  ? error.message
+                  : 'This device is no longer trusted.',
+            ),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
     final copied = await copyTextWithFeedback(
       context,
       text: code,
@@ -1191,6 +1240,14 @@ class _AddTotpDialogState extends ConsumerState<_AddTotpDialog> {
     setState(() => _saving = true);
 
     try {
+      final trusted = await ForegroundSyncService.checkTrustNow(
+        reason: 'totp entry saved',
+      );
+      if (!trusted) {
+        throw ForegroundSyncService.lastTrustError ??
+            StateError('This device is no longer trusted.');
+      }
+
       final repo = ref.read(vaultRepositoryProvider);
       await repo.initialize();
 

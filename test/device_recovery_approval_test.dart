@@ -285,6 +285,212 @@ void main() {
     expect(restoredEntries.single.title, 'Example Gmail');
     expect(restoreUploadPaths, isEmpty);
   });
+
+  test('revoking a trusted device removes it from trusted devices', () async {
+    final now = DateTime.now().toIso8601String();
+    final harness = await _createHarness({
+      'devices': [
+        {
+          'deviceId': 'trusted-device',
+          'name': 'Trusted Laptop',
+          'lastSeen': now,
+          'addedAt': now,
+          'registrationMethod': SyncEngine.deviceRegistrationMethodSetup,
+        },
+        {
+          'deviceId': 'phone-device',
+          'name': 'Old Phone',
+          'lastSeen': now,
+          'addedAt': now,
+          'registrationMethod': SyncEngine.deviceRegistrationMethodLink,
+        },
+      ],
+      'pendingDeviceApprovals': [
+        _approval(
+          status: 'pending',
+          expiresAt: DateTime.now().add(const Duration(seconds: 20)),
+        )..['deviceId'] = 'phone-device',
+      ],
+      'pendingDeviceInvites': [
+        {
+          'inviteId': 'invite-from-phone',
+          'createdAt': now,
+          'expiresAt':
+              DateTime.now().add(const Duration(minutes: 5)).toIso8601String(),
+          'createdByDeviceId': 'phone-device',
+          'createdByName': 'Old Phone',
+        },
+      ],
+    });
+    await harness.keyStorage.storeGitHubCredentials(
+      token: 'current-token',
+      repoOwner: 'owner',
+      repoName: 'repo',
+    );
+
+    await SyncEngine.revokeTrustedDevice(
+      keyStorage: harness.keyStorage,
+      cryptoManager: harness.cryptoManager,
+      githubService: harness.githubService,
+      deviceId: 'phone-device',
+    );
+
+    final registry = await _decryptRegistry(harness);
+    final devices =
+        (registry['devices'] as List<dynamic>).cast<Map<String, dynamic>>();
+    final revokedDevices = (registry['revokedDevices'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+    final approvals = registry['pendingDeviceApprovals'] as List<dynamic>;
+    final invites = registry['pendingDeviceInvites'] as List<dynamic>;
+
+    expect(
+        devices.any((device) => device['deviceId'] == 'phone-device'), isFalse);
+    expect(revokedDevices.single['deviceId'], 'phone-device');
+    expect(approvals, isEmpty);
+    expect(invites, isEmpty);
+    expect(registry['activeGitHubTokenFingerprint'], isNotEmpty);
+  });
+
+  test('revoked device cannot refresh registry with the old token', () async {
+    final cryptoManager = CryptoManager();
+    final rootKey = cryptoManager.generateRandomKey();
+    final oldFingerprint = await cryptoManager.hmacSha256(
+      key: rootKey,
+      data: 'github-token:old-token',
+    );
+    final harness = await _createHarnessWithRootKey(
+      rootKey: rootKey,
+      deviceId: 'phone-device',
+      deviceName: 'Old Phone',
+      registry: {
+        'devices': const <Map<String, dynamic>>[],
+        'revokedDevices': [
+          {
+            'deviceId': 'phone-device',
+            'name': 'Old Phone',
+            'revokedAt': DateTime.now().toIso8601String(),
+          },
+        ],
+        'activeGitHubTokenFingerprint': oldFingerprint,
+      },
+    );
+    await harness.keyStorage.storeGitHubCredentials(
+      token: 'old-token',
+      repoOwner: 'owner',
+      repoName: 'repo',
+    );
+
+    await expectLater(
+      SyncEngine.refreshDeviceRegistry(
+        keyStorage: harness.keyStorage,
+        cryptoManager: harness.cryptoManager,
+        githubService: harness.githubService,
+      ),
+      throwsA(isA<DeviceRevokedException>()),
+    );
+
+    expect(harness.githubService.uploadCount, 0);
+    expect(await harness.keyStorage.getGitHubToken(), isNull);
+    expect(await harness.keyStorage.getRepoOwner(), isNull);
+    expect(await harness.keyStorage.getRepoName(), isNull);
+    expect(await harness.keyStorage.getAutoSyncInterval(), 0);
+  });
+
+  test('revoked device can refresh registry with a fresh GitHub token',
+      () async {
+    final cryptoManager = CryptoManager();
+    final rootKey = cryptoManager.generateRandomKey();
+    final oldFingerprint = await cryptoManager.hmacSha256(
+      key: rootKey,
+      data: 'github-token:old-token',
+    );
+    final harness = await _createHarnessWithRootKey(
+      rootKey: rootKey,
+      deviceId: 'phone-device',
+      deviceName: 'Old Phone',
+      registry: {
+        'devices': const <Map<String, dynamic>>[],
+        'revokedDevices': [
+          {
+            'deviceId': 'phone-device',
+            'name': 'Old Phone',
+            'revokedAt': DateTime.now().toIso8601String(),
+          },
+        ],
+        'activeGitHubTokenFingerprint': oldFingerprint,
+      },
+    );
+    await harness.keyStorage.storeGitHubCredentials(
+      token: 'new-token',
+      repoOwner: 'owner',
+      repoName: 'repo',
+    );
+
+    final registry = await SyncEngine.refreshDeviceRegistry(
+      keyStorage: harness.keyStorage,
+      cryptoManager: harness.cryptoManager,
+      githubService: harness.githubService,
+    );
+    final devices =
+        (registry!['devices'] as List<dynamic>).cast<Map<String, dynamic>>();
+    final revokedDevices = registry['revokedDevices'] as List<dynamic>;
+
+    expect(revokedDevices, isEmpty);
+    expect(devices.single['deviceId'], 'phone-device');
+    expect(
+      devices.single['registrationMethod'],
+      SyncEngine.deviceRegistrationMethodRecoveryTokenRotated,
+    );
+    expect(registry['previousGitHubTokenFingerprint'], oldFingerprint);
+    expect(registry['activeGitHubTokenFingerprint'], isNot(oldFingerprint));
+  });
+
+  test('token-rotated recovery clears existing device revocation', () async {
+    final cryptoManager = CryptoManager();
+    final rootKey = cryptoManager.generateRandomKey();
+    final oldFingerprint = await cryptoManager.hmacSha256(
+      key: rootKey,
+      data: 'github-token:old-token',
+    );
+    final harness = await _createHarnessWithRootKey(
+      rootKey: rootKey,
+      deviceId: 'phone-device',
+      deviceName: 'Old Phone',
+      registry: {
+        'devices': const <Map<String, dynamic>>[],
+        'revokedDevices': [
+          {
+            'deviceId': 'phone-device',
+            'name': 'Old Phone',
+            'revokedAt': DateTime.now().toIso8601String(),
+          },
+        ],
+        'activeGitHubTokenFingerprint': oldFingerprint,
+      },
+    );
+
+    await SyncEngine.completeTokenRotatedRecovery(
+      keyStorage: harness.keyStorage,
+      cryptoManager: harness.cryptoManager,
+      githubService: harness.githubService,
+      rootKey: rootKey,
+      oldToken: 'old-token',
+      newToken: 'new-token',
+      approvalId: 'approval-1',
+    );
+
+    final registry = await _decryptRegistry(harness);
+    final devices =
+        (registry['devices'] as List<dynamic>).cast<Map<String, dynamic>>();
+    final revokedDevices = registry['revokedDevices'] as List<dynamic>;
+
+    expect(revokedDevices, isEmpty);
+    expect(devices.single['deviceId'], 'phone-device');
+    expect(
+      devices.single['registrationMethod'],
+      SyncEngine.deviceRegistrationMethodRecoveryTokenRotated,
+    );
+  });
 }
 
 Map<String, dynamic> _approval({
@@ -313,24 +519,41 @@ Map<String, dynamic> _approval({
 
 Future<_Harness> _createHarness(Map<String, dynamic> registry) async {
   final cryptoManager = CryptoManager();
+  final rootKey = cryptoManager.generateRandomKey();
+  return _createHarnessWithRootKey(
+    rootKey: rootKey,
+    deviceId: 'trusted-device',
+    deviceName: 'Trusted Laptop',
+    cryptoManager: cryptoManager,
+    registry: registry,
+  );
+}
+
+Future<_Harness> _createHarnessWithRootKey({
+  required Uint8List rootKey,
+  required String deviceId,
+  required String deviceName,
+  required Map<String, dynamic> registry,
+  CryptoManager? cryptoManager,
+}) async {
+  final manager = cryptoManager ?? CryptoManager();
   final keyStorage = KeyStorage();
   await keyStorage.initialize();
-  final rootKey = cryptoManager.generateRandomKey();
   await keyStorage.storeRootKey(rootKey);
-  await keyStorage.storeDeviceId('trusted-device');
-  await keyStorage.storeLocalDeviceName('Trusted Laptop');
+  await keyStorage.storeDeviceId(deviceId);
+  await keyStorage.storeLocalDeviceName(deviceName);
 
   final githubService = _MemoryGitHubService({
     Constants.trustedDevicesFile: await _encryptRegistry(
       registry,
-      cryptoManager,
+      manager,
       rootKey,
     ),
   });
 
   return _Harness(
     keyStorage: keyStorage,
-    cryptoManager: cryptoManager,
+    cryptoManager: manager,
     githubService: githubService,
     rootKey: rootKey,
   );

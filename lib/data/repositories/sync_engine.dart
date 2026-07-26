@@ -126,6 +126,15 @@ class SyncEngine {
       throw StateError('No root key found');
     }
 
+    // Fail before pulling or pushing vault data when another trusted device has
+    // revoked this device from the shared registry.
+    await refreshDeviceRegistry(
+      keyStorage: _keyStorage,
+      cryptoManager: _cryptoManager,
+      githubService: _githubService,
+      uploadIfNeeded: true,
+    );
+
     // Pull remote changes first
     final pullResult = await _pullFromGitHub(rootKey);
 
@@ -875,6 +884,94 @@ class SyncEngine {
     );
   }
 
+  static Future<void> revokeTrustedDevice({
+    required KeyStorage keyStorage,
+    required CryptoManager cryptoManager,
+    required GitHubService githubService,
+    required String deviceId,
+  }) async {
+    await keyStorage.initialize();
+
+    final rootKey = await keyStorage.getRootKey();
+    if (rootKey == null) {
+      throw StateError('No root key found');
+    }
+
+    final identity =
+        await DeviceIdentityService(keyStorage: keyStorage).ensureIdentity();
+    if (deviceId == identity.id) {
+      throw StateError('This device cannot remove itself.');
+    }
+
+    final registry = await _downloadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+    );
+    if (registry == null) {
+      throw StateError('Could not read device registry');
+    }
+
+    final devices = (registry['devices'] as List<dynamic>? ?? [])
+        .map((device) => Map<String, dynamic>.from(device as Map))
+        .toList();
+    final deviceIndex =
+        devices.indexWhere((device) => device['deviceId'] == deviceId);
+    if (deviceIndex < 0) {
+      throw StateError('Device was not found.');
+    }
+
+    final removedDevice = devices.removeAt(deviceIndex);
+    final revokedDevices = _revokedDevices(registry)
+      ..removeWhere((device) => device['deviceId'] == deviceId);
+    final nowIso = DateTime.now().toIso8601String();
+    revokedDevices.add({
+      'deviceId': deviceId,
+      'name': removedDevice['name'] ?? removedDevice['deviceName'],
+      'registrationMethod': removedDevice['registrationMethod'],
+      'revokedAt': nowIso,
+      'revokedByDeviceId': identity.id,
+      'revokedByName': identity.name,
+    });
+
+    final pendingApprovals = _deviceApprovalRequests(
+      registry,
+      includeExpiredPending: true,
+    )..removeWhere((approval) => approval['deviceId'] == deviceId);
+    final pendingInvites =
+        (registry['pendingDeviceInvites'] as List<dynamic>? ?? [])
+            .map((invite) => Map<String, dynamic>.from(invite as Map))
+            .where((invite) => invite['createdByDeviceId'] != deviceId)
+            .toList();
+
+    final token = await keyStorage.getGitHubToken();
+    if (token != null &&
+        token.isNotEmpty &&
+        (registry['activeGitHubTokenFingerprint'] as String?)?.isEmpty !=
+            false) {
+      registry['activeGitHubTokenFingerprint'] = await _githubTokenFingerprint(
+        cryptoManager: cryptoManager,
+        rootKey: rootKey,
+        token: token,
+      );
+    }
+
+    registry['devices'] = devices;
+    registry['revokedDevices'] = revokedDevices;
+    registry['pendingDeviceApprovals'] = pendingApprovals;
+    registry['pendingDeviceInvites'] = pendingInvites;
+
+    await _uploadDeviceRegistry(
+      keyStorage: keyStorage,
+      cryptoManager: cryptoManager,
+      githubService: githubService,
+      rootKey: rootKey,
+      registry: registry,
+      commitMessage: 'Remove connected device',
+    );
+  }
+
   static Future<String> createPendingRecoveryApproval({
     required KeyStorage keyStorage,
     required CryptoManager cryptoManager,
@@ -1113,6 +1210,7 @@ class SyncEngine {
       devices.add(device);
     }
     registry['devices'] = devices;
+    _removeRevokedDevice(registry, identity.id);
 
     final approvalIndex =
         approvals.indexWhere((item) => item['approvalId'] == approvalId);
@@ -1196,6 +1294,7 @@ class SyncEngine {
       devices.add(device);
     }
     registry['devices'] = devices;
+    _removeRevokedDevice(registry, identity.id);
     registry['previousGitHubTokenFingerprint'] =
         registry['activeGitHubTokenFingerprint'] ?? oldFingerprint;
     registry['activeGitHubTokenFingerprint'] = newFingerprint;
@@ -1254,6 +1353,19 @@ class SyncEngine {
     );
     if (registry == null) return null;
 
+    final currentToken = await keyStorage.getGitHubToken();
+    final currentTokenFingerprint =
+        currentToken != null && currentToken.isNotEmpty
+            ? await _githubTokenFingerprint(
+                cryptoManager: cryptoManager,
+                rootKey: rootKey,
+                token: currentToken,
+              )
+            : null;
+    final activeTokenFingerprint =
+        registry['activeGitHubTokenFingerprint'] as String?;
+    var deviceWasRevoked = _isDeviceRevoked(registry, identity.id);
+
     final devices = (registry['devices'] as List<dynamic>?) ?? [];
     final pendingInvites = _pendingDeviceInvites(registry, now);
     final rawPendingInvites =
@@ -1279,7 +1391,7 @@ class SyncEngine {
         registrationMethod == deviceRegistrationMethodLink &&
             pendingInviteId != null &&
             pendingInvite == null;
-    final resolvedRegistrationMethod =
+    var resolvedRegistrationMethod =
         registrationMethod == deviceRegistrationMethodLink &&
                 verifiedInvite == null
             ? deviceRegistrationMethodSync
@@ -1287,6 +1399,43 @@ class SyncEngine {
     bool found = false;
     bool needsUpload = rawPendingInvites != null &&
         rawPendingInvites.length != pendingInvites.length;
+
+    if ((registry['activeGitHubTokenFingerprint'] as String?)?.isEmpty !=
+            false &&
+        currentTokenFingerprint != null) {
+      registry['activeGitHubTokenFingerprint'] = currentTokenFingerprint;
+      needsUpload = true;
+    }
+
+    final relinkedByFreshToken = deviceWasRevoked &&
+        activeTokenFingerprint != null &&
+        currentTokenFingerprint != null &&
+        currentTokenFingerprint != activeTokenFingerprint;
+    final relinkedByInvite = deviceWasRevoked && verifiedInvite != null;
+
+    if (deviceWasRevoked) {
+      if (relinkedByFreshToken || relinkedByInvite) {
+        _removeRevokedDevice(registry, identity.id);
+        deviceWasRevoked = false;
+        needsUpload = true;
+
+        if (relinkedByFreshToken) {
+          registry['previousGitHubTokenFingerprint'] = activeTokenFingerprint;
+          registry['activeGitHubTokenFingerprint'] = currentTokenFingerprint;
+          registry['tokenRotatedAt'] = nowIso;
+          registry['tokenRotatedByDeviceId'] = identity.id;
+          registry['tokenRotatedByName'] = identity.name;
+          resolvedRegistrationMethod =
+              deviceRegistrationMethodRecoveryTokenRotated;
+        }
+      } else {
+        await keyStorage.storeDeviceRegistry(jsonEncode(registry));
+        await keyStorage.clearGitHubCredentials();
+        throw DeviceRevokedException(
+          'This device was removed from trusted devices. GitHub Sync was disconnected on this device. Link it again from another trusted device or configure GitHub Sync with a newly generated token.',
+        );
+      }
+    }
 
     final updatedDevices = devices.map((d) {
       final device = Map<String, dynamic>.from(d as Map);
@@ -1446,6 +1595,31 @@ class SyncEngine {
       final expiresAt = DateTime.tryParse(invite['expiresAt'] as String? ?? '');
       return expiresAt != null && expiresAt.isAfter(now);
     }).toList();
+  }
+
+  static List<Map<String, dynamic>> _revokedDevices(
+    Map<String, dynamic> registry,
+  ) {
+    return (registry['revokedDevices'] as List<dynamic>? ?? [])
+        .map((device) => Map<String, dynamic>.from(device as Map))
+        .toList();
+  }
+
+  static bool _isDeviceRevoked(
+    Map<String, dynamic> registry,
+    String deviceId,
+  ) {
+    return _revokedDevices(registry)
+        .any((device) => device['deviceId'] == deviceId);
+  }
+
+  static void _removeRevokedDevice(
+    Map<String, dynamic> registry,
+    String deviceId,
+  ) {
+    final revokedDevices = _revokedDevices(registry)
+      ..removeWhere((device) => device['deviceId'] == deviceId);
+    registry['revokedDevices'] = revokedDevices;
   }
 
   static bool _isUnverifiedDevice(Map<String, dynamic> device) {
@@ -1761,4 +1935,13 @@ class SyncException implements Exception {
 
   @override
   String toString() => 'SyncException: $message';
+}
+
+class DeviceRevokedException implements Exception {
+  final String message;
+
+  DeviceRevokedException(this.message);
+
+  @override
+  String toString() => 'DeviceRevokedException: $message';
 }
