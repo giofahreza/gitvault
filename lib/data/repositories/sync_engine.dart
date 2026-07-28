@@ -182,7 +182,8 @@ class SyncEngine {
       final localCounter = await _getLocalCounter();
       if (syncIndex.monotonicCounter < localCounter) {
         throw SyncException(
-            'Rollback attack detected! Remote counter is lower than local.');
+          'Rollback attack detected! Remote counter is lower than local.',
+        );
       }
 
       // Download each item from the map (could be password entry or note)
@@ -1126,7 +1127,8 @@ class SyncEngine {
         commitMessage: 'Expire device recovery request',
       );
       throw StateError(
-          'Recovery request expired. Ask the new device to try again.');
+        'Recovery request expired. Ask the new device to try again.',
+      );
     }
 
     approvals[index] = {
@@ -1391,11 +1393,7 @@ class SyncEngine {
         registrationMethod == deviceRegistrationMethodLink &&
             pendingInviteId != null &&
             pendingInvite == null;
-    var resolvedRegistrationMethod =
-        registrationMethod == deviceRegistrationMethodLink &&
-                verifiedInvite == null
-            ? deviceRegistrationMethodSync
-            : registrationMethod;
+    var resolvedRegistrationMethod = registrationMethod;
     bool found = false;
     bool needsUpload = rawPendingInvites != null &&
         rawPendingInvites.length != pendingInvites.length;
@@ -1454,13 +1452,18 @@ class SyncEngine {
 
       if (device['deviceId'] == identity.id) {
         found = true;
+        final nextRegistrationMethod = _registrationMethodForExistingDevice(
+          currentMethod: device['registrationMethod'] as String?,
+          localMethod: resolvedRegistrationMethod,
+          forceLocalMethod: verifiedInvite != null || relinkedByFreshToken,
+        );
         final previousLastSeen =
             DateTime.tryParse(device['lastSeen'] as String? ?? '');
         final lastSeenIsStale = previousLastSeen == null ||
             now.difference(previousLastSeen) >= const Duration(hours: 6);
         final nameChanged = device['name'] != identity.name;
-        final methodChanged = resolvedRegistrationMethod != null &&
-            device['registrationMethod'] != resolvedRegistrationMethod;
+        final methodChanged = nextRegistrationMethod != null &&
+            device['registrationMethod'] != nextRegistrationMethod;
 
         if (!lastSeenIsStale && !nameChanged && !methodChanged) {
           return device;
@@ -1472,8 +1475,8 @@ class SyncEngine {
           'name': identity.name,
           'lastSeen': nowIso,
         };
-        if (resolvedRegistrationMethod != null) {
-          updated['registrationMethod'] = resolvedRegistrationMethod;
+        if (nextRegistrationMethod != null) {
+          updated['registrationMethod'] = nextRegistrationMethod;
         }
         if (verifiedInvite != null) {
           updated['linkedInviteId'] = pendingInviteId;
@@ -1625,11 +1628,45 @@ class SyncEngine {
   static bool _isUnverifiedDevice(Map<String, dynamic> device) {
     final method = device['registrationMethod'] as String?;
     if (method == null || method.isEmpty) return false;
-    return method != deviceRegistrationMethodSetup &&
-        method != deviceRegistrationMethodLink &&
-        method != deviceRegistrationMethodRecoveryApproved &&
-        method != deviceRegistrationMethodRecoveryTokenRotated &&
-        method != deviceRegistrationMethodRecognized;
+    return _isUnverifiedRegistrationMethod(method);
+  }
+
+  static String? _registrationMethodForExistingDevice({
+    required String? currentMethod,
+    required String? localMethod,
+    required bool forceLocalMethod,
+  }) {
+    if (localMethod == null || localMethod.isEmpty) return null;
+    if (forceLocalMethod) return localMethod;
+
+    if (currentMethod == deviceRegistrationMethodRecognized) {
+      return currentMethod;
+    }
+
+    if (localMethod == deviceRegistrationMethodLink) {
+      if (_isTrustedRegistrationMethod(currentMethod)) return currentMethod;
+      return deviceRegistrationMethodLink;
+    }
+
+    if (_isTrustedRegistrationMethod(currentMethod) &&
+        _isUnverifiedRegistrationMethod(localMethod)) {
+      return currentMethod;
+    }
+
+    return localMethod;
+  }
+
+  static bool _isTrustedRegistrationMethod(String? method) {
+    return method == deviceRegistrationMethodSetup ||
+        method == deviceRegistrationMethodLink ||
+        method == deviceRegistrationMethodRecoveryApproved ||
+        method == deviceRegistrationMethodRecoveryTokenRotated ||
+        method == deviceRegistrationMethodRecognized;
+  }
+
+  static bool _isUnverifiedRegistrationMethod(String? method) {
+    if (method == null || method.isEmpty) return false;
+    return !_isTrustedRegistrationMethod(method);
   }
 
   static List<Map<String, dynamic>> _deviceApprovalRequests(
@@ -1749,7 +1786,9 @@ class SyncEngine {
 
   /// Encrypts an SSH credential to bytes
   Future<Uint8List> _encryptSshCredential(
-      SshCredential credential, Uint8List key) async {
+    SshCredential credential,
+    Uint8List key,
+  ) async {
     final jsonString = jsonEncode(credential.toJson());
     final jsonBytes = utf8.encode(jsonString);
     final paddedBytes =
@@ -1765,7 +1804,9 @@ class SyncEngine {
 
   /// Decrypts an SSH credential from bytes
   Future<SshCredential> _decryptSshCredential(
-      Uint8List bytes, Uint8List key) async {
+    Uint8List bytes,
+    Uint8List key,
+  ) async {
     final encryptedBox = EncryptedBox.fromBytes(bytes);
     final decryptedPadded = await _cryptoManager.decryptXChaCha20(
       box: encryptedBox,

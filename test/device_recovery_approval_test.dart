@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -191,6 +190,172 @@ void main() {
     expect(harness.githubService.uploadCount, 0);
   });
 
+  test('linked device consumes invite and keeps link registration', () async {
+    final cryptoManager = CryptoManager();
+    final rootKey = cryptoManager.generateRandomKey();
+    final now = DateTime.now();
+    final harness = await _createHarnessWithRootKey(
+      rootKey: rootKey,
+      deviceId: 'phone-device',
+      deviceName: 'Phone',
+      cryptoManager: cryptoManager,
+      registry: {
+        'devices': [
+          {
+            'deviceId': 'trusted-device',
+            'name': 'Trusted Laptop',
+            'lastSeen': now.toIso8601String(),
+            'addedAt': now.toIso8601String(),
+            'registrationMethod': SyncEngine.deviceRegistrationMethodSetup,
+          },
+        ],
+        'pendingDeviceInvites': [
+          {
+            'inviteId': 'invite-1',
+            'createdAt': now.toIso8601String(),
+            'expiresAt': now
+                .add(SyncEngine.pendingDeviceInviteLifetime)
+                .toIso8601String(),
+            'createdByDeviceId': 'trusted-device',
+            'createdByName': 'Trusted Laptop',
+          },
+        ],
+      },
+    );
+    await harness.keyStorage.storeDeviceRegistrationMethod(
+      SyncEngine.deviceRegistrationMethodLink,
+    );
+    await harness.keyStorage.storePendingDeviceInviteId('invite-1');
+
+    final firstRegistry = await SyncEngine.refreshDeviceRegistry(
+      keyStorage: harness.keyStorage,
+      cryptoManager: harness.cryptoManager,
+      githubService: harness.githubService,
+      uploadIfNeeded: true,
+    );
+    final firstDevices = (firstRegistry!['devices'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+    final linkedDevice = firstDevices.singleWhere(
+      (device) => device['deviceId'] == 'phone-device',
+    );
+
+    expect(
+      linkedDevice['registrationMethod'],
+      SyncEngine.deviceRegistrationMethodLink,
+    );
+    expect(linkedDevice['linkedInviteId'], 'invite-1');
+    expect(firstRegistry['pendingDeviceInvites'], isEmpty);
+    expect(await harness.keyStorage.getPendingDeviceInviteId(), isNull);
+
+    final uploadCountAfterLink = harness.githubService.uploadCount;
+    final secondRegistry = await SyncEngine.refreshDeviceRegistry(
+      keyStorage: harness.keyStorage,
+      cryptoManager: harness.cryptoManager,
+      githubService: harness.githubService,
+      uploadIfNeeded: true,
+    );
+    final secondDevices = (secondRegistry!['devices'] as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+    final refreshedDevice = secondDevices.singleWhere(
+      (device) => device['deviceId'] == 'phone-device',
+    );
+
+    expect(
+      refreshedDevice['registrationMethod'],
+      SyncEngine.deviceRegistrationMethodLink,
+    );
+    expect(harness.githubService.uploadCount, uploadCountAfterLink);
+  });
+
+  test('linked device with missing invite is still registered as linked',
+      () async {
+    final cryptoManager = CryptoManager();
+    final rootKey = cryptoManager.generateRandomKey();
+    final now = DateTime.now().toIso8601String();
+    final harness = await _createHarnessWithRootKey(
+      rootKey: rootKey,
+      deviceId: 'phone-device',
+      deviceName: 'Phone',
+      cryptoManager: cryptoManager,
+      registry: {
+        'devices': [
+          {
+            'deviceId': 'trusted-device',
+            'name': 'Trusted Laptop',
+            'lastSeen': now,
+            'addedAt': now,
+            'registrationMethod': SyncEngine.deviceRegistrationMethodSetup,
+          },
+        ],
+        'pendingDeviceInvites': const <Map<String, dynamic>>[],
+      },
+    );
+    await harness.keyStorage.storeDeviceRegistrationMethod(
+      SyncEngine.deviceRegistrationMethodLink,
+    );
+    await harness.keyStorage.storePendingDeviceInviteId('missing-invite');
+
+    final registry = await SyncEngine.refreshDeviceRegistry(
+      keyStorage: harness.keyStorage,
+      cryptoManager: harness.cryptoManager,
+      githubService: harness.githubService,
+      uploadIfNeeded: true,
+    );
+    final devices =
+        (registry!['devices'] as List<dynamic>).cast<Map<String, dynamic>>();
+    final linkedDevice = devices.singleWhere(
+      (device) => device['deviceId'] == 'phone-device',
+    );
+
+    expect(
+      linkedDevice['registrationMethod'],
+      SyncEngine.deviceRegistrationMethodLink,
+    );
+    expect(await harness.keyStorage.getPendingDeviceInviteId(), isNull);
+  });
+
+  test('recognized device is not downgraded by later refresh', () async {
+    final cryptoManager = CryptoManager();
+    final rootKey = cryptoManager.generateRandomKey();
+    final now = DateTime.now().toIso8601String();
+    final harness = await _createHarnessWithRootKey(
+      rootKey: rootKey,
+      deviceId: 'phone-device',
+      deviceName: 'Phone',
+      cryptoManager: cryptoManager,
+      registry: {
+        'devices': [
+          {
+            'deviceId': 'phone-device',
+            'name': 'Phone',
+            'lastSeen': now,
+            'addedAt': now,
+            'registrationMethod': SyncEngine.deviceRegistrationMethodRecognized,
+            'recognizedByDeviceId': 'trusted-device',
+          },
+        ],
+      },
+    );
+    await harness.keyStorage.storeDeviceRegistrationMethod(
+      SyncEngine.deviceRegistrationMethodLink,
+    );
+
+    final registry = await SyncEngine.refreshDeviceRegistry(
+      keyStorage: harness.keyStorage,
+      cryptoManager: harness.cryptoManager,
+      githubService: harness.githubService,
+      uploadIfNeeded: true,
+    );
+    final devices =
+        (registry!['devices'] as List<dynamic>).cast<Map<String, dynamic>>();
+
+    expect(
+      devices.single['registrationMethod'],
+      SyncEngine.deviceRegistrationMethodRecognized,
+    );
+    expect(harness.githubService.uploadCount, 0);
+  });
+
   test('recovery restore pulls remote vault before any local push', () async {
     final cryptoManager = CryptoManager();
     final rootKey = cryptoManager.generateRandomKey();
@@ -274,9 +439,11 @@ void main() {
     final restoredEntries = await recoveryVault.getAllEntries();
     final restoreUploadPaths = githubService.uploadedPaths
         .skip(uploadCountBeforeRestore)
-        .where((path) =>
-            path == Constants.indexFile ||
-            path.startsWith('${Constants.dataFolder}/'))
+        .where(
+          (path) =>
+              path == Constants.indexFile ||
+              path.startsWith('${Constants.dataFolder}/'),
+        )
         .toList();
 
     expect(restoreResult.pulled, 1);
@@ -344,7 +511,9 @@ void main() {
     final invites = registry['pendingDeviceInvites'] as List<dynamic>;
 
     expect(
-        devices.any((device) => device['deviceId'] == 'phone-device'), isFalse);
+      devices.any((device) => device['deviceId'] == 'phone-device'),
+      isFalse,
+    );
     expect(revokedDevices.single['deviceId'], 'phone-device');
     expect(approvals, isEmpty);
     expect(invites, isEmpty);
