@@ -103,8 +103,8 @@ flutter_launcher_icons:
   android: true
   ios: false
   image_path: "assets/icon/gitvault_launcher.png"
-  adaptive_icon_background: "#D71920"
-  adaptive_icon_foreground: "assets/icon/gitvault_new.jpeg"
+  adaptive_icon_background: "#C32624"
+  adaptive_icon_foreground: "assets/icon/gitvault_adaptive_foreground.png"
   web:
     generate: true
     image_path: "assets/icon/gitvault_launcher.png"
