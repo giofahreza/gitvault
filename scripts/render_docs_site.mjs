@@ -3,7 +3,8 @@ import { dirname, join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const DOCS_ROOT = join(ROOT, "docs", "docs");
-const VERSION = "20260729c";
+const VERSION = "20260729d";
+const SCREENSHOT_VERSION = "real-20260729";
 const UPDATED = "July 29, 2026";
 
 const primaryGroups = [
@@ -1198,6 +1199,8 @@ function relatedSection(page) {
 }
 
 function layout({ title, description, canonical, currentPath, articleClass = "", slug = "", headingCategory, meta, body }) {
+  const versionedBody = versionScreenshots(body);
+
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -1259,7 +1262,7 @@ function layout({ title, description, canonical, currentPath, articleClass = "",
             ${meta}
           </div>
 
-          ${body}
+          ${versionedBody}
         </article>
 
         <aside class="docs-on-page" aria-label="On this page">
@@ -1410,6 +1413,10 @@ function escapeAttr(value) {
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function versionScreenshots(html) {
+  return html.replace(/(src="\/screenshots\/[^"]+?\.png)(?=")/g, `$1?v=${SCREENSHOT_VERSION}`);
 }
 
 function slugify(value) {
