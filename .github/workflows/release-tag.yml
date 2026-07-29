@@ -184,6 +184,9 @@ jobs:
             exit 1
           fi
 
+      - name: Render docs site
+        run: node scripts/render_docs_site.mjs
+
       - name: Prepare GitHub Pages site
         run: |
           rm -rf pages-dist
@@ -220,6 +223,30 @@ jobs:
           touch pages-dist/.nojekyll
           test -f pages-dist/CNAME
           test -f pages-dist/index.html
+          test -f pages-dist/wiki.html
+          test -f pages-dist/docs/index.html
+          test -f pages-dist/docs/quick-start/index.html
+          test -f pages-dist/docs/github-sync/index.html
+          test -f pages-dist/docs/platform-support/index.html
+          test -f pages-dist/docs/sync-behavior/index.html
+          test -f pages-dist/docs/passwords/index.html
+          test -f pages-dist/docs/notes/index.html
+          test -f pages-dist/docs/totp/index.html
+          test -f pages-dist/docs/totp-import/index.html
+          test -f pages-dist/docs/ssh/index.html
+          test -f pages-dist/docs/autofill-keyboard/index.html
+          test -f pages-dist/docs/security/index.html
+          test -f pages-dist/docs/settings/index.html
+          test -f pages-dist/docs/devices/index.html
+          test -f pages-dist/docs/recovery/index.html
+          test -f pages-dist/docs/install-update/index.html
+          test -f pages-dist/docs/release-verification/index.html
+          test -f pages-dist/docs/faq/index.html
+          test -f pages-dist/docs/troubleshooting/index.html
+          test -f pages-dist/docs/category/tutorials/index.html
+          test -f pages-dist/docs/search-index.json
+          test -f pages-dist/docs.css
+          test -f pages-dist/docs.js
           test -f pages-dist/app/index.html
           grep -q '<base href="/app/">' pages-dist/app/index.html
           grep -q '<base href="/app/">' pages-dist/app/404.html

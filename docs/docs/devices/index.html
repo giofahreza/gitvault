@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="Link, approve, recognize, remove, and recover trusted web and Android devices.">
+    <title>Connected devices - GitVault Docs</title>
+    <link rel="icon" type="image/jpeg" href="/assets/icon/gitvault_new.jpeg">
+    <link rel="canonical" href="https://gitvault.giofahreza.com/docs/devices/">
+    <link rel="stylesheet" href="/docs.css?v=20260729c">
+  </head>
+  <body>
+    <a class="skip-link" href="#docs-content">Skip to docs content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="brand" href="/" aria-label="GitVault home">
+          <img src="/assets/icon/gitvault_new.jpeg" alt="" width="30" height="30">
+          <span>GitVault</span>
+        </a>
+        <nav aria-label="Site navigation">
+          <a href="/">Home</a>
+          <a href="/#vault">Vault</a>
+          <a href="/#sync">Sync</a>
+          <a href="/docs/" aria-current="page">Docs</a>
+          <a href="https://github.com/giofahreza/gitvault">GitHub</a>
+          <a class="nav-action" href="/app/">Open App</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="docs-page-shell">
+      <div class="docs-layout">
+        <aside class="docs-toc" aria-label="Docs pages">
+          <label class="docs-search" for="docs-search">
+            <span>Search docs</span>
+            <input id="docs-search" type="search" autocomplete="off" placeholder="Search docs">
+          </label>
+          <div id="docs-search-results" class="docs-search-results" aria-live="polite"></div>
+          <a class="docs-home-link" href="/docs/">Docs home</a>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Tutorials</p>
+
+              <a href="/docs/quick-start/" data-title="Quick start" data-category="Tutorials" data-summary="Create your vault, save recovery, set a PIN, add an item, and connect encrypted sync." data-keywords="setup onboarding create vault recovery phrase pin github sync first run link device restore">
+                <span>Quick start</span>
+                <small>Create your vault, save recovery, set a PIN, add an item, and connect encrypted sync.</small>
+              </a>
+
+              <a href="/docs/github-sync/" data-title="GitHub sync setup" data-category="Tutorials" data-summary="Prepare a private repository and fine-grained token for encrypted GitVault storage." data-keywords="github repository repo token pat fine grained contents metadata private sync storage bearer classic token">
+                <span>GitHub sync setup</span>
+                <small>Prepare a private repository and fine-grained token for encrypted GitVault storage.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">How-to guides</p>
+
+              <a href="/docs/passwords/" data-title="Passwords" data-category="How-to guides" data-summary="Add, group, search, copy, edit, delete, and fill password entries." data-keywords="password credentials username url notes group dropdown create group copy edit delete autofill totp">
+                <span>Passwords</span>
+                <small>Add, group, search, copy, edit, delete, and fill password entries.</small>
+              </a>
+
+              <a href="/docs/notes/" data-title="Notes" data-category="How-to guides" data-summary="Create private notes, checklists, tags, colors, pinned notes, archive, and search." data-keywords="notes checklist pinned list grid single column mobile tags archive color search private text">
+                <span>Notes</span>
+                <small>Create private notes, checklists, tags, colors, pinned notes, archive, and search.</small>
+              </a>
+
+              <a href="/docs/totp/" data-title="2FA codes" data-category="How-to guides" data-summary="Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing." data-keywords="2fa totp authenticator code timer secret issuer account group dropdown copy countdown">
+                <span>2FA codes</span>
+                <small>Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing.</small>
+              </a>
+
+              <a href="/docs/totp-import/" data-title="TOTP import" data-category="How-to guides" data-summary="Import authenticator secrets from manual secrets, otpauth links, or QR codes when supported." data-keywords="totp import otpauth qr code scanner secret google authenticator issuer account migration">
+                <span>TOTP import</span>
+                <small>Import authenticator secrets from manual secrets, otpauth links, or QR codes when supported.</small>
+              </a>
+
+              <a href="/docs/ssh/" data-title="SSH credentials" data-category="How-to guides" data-summary="Save SSH hosts, ports, usernames, passwords, keys, and Android terminal entries." data-keywords="ssh terminal host username port password private key android credentials ping connect session">
+                <span>SSH credentials</span>
+                <small>Save SSH hosts, ports, usernames, passwords, keys, and Android terminal entries.</small>
+              </a>
+
+              <a href="/docs/autofill-keyboard/" data-title="Autofill and GitVault Keyboard" data-category="How-to guides" data-summary="Enable Android autofill and GitVault Keyboard for easier password entry in other apps." data-keywords="android autofill service keyboard ime inline suggestions samsung chrome pixel gboard swiftkey">
+                <span>Autofill and GitVault Keyboard</span>
+                <small>Enable Android autofill and GitVault Keyboard for easier password entry in other apps.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Reference</p>
+
+              <a href="/docs/platform-support/" data-title="Platform support" data-category="Reference" data-summary="Feature availability across the web app and Android APK." data-keywords="platform support web android browser apk autofill keyboard biometric ssh terminal recent apps">
+                <span>Platform support</span>
+                <small>Feature availability across the web app and Android APK.</small>
+              </a>
+
+              <a href="/docs/sync-behavior/" data-title="Sync behavior" data-category="Reference" data-summary="How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work." data-keywords="sync behavior auto sync last write wins conflict tombstones deleted items interval github device revocation">
+                <span>Sync behavior</span>
+                <small>How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work.</small>
+              </a>
+
+              <a href="/docs/security/" data-title="Security model" data-category="Reference" data-summary="How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work." data-keywords="security encryption xchacha20 poly1305 local first pin biometric lock auth interval duress panic clipboard github ciphertext">
+                <span>Security model</span>
+                <small>How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.</small>
+              </a>
+
+              <a href="/docs/settings/" data-title="Settings" data-category="Reference" data-summary="Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery." data-keywords="settings theme clipboard autofill keyboard github biometric pin interval recovery kit connected devices auto sync lock">
+                <span>Settings</span>
+                <small>Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery.</small>
+              </a>
+
+              <a href="/docs/devices/" data-title="Connected devices" data-category="Reference" data-summary="Link, approve, recognize, remove, and recover trusted web and Android devices." data-keywords="devices linked trusted remove approval recognize recovery token registry alert link new device qr transfer code pin" aria-current="page" class="is-active">
+                <span>Connected devices</span>
+                <small>Link, approve, recognize, remove, and recover trusted web and Android devices.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Recovery</p>
+
+              <a href="/docs/recovery/" data-title="Recovery flows" data-category="Recovery" data-summary="Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens." data-keywords="recovery phrase trusted device approval old token new token lost all devices restore onboarding wait approval">
+                <span>Recovery flows</span>
+                <small>Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Operations</p>
+
+              <a href="/docs/install-update/" data-title="Install and update" data-category="Operations" data-summary="Open the web app, install Android APKs, verify release assets, and understand version updates." data-keywords="install update apk universal abi sha256 release tag github pages web app version android">
+                <span>Install and update</span>
+                <small>Open the web app, install Android APKs, verify release assets, and understand version updates.</small>
+              </a>
+
+              <a href="/docs/release-verification/" data-title="Release verification" data-category="Operations" data-summary="Verify APK checksums, release assets, and deployed web version before trusting an update." data-keywords="release verification apk sha256 checksum sha256sums version tag github releases web pages verify download">
+                <span>Release verification</span>
+                <small>Verify APK checksums, release assets, and deployed web version before trusting an update.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Troubleshooting</p>
+
+              <a href="/docs/faq/" data-title="FAQ and common mistakes" data-category="Troubleshooting" data-summary="Answers for common setup, sync, device trust, recovery, autofill, and release questions." data-keywords="faq common mistakes github token device alert recognize link device restore recovery autofill checksum web version pin throttling">
+                <span>FAQ and common mistakes</span>
+                <small>Answers for common setup, sync, device trust, recovery, autofill, and release questions.</small>
+              </a>
+
+              <a href="/docs/troubleshooting/" data-title="Troubleshooting" data-category="Troubleshooting" data-summary="Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order." data-keywords="troubleshooting sync token device pin biometric autofill alert web android version github pages diagnostics">
+                <span>Troubleshooting</span>
+                <small>Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order.</small>
+              </a>
+            </div>
+
+          <div class="docs-nav-group docs-nav-group-compact">
+            <p class="docs-toc-label">Browse topics</p>
+            <a href="/docs/category/security/" data-title="Security" data-category="Topic" data-summary="Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust." data-keywords="security"><span>Security</span><small>Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust.</small></a>
+<a href="/docs/category/sync/" data-title="Sync" data-category="Topic" data-summary="GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics." data-keywords="sync"><span>Sync</span><small>GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics.</small></a>
+<a href="/docs/category/devices/" data-title="Devices" data-category="Topic" data-summary="Trusted devices, Link New Device, recovery requests, alerts, and removal behavior." data-keywords="devices"><span>Devices</span><small>Trusted devices, Link New Device, recovery requests, alerts, and removal behavior.</small></a>
+<a href="/docs/category/android/" data-title="Android" data-category="Topic" data-summary="APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support." data-keywords="android"><span>Android</span><small>APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support.</small></a>
+<a href="/docs/category/web/" data-title="Web" data-category="Topic" data-summary="Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment." data-keywords="web"><span>Web</span><small>Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.</small></a>
+          </div>
+        </aside>
+
+        <article id="docs-content" class="docs-content docs-article" data-page-slug="devices">
+          <div class="docs-heading">
+            <p class="eyebrow">Reference</p>
+            <h1>Connected devices</h1>
+            <dl class="docs-meta">
+              <div><dt>Type</dt><dd>Reference</dd></div>
+              <div><dt>Applies to</dt><dd>Web and Android</dd></div>
+              <div><dt>Updated</dt><dd>July 29, 2026</dd></div>
+            </dl>
+          </div>
+
+
+      <p class="docs-lead">Connected Devices is the trust list for web browsers and Android installs that can access the synced vault.</p>
+
+      <figure class="docs-figure">
+        <div class="docs-figure-frame">
+          <img src="/screenshots/settings-autofill-devices.png" alt="GitVault settings area with connected devices" loading="lazy">
+        </div>
+        <figcaption>The device list is shared through encrypted sync, so each device needs a successful sync before every other device sees it.</figcaption>
+      </figure>
+
+      <h2>Visual checklist</h2>
+      <ul class="docs-list">
+        <li><strong>Current device visible</strong> The device you are using should be clearly marked as this device or current device.</li>
+        <li><strong>New device named</strong> After Link New Device completes, give the new phone, browser, or laptop a recognizable name.</li>
+        <li><strong>Sync after trust changes</strong> After recognizing or removing a device, run sync so other devices receive the trust update.</li>
+      </ul>
+
+      <h2>What the device list means</h2>
+      <ul class="docs-list">
+        <li><strong>This device</strong> The device or browser currently open.</li>
+        <li><strong>Trusted device</strong> A device that linked, restored with approval, or was explicitly recognized by you.</li>
+        <li><strong>Unknown device alert</strong> A warning that a device appeared outside the Link New Device flow.</li>
+        <li><strong>Removed device</strong> A device that must link again or restore before it can use synced vault access.</li>
+      </ul>
+
+      <h2>Link a new device</h2>
+      <ol class="docs-steps">
+        <li><span>1</span><div><strong>Open Settings on a trusted device.</strong><p>Select Link New Device and keep the source device open.</p></div></li>
+        <li><span>2</span><div><strong>Show the invite.</strong><p>Display the QR code or copy the transfer code.</p></div></li>
+        <li><span>3</span><div><strong>Open GitVault on the new device.</strong><p>Choose Link New Device from onboarding or the add-device flow.</p></div></li>
+        <li><span>4</span><div><strong>Scan or paste the invite.</strong><p>Enter the short PIN shown by the trusted device.</p></div></li>
+        <li><span>5</span><div><strong>Name the device.</strong><p>The new device becomes trusted only after the invite is consumed successfully.</p></div></li>
+      </ol>
+
+      <h2>Device added outside Link New Device</h2>
+      <p>If a device appears without the Link New Device flow, GitVault warns other trusted devices. Choose "I recognize this device" only when the device, time, and context match your own action. If not, remove the device and rotate the GitHub token.</p>
+
+      <h2>Remove a device</h2>
+      <ol class="docs-steps compact">
+        <li><span>1</span><div><strong>Open Settings, then Connected Devices.</strong><p>Use a trusted device that can sync.</p></div></li>
+        <li><span>2</span><div><strong>Select remove for the device.</strong><p>The device is no longer trusted after this change syncs.</p></div></li>
+        <li><span>3</span><div><strong>Rotate credentials when needed.</strong><p>If the removed device may be compromised, create a new GitHub token and revoke the old token.</p></div></li>
+      </ol>
+
+      <h2>When a removed device opens</h2>
+      <p>When the removed device opens or checks trust, GitVault clears local sync access. The device must use Link New Device or the recovery flow before it can access synced data again.</p>
+
+
+          <section class="docs-related" aria-labelledby="see-also">
+            <h2 id="see-also">See also</h2>
+            <ul class="docs-link-list">
+              <li><a href="/docs/recovery/">Recovery flows</a> - Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens.</li>
+              <li><a href="/docs/sync-behavior/">Sync behavior</a> - How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work.</li>
+              <li><a href="/docs/security/">Security model</a> - How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.</li>
+              <li><a href="/docs/troubleshooting/">Troubleshooting</a> - Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order.</li>
+            </ul>
+          </section>
+        </article>
+
+        <aside class="docs-on-page" aria-label="On this page">
+          <p class="docs-toc-label">On this page</p>
+          <nav id="on-this-page"></nav>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <span>GitVault Docs</span>
+      <span><a href="https://github.com/giofahreza/gitvault">github.com/giofahreza/gitvault</a></span>
+    </footer>
+    <script src="/docs.js?v=20260729c" defer></script>
+  </body>
+</html>

@@ -1,0 +1,414 @@
+{
+  "pages": [
+    {
+      "title": "Docs home",
+      "category": "Overview",
+      "summary": "GitVault documentation home and common tasks.",
+      "keywords": "documentation overview home common tasks",
+      "headings": [
+        "What is GitVault",
+        "Common tasks",
+        "Documentation map",
+        "Browse topics",
+        "Release and status"
+      ],
+      "excerpt": "Start from GitVault documentation home to find setup, sync, devices, recovery, and troubleshooting pages.",
+      "href": "/docs/"
+    },
+    {
+      "title": "Quick start",
+      "category": "Tutorials",
+      "summary": "Create your vault, save recovery, set a PIN, add an item, and connect encrypted sync.",
+      "keywords": "setup onboarding create vault recovery phrase pin github sync first run link device restore",
+      "headings": [
+        "Before you start",
+        "Create your first vault",
+        "Set up sync",
+        "Add another device",
+        "Verify the setup"
+      ],
+      "excerpt": "Start with a new vault, write down the recovery phrase, set a 4-6 digit PIN, add one vault item, then connect GitHub sync if you need backup or more devices.",
+      "href": "/docs/quick-start/"
+    },
+    {
+      "title": "GitHub sync setup",
+      "category": "Tutorials",
+      "summary": "Prepare a private repository and fine-grained token for encrypted GitVault storage.",
+      "keywords": "github repository repo token pat fine grained contents metadata private sync storage bearer classic token",
+      "headings": [
+        "Visual checkpoint",
+        "How GitHub is used",
+        "Create private storage",
+        "Token permissions",
+        "Connect GitVault",
+        "Rotate a token"
+      ],
+      "excerpt": "GitHub is only encrypted storage. GitVault encrypts locally, writes ciphertext files to one private repository, and needs a fine-grained token with minimal repository permissions.",
+      "href": "/docs/github-sync/"
+    },
+    {
+      "title": "Platform support",
+      "category": "Reference",
+      "summary": "Feature availability across the web app and Android APK.",
+      "keywords": "platform support web android browser apk autofill keyboard biometric ssh terminal recent apps",
+      "headings": [
+        "Support matrix",
+        "Web notes",
+        "Android notes",
+        "Unsupported or conditional behavior"
+      ],
+      "excerpt": "Most vault features work on web and Android. Android adds system autofill, GitVault Keyboard, recent-app privacy, and mobile SSH terminal behavior where supported.",
+      "href": "/docs/platform-support/"
+    },
+    {
+      "title": "Sync behavior",
+      "category": "Reference",
+      "summary": "How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work.",
+      "keywords": "sync behavior auto sync last write wins conflict tombstones deleted items interval github device revocation",
+      "headings": [
+        "What sync moves",
+        "When sync runs",
+        "Conflict handling",
+        "Deletes",
+        "Device trust checks",
+        "Performance habits"
+      ],
+      "excerpt": "GitVault syncs encrypted vault data and trust records through GitHub. Auto-sync can run in the background, conflicts resolve by latest change, and deletes are retained as tombstones.",
+      "href": "/docs/sync-behavior/"
+    },
+    {
+      "title": "Passwords",
+      "category": "How-to guides",
+      "summary": "Add, group, search, copy, edit, delete, and fill password entries.",
+      "keywords": "password credentials username url notes group dropdown create group copy edit delete autofill totp",
+      "headings": [
+        "Add a password",
+        "Choose or create a group",
+        "Use a saved password",
+        "Edit or delete",
+        "Autofill on Android"
+      ],
+      "excerpt": "Password entries store login title, username, password, URL, notes, group, and optional TOTP data. Groups can be selected or created from the same dropdown.",
+      "href": "/docs/passwords/"
+    },
+    {
+      "title": "Notes",
+      "category": "How-to guides",
+      "summary": "Create private notes, checklists, tags, colors, pinned notes, archive, and search.",
+      "keywords": "notes checklist pinned list grid single column mobile tags archive color search private text",
+      "headings": [
+        "Create a note",
+        "Create a checklist",
+        "Organize notes",
+        "Find notes",
+        "Archive or delete"
+      ],
+      "excerpt": "Notes can be plain private text or checklists. Use pinning, colors, tags, archive, and search to keep private information usable.",
+      "href": "/docs/notes/"
+    },
+    {
+      "title": "2FA codes",
+      "category": "How-to guides",
+      "summary": "Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing.",
+      "keywords": "2fa totp authenticator code timer secret issuer account group dropdown copy countdown",
+      "headings": [
+        "Add a 2FA code",
+        "Choose or create a group",
+        "Use a code",
+        "Store 2FA inside a password"
+      ],
+      "excerpt": "GitVault works as an authenticator for TOTP secrets. Codes regenerate on the normal timer and can be copied from the 2FA page or password details.",
+      "href": "/docs/totp/"
+    },
+    {
+      "title": "TOTP import",
+      "category": "How-to guides",
+      "summary": "Import authenticator secrets from manual secrets, otpauth links, or QR codes when supported.",
+      "keywords": "totp import otpauth qr code scanner secret google authenticator issuer account migration",
+      "headings": [
+        "Accepted inputs",
+        "Import from a copied secret",
+        "Import from an otpauth link",
+        "Import from QR",
+        "Verify imported codes"
+      ],
+      "excerpt": "GitVault accepts manual TOTP secrets and otpauth links. QR scanning depends on camera support; paste the link or secret when scanning is unavailable.",
+      "href": "/docs/totp-import/"
+    },
+    {
+      "title": "SSH credentials",
+      "category": "How-to guides",
+      "summary": "Save SSH hosts, ports, usernames, passwords, keys, and Android terminal entries.",
+      "keywords": "ssh terminal host username port password private key android credentials ping connect session",
+      "headings": [
+        "Add an SSH credential",
+        "Password auth",
+        "Key auth",
+        "Test and connect",
+        "Operational habits"
+      ],
+      "excerpt": "SSH entries store host credentials in the encrypted vault. Android can open terminal workflows where supported by the build and device.",
+      "href": "/docs/ssh/"
+    },
+    {
+      "title": "Autofill and GitVault Keyboard",
+      "category": "How-to guides",
+      "summary": "Enable Android autofill and GitVault Keyboard for easier password entry in other apps.",
+      "keywords": "android autofill service keyboard ime inline suggestions samsung chrome pixel gboard swiftkey",
+      "headings": [
+        "Enable autofill on Samsung",
+        "Enable autofill on Pixel or stock Android",
+        "Verify autofill",
+        "Enable GitVault Keyboard",
+        "When to use keyboard fallback"
+      ],
+      "excerpt": "Android autofill works after selecting GitVault as the system autofill service. GitVault Keyboard is the fallback for apps or browsers that do not expose fields correctly.",
+      "href": "/docs/autofill-keyboard/"
+    },
+    {
+      "title": "Security model",
+      "category": "Reference",
+      "summary": "How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.",
+      "keywords": "security encryption xchacha20 poly1305 local first pin biometric lock auth interval duress panic clipboard github ciphertext",
+      "headings": [
+        "Security layers",
+        "Unlock and lock",
+        "Biometric unlock",
+        "Authentication interval",
+        "Duress mode",
+        "Clipboard auto-clear"
+      ],
+      "excerpt": "GitVault encrypts data locally with authenticated encryption before GitHub sync. Local unlock is protected by PIN and optional biometric support, with duress and clipboard safety settings.",
+      "href": "/docs/security/"
+    },
+    {
+      "title": "Settings",
+      "category": "Reference",
+      "summary": "Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery.",
+      "keywords": "settings theme clipboard autofill keyboard github biometric pin interval recovery kit connected devices auto sync lock",
+      "headings": [
+        "Settings map",
+        "Recommended settings",
+        "After changing settings"
+      ],
+      "excerpt": "Settings controls unlock behavior, biometric unlock, authentication interval, clipboard clearing, GitHub sync, auto-sync, autofill, keyboard, devices, and recovery kit access.",
+      "href": "/docs/settings/"
+    },
+    {
+      "title": "Connected devices",
+      "category": "Reference",
+      "summary": "Link, approve, recognize, remove, and recover trusted web and Android devices.",
+      "keywords": "devices linked trusted remove approval recognize recovery token registry alert link new device qr transfer code pin",
+      "headings": [
+        "Visual checklist",
+        "What the device list means",
+        "Link a new device",
+        "Device added outside Link New Device",
+        "Remove a device",
+        "When a removed device opens"
+      ],
+      "excerpt": "Connected Devices shows trusted web and Android devices after they link or restore and sync. Removing a device makes it untrusted, and it must link or restore again.",
+      "href": "/docs/devices/"
+    },
+    {
+      "title": "Recovery flows",
+      "category": "Recovery",
+      "summary": "Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens.",
+      "keywords": "recovery phrase trusted device approval old token new token lost all devices restore onboarding wait approval",
+      "headings": [
+        "Recovery checklist",
+        "Which recovery path to use",
+        "Restore with another trusted device",
+        "Restore after losing every trusted device",
+        "After recovery succeeds",
+        "What GitVault cannot recover"
+      ],
+      "excerpt": "Recovery starts with the normal trusted-device approval path. If no trusted device can answer, use recovery phrase plus old GitHub access and a newly generated GitHub token.",
+      "href": "/docs/recovery/"
+    },
+    {
+      "title": "Install and update",
+      "category": "Operations",
+      "summary": "Open the web app, install Android APKs, verify release assets, and understand version updates.",
+      "keywords": "install update apk universal abi sha256 release tag github pages web app version android",
+      "headings": [
+        "Web app",
+        "Android APK",
+        "Release assets",
+        "Verify the version",
+        "Upgrade habits"
+      ],
+      "excerpt": "The web app is served at /app/ and the Android APK is published on GitHub Releases. The visible version is derived from the release tag.",
+      "href": "/docs/install-update/"
+    },
+    {
+      "title": "Release verification",
+      "category": "Operations",
+      "summary": "Verify APK checksums, release assets, and deployed web version before trusting an update.",
+      "keywords": "release verification apk sha256 checksum sha256sums version tag github releases web pages verify download",
+      "headings": [
+        "What to verify",
+        "Verify an APK checksum",
+        "Windows checksum",
+        "macOS or Linux checksum",
+        "Verify the web app",
+        "When verification fails"
+      ],
+      "excerpt": "Use SHA256SUMS.txt from the same GitHub release to verify an APK download, then check the in-app version against the release tag after installing or opening the web app.",
+      "href": "/docs/release-verification/"
+    },
+    {
+      "title": "FAQ and common mistakes",
+      "category": "Troubleshooting",
+      "summary": "Answers for common setup, sync, device trust, recovery, autofill, and release questions.",
+      "keywords": "faq common mistakes github token device alert recognize link device restore recovery autofill checksum web version pin throttling",
+      "headings": [
+        "Setup",
+        "Sync",
+        "Devices",
+        "Recovery",
+        "Autofill",
+        "Updates",
+        "Security"
+      ],
+      "excerpt": "Common GitVault mistakes include using the wrong token permission, skipping the recovery phrase, recognizing an unknown device too quickly, and expecting Android autofill before selecting GitVault as provider.",
+      "href": "/docs/faq/"
+    },
+    {
+      "title": "Troubleshooting",
+      "category": "Troubleshooting",
+      "summary": "Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order.",
+      "keywords": "troubleshooting sync token device pin biometric autofill alert web android version github pages diagnostics",
+      "headings": [
+        "Diagnostic order",
+        "Common problems",
+        "Autofill checks",
+        "Device trust checks",
+        "When to rotate a token"
+      ],
+      "excerpt": "Start with unlock and internet, then check repository and token permissions, source-device sync, target-device sync, device trust, and platform-specific settings.",
+      "href": "/docs/troubleshooting/"
+    },
+    {
+      "title": "Tutorials",
+      "category": "Topic",
+      "summary": "First-run paths from empty vault to synced vault.",
+      "keywords": "tutorials Tutorials",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Quick start, GitHub sync setup",
+      "href": "/docs/category/tutorials/"
+    },
+    {
+      "title": "How-to guides",
+      "category": "Topic",
+      "summary": "Task-oriented procedures for daily vault use.",
+      "keywords": "how-to-guides How-to guides",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Passwords, Notes, 2FA codes, TOTP import, SSH credentials, Autofill and GitVault Keyboard",
+      "href": "/docs/category/how-to-guides/"
+    },
+    {
+      "title": "Reference",
+      "category": "Topic",
+      "summary": "Stable behavior, support, security, settings, and sync details.",
+      "keywords": "reference Reference",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Platform support, Sync behavior, Security model, Settings, Connected devices",
+      "href": "/docs/category/reference/"
+    },
+    {
+      "title": "Recovery",
+      "category": "Topic",
+      "summary": "Ways to restore access and regain trusted-device status.",
+      "keywords": "recovery Recovery",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Recovery flows",
+      "href": "/docs/category/recovery/"
+    },
+    {
+      "title": "Operations",
+      "category": "Topic",
+      "summary": "Install, update, release, and verification procedures.",
+      "keywords": "operations Operations",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Install and update, Release verification",
+      "href": "/docs/category/operations/"
+    },
+    {
+      "title": "Troubleshooting",
+      "category": "Topic",
+      "summary": "Symptom-led diagnosis and recovery checks.",
+      "keywords": "troubleshooting Troubleshooting",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "FAQ and common mistakes, Troubleshooting",
+      "href": "/docs/category/troubleshooting/"
+    },
+    {
+      "title": "Security",
+      "category": "Topic",
+      "summary": "Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust.",
+      "keywords": "security Security",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Security model, Settings, Connected devices, Recovery flows",
+      "href": "/docs/category/security/"
+    },
+    {
+      "title": "Sync",
+      "category": "Topic",
+      "summary": "GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics.",
+      "keywords": "sync Sync",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "GitHub sync setup, Sync behavior, Connected devices, Recovery flows, Troubleshooting",
+      "href": "/docs/category/sync/"
+    },
+    {
+      "title": "Devices",
+      "category": "Topic",
+      "summary": "Trusted devices, Link New Device, recovery requests, alerts, and removal behavior.",
+      "keywords": "devices Devices",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Connected devices, Recovery flows, Platform support, Troubleshooting",
+      "href": "/docs/category/devices/"
+    },
+    {
+      "title": "Android",
+      "category": "Topic",
+      "summary": "APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support.",
+      "keywords": "android Android",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Platform support, Autofill and GitVault Keyboard, Install and update, Release verification, Troubleshooting",
+      "href": "/docs/category/android/"
+    },
+    {
+      "title": "Web",
+      "category": "Topic",
+      "summary": "Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.",
+      "keywords": "web Web",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Platform support, Security model, Install and update, Release verification, Troubleshooting",
+      "href": "/docs/category/web/"
+    }
+  ]
+}

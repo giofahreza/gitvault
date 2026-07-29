@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.">
+    <title>Security model - GitVault Docs</title>
+    <link rel="icon" type="image/jpeg" href="/assets/icon/gitvault_new.jpeg">
+    <link rel="canonical" href="https://gitvault.giofahreza.com/docs/security/">
+    <link rel="stylesheet" href="/docs.css?v=20260729c">
+  </head>
+  <body>
+    <a class="skip-link" href="#docs-content">Skip to docs content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="brand" href="/" aria-label="GitVault home">
+          <img src="/assets/icon/gitvault_new.jpeg" alt="" width="30" height="30">
+          <span>GitVault</span>
+        </a>
+        <nav aria-label="Site navigation">
+          <a href="/">Home</a>
+          <a href="/#vault">Vault</a>
+          <a href="/#sync">Sync</a>
+          <a href="/docs/" aria-current="page">Docs</a>
+          <a href="https://github.com/giofahreza/gitvault">GitHub</a>
+          <a class="nav-action" href="/app/">Open App</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="docs-page-shell">
+      <div class="docs-layout">
+        <aside class="docs-toc" aria-label="Docs pages">
+          <label class="docs-search" for="docs-search">
+            <span>Search docs</span>
+            <input id="docs-search" type="search" autocomplete="off" placeholder="Search docs">
+          </label>
+          <div id="docs-search-results" class="docs-search-results" aria-live="polite"></div>
+          <a class="docs-home-link" href="/docs/">Docs home</a>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Tutorials</p>
+
+              <a href="/docs/quick-start/" data-title="Quick start" data-category="Tutorials" data-summary="Create your vault, save recovery, set a PIN, add an item, and connect encrypted sync." data-keywords="setup onboarding create vault recovery phrase pin github sync first run link device restore">
+                <span>Quick start</span>
+                <small>Create your vault, save recovery, set a PIN, add an item, and connect encrypted sync.</small>
+              </a>
+
+              <a href="/docs/github-sync/" data-title="GitHub sync setup" data-category="Tutorials" data-summary="Prepare a private repository and fine-grained token for encrypted GitVault storage." data-keywords="github repository repo token pat fine grained contents metadata private sync storage bearer classic token">
+                <span>GitHub sync setup</span>
+                <small>Prepare a private repository and fine-grained token for encrypted GitVault storage.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">How-to guides</p>
+
+              <a href="/docs/passwords/" data-title="Passwords" data-category="How-to guides" data-summary="Add, group, search, copy, edit, delete, and fill password entries." data-keywords="password credentials username url notes group dropdown create group copy edit delete autofill totp">
+                <span>Passwords</span>
+                <small>Add, group, search, copy, edit, delete, and fill password entries.</small>
+              </a>
+
+              <a href="/docs/notes/" data-title="Notes" data-category="How-to guides" data-summary="Create private notes, checklists, tags, colors, pinned notes, archive, and search." data-keywords="notes checklist pinned list grid single column mobile tags archive color search private text">
+                <span>Notes</span>
+                <small>Create private notes, checklists, tags, colors, pinned notes, archive, and search.</small>
+              </a>
+
+              <a href="/docs/totp/" data-title="2FA codes" data-category="How-to guides" data-summary="Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing." data-keywords="2fa totp authenticator code timer secret issuer account group dropdown copy countdown">
+                <span>2FA codes</span>
+                <small>Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing.</small>
+              </a>
+
+              <a href="/docs/totp-import/" data-title="TOTP import" data-category="How-to guides" data-summary="Import authenticator secrets from manual secrets, otpauth links, or QR codes when supported." data-keywords="totp import otpauth qr code scanner secret google authenticator issuer account migration">
+                <span>TOTP import</span>
+                <small>Import authenticator secrets from manual secrets, otpauth links, or QR codes when supported.</small>
+              </a>
+
+              <a href="/docs/ssh/" data-title="SSH credentials" data-category="How-to guides" data-summary="Save SSH hosts, ports, usernames, passwords, keys, and Android terminal entries." data-keywords="ssh terminal host username port password private key android credentials ping connect session">
+                <span>SSH credentials</span>
+                <small>Save SSH hosts, ports, usernames, passwords, keys, and Android terminal entries.</small>
+              </a>
+
+              <a href="/docs/autofill-keyboard/" data-title="Autofill and GitVault Keyboard" data-category="How-to guides" data-summary="Enable Android autofill and GitVault Keyboard for easier password entry in other apps." data-keywords="android autofill service keyboard ime inline suggestions samsung chrome pixel gboard swiftkey">
+                <span>Autofill and GitVault Keyboard</span>
+                <small>Enable Android autofill and GitVault Keyboard for easier password entry in other apps.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Reference</p>
+
+              <a href="/docs/platform-support/" data-title="Platform support" data-category="Reference" data-summary="Feature availability across the web app and Android APK." data-keywords="platform support web android browser apk autofill keyboard biometric ssh terminal recent apps">
+                <span>Platform support</span>
+                <small>Feature availability across the web app and Android APK.</small>
+              </a>
+
+              <a href="/docs/sync-behavior/" data-title="Sync behavior" data-category="Reference" data-summary="How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work." data-keywords="sync behavior auto sync last write wins conflict tombstones deleted items interval github device revocation">
+                <span>Sync behavior</span>
+                <small>How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work.</small>
+              </a>
+
+              <a href="/docs/security/" data-title="Security model" data-category="Reference" data-summary="How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work." data-keywords="security encryption xchacha20 poly1305 local first pin biometric lock auth interval duress panic clipboard github ciphertext" aria-current="page" class="is-active">
+                <span>Security model</span>
+                <small>How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.</small>
+              </a>
+
+              <a href="/docs/settings/" data-title="Settings" data-category="Reference" data-summary="Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery." data-keywords="settings theme clipboard autofill keyboard github biometric pin interval recovery kit connected devices auto sync lock">
+                <span>Settings</span>
+                <small>Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery.</small>
+              </a>
+
+              <a href="/docs/devices/" data-title="Connected devices" data-category="Reference" data-summary="Link, approve, recognize, remove, and recover trusted web and Android devices." data-keywords="devices linked trusted remove approval recognize recovery token registry alert link new device qr transfer code pin">
+                <span>Connected devices</span>
+                <small>Link, approve, recognize, remove, and recover trusted web and Android devices.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Recovery</p>
+
+              <a href="/docs/recovery/" data-title="Recovery flows" data-category="Recovery" data-summary="Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens." data-keywords="recovery phrase trusted device approval old token new token lost all devices restore onboarding wait approval">
+                <span>Recovery flows</span>
+                <small>Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Operations</p>
+
+              <a href="/docs/install-update/" data-title="Install and update" data-category="Operations" data-summary="Open the web app, install Android APKs, verify release assets, and understand version updates." data-keywords="install update apk universal abi sha256 release tag github pages web app version android">
+                <span>Install and update</span>
+                <small>Open the web app, install Android APKs, verify release assets, and understand version updates.</small>
+              </a>
+
+              <a href="/docs/release-verification/" data-title="Release verification" data-category="Operations" data-summary="Verify APK checksums, release assets, and deployed web version before trusting an update." data-keywords="release verification apk sha256 checksum sha256sums version tag github releases web pages verify download">
+                <span>Release verification</span>
+                <small>Verify APK checksums, release assets, and deployed web version before trusting an update.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Troubleshooting</p>
+
+              <a href="/docs/faq/" data-title="FAQ and common mistakes" data-category="Troubleshooting" data-summary="Answers for common setup, sync, device trust, recovery, autofill, and release questions." data-keywords="faq common mistakes github token device alert recognize link device restore recovery autofill checksum web version pin throttling">
+                <span>FAQ and common mistakes</span>
+                <small>Answers for common setup, sync, device trust, recovery, autofill, and release questions.</small>
+              </a>
+
+              <a href="/docs/troubleshooting/" data-title="Troubleshooting" data-category="Troubleshooting" data-summary="Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order." data-keywords="troubleshooting sync token device pin biometric autofill alert web android version github pages diagnostics">
+                <span>Troubleshooting</span>
+                <small>Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order.</small>
+              </a>
+            </div>
+
+          <div class="docs-nav-group docs-nav-group-compact">
+            <p class="docs-toc-label">Browse topics</p>
+            <a href="/docs/category/security/" data-title="Security" data-category="Topic" data-summary="Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust." data-keywords="security"><span>Security</span><small>Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust.</small></a>
+<a href="/docs/category/sync/" data-title="Sync" data-category="Topic" data-summary="GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics." data-keywords="sync"><span>Sync</span><small>GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics.</small></a>
+<a href="/docs/category/devices/" data-title="Devices" data-category="Topic" data-summary="Trusted devices, Link New Device, recovery requests, alerts, and removal behavior." data-keywords="devices"><span>Devices</span><small>Trusted devices, Link New Device, recovery requests, alerts, and removal behavior.</small></a>
+<a href="/docs/category/android/" data-title="Android" data-category="Topic" data-summary="APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support." data-keywords="android"><span>Android</span><small>APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support.</small></a>
+<a href="/docs/category/web/" data-title="Web" data-category="Topic" data-summary="Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment." data-keywords="web"><span>Web</span><small>Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.</small></a>
+          </div>
+        </aside>
+
+        <article id="docs-content" class="docs-content docs-article" data-page-slug="security">
+          <div class="docs-heading">
+            <p class="eyebrow">Reference</p>
+            <h1>Security model</h1>
+            <dl class="docs-meta">
+              <div><dt>Type</dt><dd>Reference</dd></div>
+              <div><dt>Applies to</dt><dd>Web and Android</dd></div>
+              <div><dt>Updated</dt><dd>July 29, 2026</dd></div>
+            </dl>
+          </div>
+
+
+      <p class="docs-lead">GitVault is built around local encryption and user-owned storage. GitHub stores encrypted files, not readable vault contents.</p>
+
+      <h2>Security layers</h2>
+      <div class="docs-table-wrap">
+        <table class="docs-table">
+          <thead><tr><th>Layer</th><th>How GitVault handles it</th><th>User responsibility</th></tr></thead>
+          <tbody>
+            <tr><td>Encryption</td><td>XChaCha20-Poly1305 authenticated encryption before sync.</td><td>Protect recovery material and unlocked devices.</td></tr>
+            <tr><td>Storage</td><td>GitHub stores ciphertext files in your private repository.</td><td>Keep the repository private and token permissions narrow.</td></tr>
+            <tr><td>Unlock</td><td>PIN and optional biometric unlock protect local access.</td><td>Use a PIN you can enter reliably and avoid sharing trusted devices.</td></tr>
+            <tr><td>Clipboard</td><td>Copied secrets can auto-clear after a configured delay.</td><td>Use short delays on shared or work devices.</td></tr>
+            <tr><td>Device trust</td><td>Linked and recognized devices are tracked in the encrypted registry.</td><td>Review devices and remove devices you no longer control.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="unlock-lock">Unlock and lock</h2>
+      <ol class="docs-steps">
+        <li><span>1</span><div><strong>Open the app.</strong><p>The lock screen appears when authentication is required.</p></div></li>
+        <li><span>2</span><div><strong>Enter the full PIN.</strong><p>Use the keyboard on web or the on-screen keypad on Android.</p></div></li>
+        <li><span>3</span><div><strong>Wait for verification.</strong><p>Wrong attempts can trigger throttling before another attempt is accepted.</p></div></li>
+        <li><span>4</span><div><strong>Lock manually when needed.</strong><p>Use the lock button before stepping away from an unlocked vault.</p></div></li>
+      </ol>
+
+      <h2>Biometric unlock</h2>
+      <ol class="docs-steps compact">
+        <li><span>1</span><div><strong>Unlock with PIN first.</strong><p>Biometric unlock is enabled from an already-unlocked vault.</p></div></li>
+        <li><span>2</span><div><strong>Open Settings.</strong><p>Find biometric unlock in the security area.</p></div></li>
+        <li><span>3</span><div><strong>Approve the prompt.</strong><p>Use biometric unlock only on devices and browsers you personally control.</p></div></li>
+      </ol>
+
+      <h2>Authentication interval</h2>
+      <p>The authentication interval controls how often GitVault asks again after opening or returning to the app. The interval does not reset just because you open the app, so a short interval remains strict across repeated opens.</p>
+
+      <h2>Duress mode</h2>
+      <p>Duress mode uses a panic PIN for emergencies. Entering the duress PIN wipes the vault and shows decoy data. Treat this as destructive and test only with disposable data.</p>
+
+      <h2>Clipboard auto-clear</h2>
+      <p>Copied usernames, passwords, and codes can be cleared automatically after a configured delay. The OS clipboard is outside the encrypted vault, so use the shortest delay that fits your workflow.</p>
+
+
+          <section class="docs-related" aria-labelledby="see-also">
+            <h2 id="see-also">See also</h2>
+            <ul class="docs-link-list">
+              <li><a href="/docs/settings/">Settings</a> - Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery.</li>
+              <li><a href="/docs/devices/">Connected devices</a> - Link, approve, recognize, remove, and recover trusted web and Android devices.</li>
+              <li><a href="/docs/recovery/">Recovery flows</a> - Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens.</li>
+              <li><a href="/docs/sync-behavior/">Sync behavior</a> - How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work.</li>
+            </ul>
+          </section>
+        </article>
+
+        <aside class="docs-on-page" aria-label="On this page">
+          <p class="docs-toc-label">On this page</p>
+          <nav id="on-this-page"></nav>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <span>GitVault Docs</span>
+      <span><a href="https://github.com/giofahreza/gitvault">github.com/giofahreza/gitvault</a></span>
+    </footer>
+    <script src="/docs.js?v=20260729c" defer></script>
+  </body>
+</html>

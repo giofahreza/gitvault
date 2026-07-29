@@ -15,7 +15,7 @@
       rel="stylesheet"
     >
     <link rel="icon" type="image/jpeg" href="assets/icon/gitvault_new.jpeg">
-    <link rel="stylesheet" href="styles.css?v=manual-wiki-20260723b">
+    <link rel="stylesheet" href="styles.css?v=docs-page-20260729c">
   </head>
   <body>
     <a class="skip-link" href="#vault">Skip to content</a>
@@ -40,6 +40,10 @@
         <a href="#setup" aria-label="Setup">
           <span class="nav-label-full" aria-hidden="true">Setup</span>
           <span class="nav-label-short" aria-hidden="true">Setup</span>
+        </a>
+        <a href="/docs/" aria-label="Docs">
+          <span class="nav-label-full" aria-hidden="true">Docs</span>
+          <span class="nav-label-short" aria-hidden="true">Docs</span>
         </a>
         <a class="nav-action" href="/app/" aria-label="Get Started">
           <span class="nav-label-full" aria-hidden="true">Get Started</span>
@@ -84,7 +88,7 @@
           </p>
           <div class="hero-actions">
             <a class="button primary" href="/app/">Open Web App</a>
-            <a class="button secondary" href="wiki.html">Read Wiki</a>
+            <a class="button secondary" href="/docs/">Read Docs</a>
             <a class="button secondary" href="https://github.com/giofahreza/gitvault/releases/latest">Download APK</a>
           </div>
         </div>
@@ -261,47 +265,57 @@ gitvault sync push
         </ol>
       </section>
 
-      <section class="manual-section section" aria-label="GitVault wiki">
+      <section class="manual-section section" aria-label="GitVault documentation">
         <div class="manual-overview">
-          <p class="eyebrow">User wiki</p>
-          <h2>Read the wiki before you put secrets inside.</h2>
+          <p class="eyebrow">Documentation</p>
+          <h2>Read the docs before you put secrets inside.</h2>
           <p>
-            The wiki covers setup, unlocking, GitHub sync, passwords, notes,
+            The docs cover setup, unlocking, GitHub sync, passwords, notes,
             2FA codes, SSH entries, connected devices, recovery, and common
             troubleshooting steps.
           </p>
         </div>
 
         <div class="manual-links">
-          <a href="wiki.html#first-setup">
+          <a href="/docs/quick-start/">
             <span>01</span>
             <strong>First setup</strong>
             <p>Create a vault, save the recovery phrase, set a PIN, and connect sync.</p>
           </a>
-          <a href="wiki.html#passwords">
+          <a href="/docs/passwords/">
             <span>02</span>
             <strong>Daily use</strong>
             <p>Add passwords, notes, 2FA codes, SSH credentials, and search quickly.</p>
           </a>
-          <a href="wiki.html#sync-devices">
+          <a href="/docs/devices/">
             <span>03</span>
             <strong>Devices and sync</strong>
             <p>Keep web and Android devices aligned with encrypted GitHub storage.</p>
           </a>
-          <a href="wiki.html#troubleshooting">
+          <a href="/docs/troubleshooting/">
             <span>04</span>
             <strong>Fix common issues</strong>
             <p>Recover from sync, unlock, token, and device-linking problems.</p>
+          </a>
+          <a href="/docs/faq/">
+            <span>05</span>
+            <strong>FAQ</strong>
+            <p>Read answers for setup, sync, recovery, autofill, and release questions.</p>
+          </a>
+          <a href="/docs/release-verification/">
+            <span>06</span>
+            <strong>Verify releases</strong>
+            <p>Check APK checksums, release assets, and deployed web app versions.</p>
           </a>
         </div>
       </section>
 
       <section class="final-cta">
         <p class="eyebrow">GitVault</p>
-        <h2>Take the vault online without giving the cloud your secrets.</h2>
+          <h2>Take the vault online without giving the cloud your secrets.</h2>
         <div class="hero-actions">
           <a class="button primary" href="/app/">Open Web App</a>
-          <a class="button secondary" href="wiki.html">Read Wiki</a>
+          <a class="button secondary" href="/docs/">Read Docs</a>
           <a class="button secondary" href="https://github.com/giofahreza/gitvault">View Source</a>
         </div>
       </section>
@@ -310,11 +324,11 @@ gitvault sync push
     <footer class="site-footer">
       <span>GitVault is open source under the MIT License.</span>
       <span class="footer-links">
-        <a href="wiki.html">Wiki</a>
+        <a href="/docs/">Docs</a>
         <a href="https://github.com/giofahreza/gitvault">GitHub</a>
       </span>
     </footer>
 
-    <script type="module" src="landing.js?v=manual-wiki-20260723b"></script>
+    <script type="module" src="landing.js?v=docs-page-20260729c"></script>
   </body>
 </html>

@@ -161,9 +161,25 @@
 
 ---
 
+## Documentation
+
+- [Live Docs](https://gitvault.giofahreza.com/docs/) - multi-page user docs for setup, sync, vault items, devices, recovery, and troubleshooting.
+- [Quick Start](https://gitvault.giofahreza.com/docs/quick-start/) - first setup flow for web or Android.
+- [Platform Support](https://gitvault.giofahreza.com/docs/platform-support/) - web and Android feature matrix.
+- [GitHub Sync](https://gitvault.giofahreza.com/docs/github-sync/) - private repository and fine-grained token setup.
+- [Connected Devices](https://gitvault.giofahreza.com/docs/devices/) - Link New Device, alerts, removal, and trust behavior.
+- [Recovery](https://gitvault.giofahreza.com/docs/recovery/) - trusted-device approval and lost-device new-token recovery.
+- [Release Verification](https://gitvault.giofahreza.com/docs/release-verification/) - APK checksum and web version verification.
+- [FAQ](https://gitvault.giofahreza.com/docs/faq/) - common setup, sync, recovery, autofill, and release mistakes.
+- [Docs Index](docs/README.md) - repository documentation entry point.
+- [User Guide](docs/user-guide.md) - single-file setup and recovery reference.
+- Web app - available at `https://gitvault.giofahreza.com/app/`.
+
+---
+
 ## Installation
 
-1. Download `app-release.apk` from [Releases](../../releases)
+1. Download the latest `gitvault-v*-universal.apk` from [Releases](../../releases)
 2. Enable "Install from unknown sources" on your Android device
 3. Install the APK
 4. Follow the onboarding flow
@@ -199,8 +215,6 @@ GitVault stores your encrypted vault in a private GitHub repository.
 3. Paste your PAT → tap **Save**
 
 > GitVault uses fine-grained PATs with Bearer authentication — classic tokens are not supported.
-
-### 3. Enable System-wide Autofill
 
 ### 3. Add or Restore Devices
 
