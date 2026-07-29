@@ -154,6 +154,10 @@ input:focus-visible {
   color: var(--ink);
 }
 
+.nav-label-short {
+  display: none;
+}
+
 .nav-action {
   border: 1px solid rgba(125, 240, 176, 0.38);
   color: var(--accent-strong);
@@ -920,24 +924,44 @@ pre code {
 @media (max-width: 560px) {
   .site-header-inner {
     min-height: 56px;
+    gap: 6px;
   }
 
   .brand span:last-child {
     display: none;
   }
 
+  .brand {
+    min-height: 40px;
+  }
+
+  .brand img {
+    width: 28px;
+    height: 28px;
+  }
+
   .site-header nav {
+    gap: 2px;
     justify-content: flex-start;
   }
 
-  .site-header nav a[href="/#vault"],
-  .site-header nav a[href="/#sync"] {
+  .nav-label-full {
     display: none;
   }
 
+  .nav-label-short {
+    display: inline;
+  }
+
   .site-header nav a {
-    padding: 0 8px;
-    font-size: 0.82rem;
+    min-width: auto;
+    min-height: 40px;
+    padding: 0 5px;
+    font-size: 0.72rem;
+  }
+
+  .site-header nav .nav-action {
+    padding: 0 6px;
   }
 
   .docs-article {
