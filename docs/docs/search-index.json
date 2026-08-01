@@ -95,16 +95,19 @@
     {
       "title": "Notes",
       "category": "How-to guides",
-      "summary": "Create private notes, checklists, tags, colors, pinned notes, archive, and search.",
-      "keywords": "notes checklist pinned list grid single column mobile tags archive color search private text",
+      "summary": "Write encrypted Markdown notes with linked knowledge, daily journals, templates, tasks, and import or export.",
+      "keywords": "notes markdown wiki links backlinks blocks graph daily journal templates tasks import export aliases tags archive search",
       "headings": [
         "Create a note",
-        "Create a checklist",
+        "Write tasks and linked knowledge",
+        "Use daily notes and templates",
+        "Import or export Markdown",
         "Organize notes",
         "Find notes",
+        "Legacy checklists",
         "Archive or delete"
       ],
-      "excerpt": "Notes can be plain private text or checklists. Use pinning, colors, tags, archive, and search to keep private information usable.",
+      "excerpt": "Notes use canonical Markdown with preview, task progress, wiki links, aliases, backlinks, block references, daily journals, encrypted templates, and a local knowledge graph.",
       "href": "/docs/notes/"
     },
     {
@@ -119,6 +122,7 @@
         "Choose a transport",
         "Set permissions and tag scope",
         "Approve writes",
+        "Use knowledge and journal tools",
         "Lock, rotate, or revoke",
         "Security boundary",
         "Troubleshooting"

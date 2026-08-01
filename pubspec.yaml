@@ -1,6 +1,6 @@
 name: gitvault
 description: A sovereign, device-centric password manager using GitHub.
-version: 1.0.130+1000130
+version: 1.0.131+1000131
 publish_to: 'none'
 
 environment:
@@ -29,6 +29,9 @@ dependencies:
   mcp_dart: 2.3.0
   crypto: ^3.0.7
   path: ^1.9.0
+  markdown: ^7.3.0
+  yaml: ^3.1.3
+  intl: ^0.20.2
 
   # Local Database (Fast, encrypted NoSQL)
   hive: ^2.2.3
@@ -57,6 +60,8 @@ dependencies:
   xterm: ^4.0.0
   # For file picking (SSH private key import)
   file_picker: ^8.0.0
+  # Native Linux dialogs for Markdown note import/export
+  file_selector: ^1.0.4
 
   # --- BACKGROUND SERVICES & BATTERY OPTIMIZATION ---
   # For background sync tasks
@@ -77,6 +82,8 @@ dependencies:
   # --- UI COMPONENTS ---
   # For masonry/staggered grid layout (Bootstrap-style notes)
   flutter_staggered_grid_view: ^0.7.0
+  # Markdown rendering for encrypted knowledge notes
+  flutter_markdown_plus: 1.0.7
   # Includes the Cupertino icon font referenced by transitive Flutter widgets.
   cupertino_icons: ^1.0.8
 

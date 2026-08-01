@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:uuid/uuid.dart';
 
+import '../core/notes/knowledge_index.dart';
+import '../core/notes/knowledge_parser.dart';
+import '../core/notes/note_templates.dart';
 import '../core/services/foreground_sync_service.dart';
 import '../core/session/vault_session_controller.dart';
 import '../data/models/note.dart';
@@ -34,6 +37,7 @@ class NotesMcpService {
   final VaultSessionReader _readSession;
   final McpMutationCallback? _onMutation;
   final Uuid _uuid = const Uuid();
+  final KnowledgeNoteParser _knowledgeParser = const KnowledgeNoteParser();
 
   NotesMcpService({
     required NotesRepository notesRepository,
@@ -105,7 +109,9 @@ class NotesMcpService {
             : notes.where((note) {
                 return note.title.toLowerCase().contains(queryLower) ||
                     (canReadContent &&
-                        note.content.toLowerCase().contains(queryLower)) ||
+                        note.markdownContent
+                            .toLowerCase()
+                            .contains(queryLower)) ||
                     note.tags.any(
                       (tag) => tag.toLowerCase().contains(queryLower),
                     );
@@ -173,6 +179,7 @@ class NotesMcpService {
     required String title,
     required String content,
     List<String> tags = const [],
+    List<String> aliases = const [],
     String color = 'white',
     bool pinned = false,
     bool checklist = false,
@@ -182,30 +189,43 @@ class NotesMcpService {
       clientId: clientId,
       action: 'create_note',
       permission: McpPermission.create,
-      approvalSummary: 'Create a new note named "${title.trim()}"',
-      approvalAfter: content,
       operation: (client, sessionGeneration) async {
         final validatedTitle = _validateTitle(title);
         final validatedContent = _validateContent(content);
         final validatedTags = _validateTags(tags);
+        final validatedAliases = _validateAliases(aliases);
         _ensureWritableTags(client, validatedTags);
         final noteColor = _parseColor(color);
         final items = _parseChecklistItems(checklistItems);
+        final markdownContent = _validateContent(
+          checklist ? _checklistMarkdown(items) : validatedContent,
+        );
 
         await _notesRepository.initialize();
+        await _approveWrite(
+          client: client,
+          permission: McpPermission.create,
+          action: 'create_note',
+          summary: 'Create a new note named "$validatedTitle"',
+          after: markdownContent,
+          sessionGeneration: sessionGeneration,
+        );
         _ensureOperationAccess(client, sessionGeneration);
         final note = await _notesRepository.createNote(
           title: validatedTitle,
-          content: validatedContent,
+          content: markdownContent,
+          formatVersion: 2,
           tags: validatedTags,
+          aliases: validatedAliases,
           color: noteColor,
           isPinned: pinned,
-          isChecklist: checklist,
-          checklistItems: items,
+          isChecklist: false,
+          checklistItems: const [],
         );
         _afterMutation('MCP note created');
         return {'note': _noteJson(note, includeContent: true)};
       },
+      approvalHandledByOperation: true,
     );
   }
 
@@ -225,11 +245,12 @@ class NotesMcpService {
         final note = await _requireVisibleNote(client, noteId);
         _ensureExpectedVersion(note, expectedModifiedAt);
         final validatedText = _validateContent(text);
+        final currentContent = note.markdownContent;
         final separator =
-            addNewline && note.content.isNotEmpty && validatedText.isNotEmpty
+            addNewline && currentContent.isNotEmpty && validatedText.isNotEmpty
                 ? '\n'
                 : '';
-        final updatedContent = '${note.content}$separator$validatedText';
+        final updatedContent = '$currentContent$separator$validatedText';
         _validateContent(updatedContent);
         await _approveWrite(
           client: client,
@@ -237,13 +258,18 @@ class NotesMcpService {
           action: 'append_to_note',
           note: note,
           summary: 'Append text to "${note.title}"',
-          before: note.content,
+          before: currentContent,
           after: updatedContent,
           sessionGeneration: sessionGeneration,
         );
         _ensureOperationAccess(client, sessionGeneration);
         final updated = await _notesRepository.updateNoteIfUnchanged(
-          note.copyWith(content: updatedContent),
+          note.copyWith(
+            content: updatedContent,
+            formatVersion: 2,
+            isChecklist: false,
+            checklistItems: const [],
+          ),
           expectedModifiedAt: note.modifiedAt,
         );
         if (updated == null) await _throwCurrentConflict(note.uuid);
@@ -267,6 +293,7 @@ class NotesMcpService {
     String? title,
     String? content,
     List<String>? tags,
+    List<String>? aliases,
     String? color,
     bool? pinned,
     bool? checklist,
@@ -281,17 +308,27 @@ class NotesMcpService {
         final note = await _requireVisibleNote(client, noteId);
         _ensureExpectedVersion(note, expectedModifiedAt);
         final nextTags = tags == null ? note.tags : _validateTags(tags);
+        final nextAliases =
+            aliases == null ? note.aliases : _validateAliases(aliases);
         _ensureWritableTags(client, nextTags);
+        final items = checklistItems == null
+            ? note.checklistItems
+            : _parseChecklistItems(checklistItems);
+        final nextContent = _validateContent(
+          checklist == true || checklistItems != null
+              ? _checklistMarkdown(items)
+              : content ?? note.markdownContent,
+        );
         final updated = note.copyWith(
           title: title == null ? note.title : _validateTitle(title),
-          content: content == null ? note.content : _validateContent(content),
+          content: nextContent,
+          formatVersion: 2,
           tags: nextTags,
+          aliases: nextAliases,
           color: color == null ? note.color : _parseColor(color),
           isPinned: pinned ?? note.isPinned,
-          isChecklist: checklist ?? note.isChecklist,
-          checklistItems: checklistItems == null
-              ? note.checklistItems
-              : _parseChecklistItems(checklistItems),
+          isChecklist: false,
+          checklistItems: const [],
         );
         await _approveWrite(
           client: client,
@@ -319,6 +356,412 @@ class NotesMcpService {
         };
       },
       approvalHandledByOperation: true,
+    );
+  }
+
+  Future<Map<String, dynamic>> resolveNoteLink({
+    required String clientId,
+    required String query,
+  }) {
+    return _execute(
+      clientId: clientId,
+      action: 'resolve_note_link',
+      permission: McpPermission.readMetadata,
+      operation: (client, _) async {
+        final normalized = query.trim();
+        if (normalized.isEmpty || normalized.length > maximumQueryLength) {
+          throw const McpOperationException(
+            'invalid_input',
+            'A note title, alias, or UUID is required.',
+          );
+        }
+        await _notesRepository.initialize();
+        final index = KnowledgeIndex.build(await _visibleNotes(client));
+        final resolution = index.resolveLink(normalized);
+        return {
+          'query': normalized,
+          'status': resolution.status.name,
+          'matches': resolution.matches
+              .map((note) => _noteJson(note, includeContent: false))
+              .toList(),
+        };
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> listBacklinks({
+    required String clientId,
+    required String noteId,
+    bool includeUnlinkedMentions = true,
+  }) {
+    return _execute(
+      clientId: clientId,
+      action: 'list_backlinks',
+      noteId: noteId,
+      permission: McpPermission.readContent,
+      operation: (client, _) async {
+        final note = await _requireVisibleNote(client, noteId);
+        final index = KnowledgeIndex.build(await _visibleNotes(client));
+        final backlinks = index.backlinksFor(
+          note.uuid,
+          includeUnlinkedMentions: includeUnlinkedMentions,
+        );
+        return {
+          'note_id': note.uuid,
+          'backlinks': backlinks
+              .map(
+                (backlink) => {
+                  'source': _noteJson(
+                    backlink.source,
+                    includeContent: false,
+                  ),
+                  'label': backlink.label,
+                  if (backlink.heading != null) 'heading': backlink.heading,
+                  'unlinked_mention': backlink.isUnlinkedMention,
+                },
+              )
+              .toList(),
+        };
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> getNoteOutline({
+    required String clientId,
+    required String noteId,
+  }) {
+    return _execute(
+      clientId: clientId,
+      action: 'get_note_outline',
+      noteId: noteId,
+      permission: McpPermission.readContent,
+      operation: (client, _) async {
+        final note = await _requireVisibleNote(client, noteId);
+        final parsed = _knowledgeParser.parse(note.markdownContent);
+        return {
+          'note_id': note.uuid,
+          'modified_at': note.modifiedAt.toUtc().toIso8601String(),
+          'headings': parsed.headings
+              .map(
+                (heading) => {
+                  'level': heading.level,
+                  'title': heading.title,
+                  'anchor': heading.anchor,
+                },
+              )
+              .toList(),
+          'blocks': parsed.blocks
+              .map((block) => {'id': block.id, 'text': block.text})
+              .toList(),
+          'tasks': {
+            'total': parsed.taskCount,
+            'completed': parsed.completedTaskCount,
+          },
+        };
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> updateNoteSection({
+    required String clientId,
+    required String noteId,
+    required String expectedModifiedAt,
+    required String heading,
+    required String content,
+  }) {
+    return _execute(
+      clientId: clientId,
+      action: 'update_note_section',
+      noteId: noteId,
+      permission: McpPermission.edit,
+      operation: (client, sessionGeneration) async {
+        final note = await _requireVisibleNote(client, noteId);
+        _ensureExpectedVersion(note, expectedModifiedAt);
+        final validatedContent = _validateContent(content);
+        late final String updatedContent;
+        try {
+          updatedContent = _knowledgeParser.replaceSection(
+            note.markdownContent,
+            heading: heading,
+            replacement: validatedContent,
+          );
+        } on KnowledgeParseException catch (error) {
+          throw McpOperationException(
+            error.code,
+            error.code == 'heading_ambiguous'
+                ? 'More than one heading matches. Use the unique outline anchor.'
+                : 'The requested heading does not exist.',
+          );
+        }
+        _validateContent(updatedContent);
+        await _approveWrite(
+          client: client,
+          permission: McpPermission.edit,
+          action: 'update_note_section',
+          note: note,
+          summary: 'Edit section "$heading" in "${note.title}"',
+          before: note.markdownContent,
+          after: updatedContent,
+          sessionGeneration: sessionGeneration,
+        );
+        _ensureOperationAccess(client, sessionGeneration);
+        final saved = await _notesRepository.updateNoteIfUnchanged(
+          note.copyWith(
+            content: updatedContent,
+            formatVersion: 2,
+            isChecklist: false,
+            checklistItems: const [],
+          ),
+          expectedModifiedAt: note.modifiedAt,
+        );
+        if (saved == null) await _throwCurrentConflict(note.uuid);
+        _afterMutation('MCP note section updated');
+        return {
+          'note': _noteJson(
+            saved,
+            includeContent:
+                client.permissions.contains(McpPermission.readContent),
+          ),
+        };
+      },
+      approvalHandledByOperation: true,
+    );
+  }
+
+  Future<Map<String, dynamic>> getOrCreateDailyNote({
+    required String clientId,
+    required String date,
+    String? template,
+  }) {
+    return _execute(
+      clientId: clientId,
+      action: 'get_or_create_daily_note',
+      permission: McpPermission.create,
+      operation: (client, sessionGeneration) async {
+        final day = _parseJournalDate(date);
+        await _notesRepository.initialize();
+        final existing = await _notesRepository.findJournalNote(day);
+        if (existing != null) {
+          if (!_canAccessNote(client, existing)) {
+            throw const McpOperationException(
+              'note_not_found',
+              'The daily note is outside this AI app scope.',
+            );
+          }
+          return {
+            'created': false,
+            'note': _noteJson(
+              existing,
+              includeContent:
+                  client.permissions.contains(McpPermission.readContent),
+            ),
+          };
+        }
+
+        const tags = ['journal'];
+        _ensureWritableTags(client, tags);
+        final templateBody = template ??
+            builtInNoteTemplates
+                .firstWhere((candidate) => candidate.id == 'daily-log')
+                .content;
+        final content = _validateContent(expandNoteTemplate(templateBody, day));
+        await _approveWrite(
+          client: client,
+          permission: McpPermission.create,
+          action: 'get_or_create_daily_note',
+          summary: 'Create daily note ${dailyNoteTitle(day)}',
+          after: content,
+          sessionGeneration: sessionGeneration,
+        );
+        _ensureOperationAccess(client, sessionGeneration);
+        final result = await _notesRepository.getOrCreateJournalNote(
+          date: day,
+          title: dailyNoteTitle(day),
+          content: content,
+          tags: tags,
+        );
+        final note = result.note;
+        if (!result.created && !_canAccessNote(client, note)) {
+          throw const McpOperationException(
+            'note_not_found',
+            'The daily note is outside this AI app scope.',
+          );
+        }
+        if (!result.created) {
+          return {
+            'created': false,
+            'note': _noteJson(
+              note,
+              includeContent:
+                  client.permissions.contains(McpPermission.readContent),
+            ),
+          };
+        }
+        _afterMutation('MCP daily note created');
+        return {
+          'created': true,
+          'note': _noteJson(
+            note,
+            includeContent:
+                client.permissions.contains(McpPermission.readContent),
+          ),
+        };
+      },
+      approvalHandledByOperation: true,
+    );
+  }
+
+  Future<Map<String, dynamic>> appendToDailyNote({
+    required String clientId,
+    required String date,
+    required String text,
+    String? expectedModifiedAt,
+  }) {
+    return _execute(
+      clientId: clientId,
+      action: 'append_to_daily_note',
+      permission: McpPermission.append,
+      operation: (client, sessionGeneration) async {
+        final day = _parseJournalDate(date);
+        final validatedText = _validateContent(text);
+        await _notesRepository.initialize();
+        final existing = await _notesRepository.findJournalNote(day);
+        if (existing == null) {
+          _ensurePermission(client, McpPermission.create);
+          const tags = ['journal'];
+          _ensureWritableTags(client, tags);
+          await _approveWrite(
+            client: client,
+            permission: McpPermission.append,
+            action: 'append_to_daily_note',
+            summary: 'Create and append to daily note ${dailyNoteTitle(day)}',
+            after: validatedText,
+            sessionGeneration: sessionGeneration,
+          );
+          _ensureOperationAccess(client, sessionGeneration);
+          final result = await _notesRepository.getOrCreateJournalNote(
+            date: day,
+            title: dailyNoteTitle(day),
+            content: validatedText,
+            tags: tags,
+          );
+          if (!result.created) {
+            if (!_canAccessNote(client, result.note)) {
+              throw const McpOperationException(
+                'note_not_found',
+                'The daily note is outside this AI app scope.',
+              );
+            }
+            throw McpOperationException(
+              'conflict',
+              'The daily note was created while this request was pending. '
+                  'Read it and retry with expected_modified_at.',
+              data: {
+                'note_id': result.note.uuid,
+                'current_modified_at':
+                    result.note.modifiedAt.toUtc().toIso8601String(),
+              },
+            );
+          }
+          final created = result.note;
+          _afterMutation('MCP daily note created and appended');
+          return {
+            'created': true,
+            'note': _noteJson(
+              created,
+              includeContent:
+                  client.permissions.contains(McpPermission.readContent),
+            ),
+          };
+        }
+
+        if (!_canAccessNote(client, existing)) {
+          throw const McpOperationException(
+            'note_not_found',
+            'The daily note is outside this AI app scope.',
+          );
+        }
+        if (expectedModifiedAt == null) {
+          throw const McpOperationException(
+            'invalid_input',
+            'expected_modified_at is required when the daily note already exists.',
+          );
+        }
+        _ensureExpectedVersion(existing, expectedModifiedAt);
+        final separator = existing.markdownContent.isEmpty ? '' : '\n';
+        final updatedContent =
+            '${existing.markdownContent}$separator$validatedText';
+        _validateContent(updatedContent);
+        await _approveWrite(
+          client: client,
+          permission: McpPermission.append,
+          action: 'append_to_daily_note',
+          note: existing,
+          summary: 'Append to daily note ${dailyNoteTitle(day)}',
+          before: existing.markdownContent,
+          after: updatedContent,
+          sessionGeneration: sessionGeneration,
+        );
+        _ensureOperationAccess(client, sessionGeneration);
+        final saved = await _notesRepository.updateNoteIfUnchanged(
+          existing.copyWith(
+            content: updatedContent,
+            formatVersion: 2,
+            isChecklist: false,
+            checklistItems: const [],
+          ),
+          expectedModifiedAt: existing.modifiedAt,
+        );
+        if (saved == null) await _throwCurrentConflict(existing.uuid);
+        _afterMutation('MCP daily note appended');
+        return {
+          'created': false,
+          'note': _noteJson(
+            saved,
+            includeContent:
+                client.permissions.contains(McpPermission.readContent),
+          ),
+        };
+      },
+      approvalHandledByOperation: true,
+    );
+  }
+
+  Future<Map<String, dynamic>> resolveBlockReference({
+    required String clientId,
+    required String blockId,
+  }) {
+    return _execute(
+      clientId: clientId,
+      action: 'resolve_block_reference',
+      permission: McpPermission.readContent,
+      operation: (client, _) async {
+        final normalized = blockId.trim().replaceFirst(RegExp(r'^\^'), '');
+        if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$').hasMatch(normalized)) {
+          throw const McpOperationException(
+            'invalid_input',
+            'A valid block ID is required.',
+          );
+        }
+        final index = KnowledgeIndex.build(await _visibleNotes(client));
+        final matches = index.resolveBlock(normalized);
+        return {
+          'block_id': normalized,
+          'status': matches.isEmpty
+              ? 'missing'
+              : matches.length == 1
+                  ? 'resolved'
+                  : 'ambiguous',
+          'matches': matches
+              .map(
+                (location) => {
+                  'note': _noteJson(location.note, includeContent: false),
+                  'text': location.block.text,
+                },
+              )
+              .toList(),
+        };
+      },
     );
   }
 
@@ -663,10 +1106,13 @@ class NotesMcpService {
     final notes = client.permissions.contains(McpPermission.includeArchived)
         ? await _notesRepository.getAllStoredNotes()
         : await _notesRepository.getAllNotes();
-    return notes.where((note) => _canAccessNote(client, note)).toList();
+    return notes
+        .where((note) => !note.isTemplate && _canAccessNote(client, note))
+        .toList();
   }
 
   bool _canAccessNote(McpClientRegistration client, Note note) {
+    if (note.isTemplate) return false;
     if (note.isArchived &&
         !client.permissions.contains(McpPermission.includeArchived)) {
       return false;
@@ -769,6 +1215,21 @@ class NotesMcpService {
     return result;
   }
 
+  List<String> _validateAliases(Iterable<String> aliases) {
+    final result = aliases
+        .map((alias) => alias.trim())
+        .where((alias) => alias.isNotEmpty)
+        .toSet()
+        .toList();
+    if (result.length > 50 || result.any((alias) => alias.length > 200)) {
+      throw const McpOperationException(
+        'invalid_input',
+        'A note can contain up to 50 aliases of at most 200 characters.',
+      );
+    }
+    return result;
+  }
+
   NoteColor _parseColor(String value) {
     return NoteColor.values.firstWhere(
       (color) => color.name == value.toLowerCase(),
@@ -803,6 +1264,35 @@ class NotesMcpService {
     }).toList();
   }
 
+  String _checklistMarkdown(List<ChecklistItem> items) {
+    return items.map((item) {
+      final marker = item.isChecked ? 'x' : ' ';
+      return '- [$marker] ${item.text}';
+    }).join('\n');
+  }
+
+  DateTime _parseJournalDate(String value) {
+    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
+      throw const McpOperationException(
+        'invalid_input',
+        'date must use YYYY-MM-DD.',
+      );
+    }
+    final parsed = DateTime.tryParse('${value}T00:00:00Z');
+    final canonical = parsed == null
+        ? ''
+        : '${parsed.year.toString().padLeft(4, '0')}-'
+            '${parsed.month.toString().padLeft(2, '0')}-'
+            '${parsed.day.toString().padLeft(2, '0')}';
+    if (parsed == null || canonical != value) {
+      throw const McpOperationException(
+        'invalid_input',
+        'date must be a valid calendar date in YYYY-MM-DD format.',
+      );
+    }
+    return DateTime.utc(parsed.year, parsed.month, parsed.day);
+  }
+
   ({int offset, int limit}) _pagination(int offset, int limit) {
     if (offset < 0 || limit < 1 || limit > maximumPageSize) {
       throw const McpOperationException(
@@ -818,9 +1308,10 @@ class NotesMcpService {
     required bool includeContent,
     bool contentAsSnippet = false,
   }) {
-    final content = contentAsSnippet && note.content.length > 500
-        ? '${note.content.substring(0, 500)}...'
-        : note.content;
+    final markdownContent = note.markdownContent;
+    final content = contentAsSnippet && markdownContent.length > 500
+        ? '${markdownContent.substring(0, 500)}...'
+        : markdownContent;
     return {
       'uuid': note.uuid,
       'title': note.title,
@@ -828,16 +1319,12 @@ class NotesMcpService {
       'color': note.color.name,
       'is_pinned': note.isPinned,
       'tags': note.tags,
-      'is_checklist': note.isChecklist,
-      if (includeContent && note.isChecklist)
-        'checklist_items': note.checklistItems
-            .map(
-              (item) => {
-                'text': item.text,
-                'is_checked': item.isChecked,
-              },
-            )
-            .toList(),
+      'aliases': note.aliases,
+      'format': 'markdown',
+      'format_version': 2,
+      'is_checklist': false,
+      if (note.journalDate != null)
+        'journal_date': note.journalDate!.toUtc().toIso8601String(),
       'is_archived': note.isArchived,
       'created_at': note.createdAt.toUtc().toIso8601String(),
       'modified_at': note.modifiedAt.toUtc().toIso8601String(),
@@ -848,10 +1335,11 @@ class NotesMcpService {
     return [
       'Title: ${note.title}',
       'Tags: ${note.tags.join(', ')}',
+      'Aliases: ${note.aliases.join(', ')}',
       'Pinned: ${note.isPinned}',
       'Archived: ${note.isArchived}',
       '',
-      note.content,
+      note.markdownContent,
     ].join('\n');
   }
 

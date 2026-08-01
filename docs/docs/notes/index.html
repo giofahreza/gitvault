@@ -194,13 +194,13 @@
             <h1>Notes</h1>
             <dl class="docs-meta">
               <div><dt>Type</dt><dd>How-to guides</dd></div>
-              <div><dt>Applies to</dt><dd>Web and Android</dd></div>
-              <div><dt>Updated</dt><dd>July 29, 2026</dd></div>
+              <div><dt>Applies to</dt><dd>Web, Android, Windows, macOS, and Linux</dd></div>
+              <div><dt>Updated</dt><dd>August 1, 2026</dd></div>
             </dl>
           </div>
 
 
-      <p class="docs-lead">Use Notes for private text, recovery codes, secure references, and checklist-style private tasks.</p>
+      <p class="docs-lead">Use encrypted Markdown notes for private documents, linked knowledge, daily logs, reusable templates, and task lists.</p>
 
       <figure class="docs-figure">
         <div class="docs-figure-frame">
@@ -212,28 +212,44 @@
       <h2>Create a note</h2>
       <ol class="docs-steps">
         <li><span>1</span><div><strong>Open Notes.</strong><p>Use the Notes tab or menu item.</p></div></li>
-        <li><span>2</span><div><strong>Select add.</strong><p>Open the note editor.</p></div></li>
-        <li><span>3</span><div><strong>Add a title and content.</strong><p>Keep titles descriptive enough to search later.</p></div></li>
-        <li><span>4</span><div><strong>Save.</strong><p>Confirm the note appears in the list.</p></div></li>
+        <li><span>2</span><div><strong>Select add.</strong><p>Choose a blank note, built-in template, or encrypted saved template.</p></div></li>
+        <li><span>3</span><div><strong>Add a title and Markdown.</strong><p>Use Edit for source and Preview for rendered headings, lists, links, code, quotes, tables, and tasks.</p></div></li>
+        <li><span>4</span><div><strong>Return to Notes.</strong><p>The editor autosaves encrypted changes and shows its save status.</p></div></li>
       </ol>
 
-      <h2>Create a checklist</h2>
-      <ol class="docs-steps compact">
-        <li><span>1</span><div><strong>Open the note editor.</strong><p>Choose checklist mode where available.</p></div></li>
-        <li><span>2</span><div><strong>Add checklist rows.</strong><p>Use one row per task or private reminder.</p></div></li>
-        <li><span>3</span><div><strong>Tap rows to complete them.</strong><p>Completed rows stay in the note until edited or removed.</p></div></li>
-      </ol>
+      <h2>Write tasks and linked knowledge</h2>
+      <ul class="docs-list">
+        <li><strong>Tasks</strong> Write <code>- [ ] Open task</code> or <code>- [x] Completed task</code>. Cards show task progress.</li>
+        <li><strong>Note links</strong> Use <code>[[Note title]]</code> or <code>[[Alias#Heading|label]]</code>. Preview opens resolved targets.</li>
+        <li><strong>Backlinks</strong> The editor lists direct links and unlinked title or alias mentions from other notes.</li>
+        <li><strong>Blocks</strong> End a line with an anchor such as <code>^decision-1</code>, then reference it with <code>((decision-1))</code>.</li>
+        <li><strong>Outline</strong> Open the document outline to jump to a Markdown heading.</li>
+      </ul>
+
+      <h2>Use daily notes and templates</h2>
+      <p>Open the Notes action menu for Daily notes, the knowledge graph, and template management. Daily notes keep one journal per calendar date. Built-in templates cover daily logs, meetings, and projects; saved templates remain encrypted and synchronize as hidden note records.</p>
+
+      <h2>Import or export Markdown</h2>
+      <p>Import <code>.md</code>, <code>.markdown</code>, or <code>.txt</code> files from the Notes action menu. Export from the editor writes one Markdown file with structured front matter for title, aliases, tags, color, pin state, and journal date.</p>
+      <div class="docs-note danger">
+        <strong>Exports are decrypted.</strong>
+        <p>An exported Markdown file is outside GitVault encryption. Protect, move, or delete it according to the sensitivity of the note.</p>
+      </div>
 
       <h2>Organize notes</h2>
       <ul class="docs-list">
         <li><strong>Pin</strong> Keep important notes at the top.</li>
         <li><strong>Color</strong> Use color as a quick visual category.</li>
         <li><strong>Tags</strong> Add tags such as #work or #finance when search should find a note by context.</li>
+        <li><strong>Aliases</strong> Add alternate names that wiki links and MCP clients can resolve.</li>
         <li><strong>Archive</strong> Hide old notes without deleting them.</li>
       </ul>
 
       <h2>Find notes</h2>
-      <p>Use search for title, visible content, and tags. On mobile, the single-column layout is intended to keep each note readable without side-by-side squeezing.</p>
+      <p>Use search for title, Markdown content, aliases, and tags. Card previews remove Markdown punctuation and show task counts. The knowledge graph visualizes resolved note links. Derived link, backlink, and graph indexes stay only in memory while decrypted notes are available.</p>
+
+      <h2>Legacy checklists</h2>
+      <p>Older checklist records render as canonical Markdown without changing encrypted storage. Editing one saves it as Markdown while preserving every task and completion state.</p>
 
       <h2>Archive or delete</h2>
       <p>Archive notes you may need later. Delete only when you are sure, then sync so other devices receive the delete tombstone.</p>

@@ -40,11 +40,18 @@
 
 - **Grid & List view** — toggle between masonry cards and compact list
 - **Pin notes** — keep important notes always at the top
-- **Checklist notes** — tap items to check off tasks
+- **Markdown editor and preview** - headings, lists, task lists, links, code,
+  quotes, and tables
+- **Knowledge links** - aliases, `[[wiki links]]`, backlinks, unlinked
+  mentions, `((block references))`, outlines, and a local knowledge graph
+- **Daily notes and templates** - calendar-based journals plus built-in and
+  encrypted reusable templates
+- **Markdown transfer** - import or export a single decrypted `.md` file with
+  structured front matter
 - **11 color themes** — white, red, orange, yellow, green, teal, blue, purple, pink, brown, gray
 - **Tags** — organize with hashtags (#work, #api, etc.)
 - **Archive** — hide notes without deleting them
-- **Full-text search** — instantly filter notes by title or content
+- **Full-text search** — filter Markdown content, titles, aliases, and tags
 
 ---
 
@@ -66,6 +73,9 @@ MCP-compatible application explicitly approved access to notes.
   requests before allowing them
 - **Conflict protection** - stale edits return a conflict instead of
   overwriting a newer note
+- **Knowledge-note tools** - AI apps can resolve aliases and blocks, inspect
+  outlines and backlinks, work with dated journals, and update one Markdown
+  section without replacing the rest of the note
 - **Immediate lock and revocation** - locking GitVault blocks note access;
   rotating or revoking a connection invalidates its sessions
 - **Redacted local activity** - 30-day history records actions and results,

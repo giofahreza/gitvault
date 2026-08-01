@@ -11,6 +11,7 @@ import '../services/ime_service.dart';
 import '../session/vault_session_controller.dart';
 import '../theme/theme_provider.dart';
 import '../../data/repositories/vault_repository.dart';
+import '../notes/knowledge_index.dart';
 import '../../data/repositories/notes_repository.dart';
 import '../../data/repositories/ssh_repository.dart';
 import '../../data/models/vault_entry.dart';
@@ -138,6 +139,23 @@ final archivedNotesProvider =
   final repo = ref.watch(notesRepositoryProvider);
   await repo.initialize();
   return repo.getArchivedNotes();
+});
+
+/// Encrypted note templates, synchronized as hidden note records.
+final noteTemplatesProvider =
+    FutureProvider.autoDispose<List<Note>>((ref) async {
+  final repo = ref.watch(notesRepositoryProvider);
+  await repo.initialize();
+  return repo.getTemplates();
+});
+
+/// Derived knowledge graph. It lives only in memory and is rebuilt from
+/// decrypted notes after provider invalidation.
+final knowledgeIndexProvider =
+    FutureProvider.autoDispose<KnowledgeIndex>((ref) async {
+  final repo = ref.watch(notesRepositoryProvider);
+  await repo.initialize();
+  return KnowledgeIndex.build(await repo.getAllStoredNotes());
 });
 
 /// Provider for SshRepository

@@ -4,13 +4,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
+import '../../core/notes/knowledge_parser.dart';
+import '../../core/notes/note_file_service.dart';
+import '../../core/notes/note_transfer.dart';
 import '../../core/providers/providers.dart';
 import '../../core/services/foreground_sync_service.dart';
 import '../../core/theme/note_colors.dart';
 import '../../core/widgets/vault_lock_action.dart';
 import '../../data/models/note.dart';
 import '../../utils/pointer_focus.dart';
+import 'daily_notes_screen.dart';
+import 'knowledge_graph_screen.dart';
 import 'note_editor_screen.dart'; // NoteEditorDialog
+import 'note_template_picker.dart';
+import 'note_templates_screen.dart';
+
+enum _NotesAction { dailyNotes, knowledgeGraph, templates, importMarkdown }
+
+const _knowledgeNoteParser = KnowledgeNoteParser();
 
 /// Google Keep-like notes screen
 class NotesScreen extends ConsumerStatefulWidget {
@@ -96,6 +107,44 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               tooltip: _isGridView ? 'List view' : 'Grid view',
               onPressed: () => setState(() => _isGridView = !_isGridView),
             ),
+            PopupMenuButton<_NotesAction>(
+              tooltip: 'More note actions',
+              onSelected: _handleNotesAction,
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: _NotesAction.dailyNotes,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.today_outlined),
+                    title: Text('Daily notes'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _NotesAction.knowledgeGraph,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.hub_outlined),
+                    title: Text('Knowledge graph'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _NotesAction.templates,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.description_outlined),
+                    title: Text('Templates'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _NotesAction.importMarkdown,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.upload_file_outlined),
+                    title: Text('Import Markdown'),
+                  ),
+                ),
+              ],
+            ),
           ],
           const VaultLockAction(compactOnly: true),
         ],
@@ -110,7 +159,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         button: true,
         child: FloatingActionButton(
           tooltip: 'Add note',
-          onPressed: () => _navigateToEditor(null),
+          onPressed: _createNote,
           child: const Icon(Icons.add),
         ),
       ),
@@ -143,8 +192,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         ? notes
         : notes.where((note) {
             return note.title.toLowerCase().contains(query) ||
-                note.content.toLowerCase().contains(query) ||
+                note.markdownContent.toLowerCase().contains(query) ||
                 note.tags.any((tag) => tag.toLowerCase().contains(query)) ||
+                note.aliases
+                    .any((alias) => alias.toLowerCase().contains(query)) ||
                 note.checklistItems
                     .any((item) => item.text.toLowerCase().contains(query));
           }).toList();
@@ -154,8 +205,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.note_outlined,
-                size: 64, color: Theme.of(context).colorScheme.outline),
+            Icon(
+              Icons.note_outlined,
+              size: 64,
+              color: Theme.of(context).colorScheme.outline,
+            ),
             const SizedBox(height: 16),
             Text(
               query.isNotEmpty
@@ -163,8 +217,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                   : 'No notes yet.\nTap + to create one.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 16,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+                fontSize: 16,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -184,11 +239,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             if (pinnedNotes.isNotEmpty) ...[
               Padding(
                 padding: const EdgeInsets.all(8.0),
-                child: Text('PINNED',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                child: Text(
+                  'PINNED',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
               _buildMasonryGrid(pinnedNotes),
               if (unpinnedNotes.isNotEmpty) const SizedBox(height: 16),
@@ -197,12 +255,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               if (pinnedNotes.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.all(8.0),
-                  child: Text('OTHERS',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant)),
+                  child: Text(
+                    'OTHERS',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               _buildMasonryGrid(unpinnedNotes),
             ],
@@ -254,7 +314,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   }
 
   Widget _buildReorderableListView(
-      List<Note> pinnedNotes, List<Note> unpinnedNotes) {
+    List<Note> pinnedNotes,
+    List<Note> unpinnedNotes,
+  ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 96),
       child: Column(
@@ -263,11 +325,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           if (pinnedNotes.isNotEmpty) ...[
             Padding(
               padding: const EdgeInsets.all(8.0),
-              child: Text('PINNED',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              child: Text(
+                'PINNED',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
             _buildReorderableSection(pinnedNotes, isPinned: true),
             if (unpinnedNotes.isNotEmpty) const SizedBox(height: 8),
@@ -276,11 +341,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             if (pinnedNotes.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.all(8.0),
-                child: Text('OTHERS',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                child: Text(
+                  'OTHERS',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             _buildReorderableSection(unpinnedNotes, isPinned: false),
           ],
@@ -313,7 +381,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   }
 
   Future<void> _onReorderSection(
-      int oldIndex, int newIndex, List<Note> sectionNotes) async {
+    int oldIndex,
+    int newIndex,
+    List<Note> sectionNotes,
+  ) async {
     if (newIndex > oldIndex) newIndex--;
     if (oldIndex == newIndex) return;
 
@@ -331,13 +402,143 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     );
   }
 
-  void _navigateToEditor(Note? note) async {
+  Future<void> _createNote() async {
+    try {
+      final seed = await showNoteTemplatePicker(
+        context,
+        ref,
+        date: DateTime.now(),
+      );
+      if (seed == null || !mounted) return;
+      await _navigateToEditor(null, seed: seed);
+    } catch (error) {
+      _showError('Could not load note templates', error);
+    }
+  }
+
+  Future<void> _navigateToEditor(
+    Note? note, {
+    NoteCreationSeed? seed,
+  }) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => NoteEditorDialog(note: note),
+        builder: (_) => NoteEditorDialog(
+          note: note,
+          initialTitle: seed?.title ?? '',
+          initialContent: seed?.content ?? '',
+          initialColor: seed?.color ?? NoteColor.white,
+          initialTags: seed?.tags ?? const [],
+          initialAliases: seed?.aliases ?? const [],
+        ),
       ),
     );
+    _invalidateNoteProviders();
+  }
+
+  Future<void> _handleNotesAction(_NotesAction action) async {
+    switch (action) {
+      case _NotesAction.dailyNotes:
+        await _openNotesFeature(const DailyNotesScreen());
+        return;
+      case _NotesAction.knowledgeGraph:
+        await _openNotesFeature(const KnowledgeGraphScreen());
+        return;
+      case _NotesAction.templates:
+        await _openNotesFeature(const NoteTemplatesScreen());
+        return;
+      case _NotesAction.importMarkdown:
+        await _importMarkdown();
+        return;
+    }
+  }
+
+  Future<void> _openNotesFeature(Widget screen) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => screen),
+    );
+    _invalidateNoteProviders();
+  }
+
+  Future<void> _importMarkdown() async {
+    try {
+      final picked = await const NoteFileService().pickMarkdown();
+      if (picked == null || !mounted) return;
+      final imported = const NoteTransferCodec().decodeBytes(
+        picked.bytes,
+        fallbackName: picked.name,
+      );
+      final repository = ref.read(notesRepositoryProvider);
+      await repository.initialize();
+
+      var journalDate = imported.journalDate;
+      if (journalDate != null) {
+        final existing = await repository.findJournalNote(journalDate);
+        if (existing != null && mounted) {
+          final importAsRegular = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Daily note already exists'),
+              content: Text(
+                '"${existing.title}" already uses this date. Import the file '
+                'as a regular note instead?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Import note'),
+                ),
+              ],
+            ),
+          );
+          if (importAsRegular != true) return;
+          journalDate = null;
+        }
+      }
+
+      final note = await repository.createNote(
+        title: imported.title,
+        content: imported.content,
+        formatVersion: 2,
+        color: imported.color,
+        isPinned: imported.isPinned,
+        tags: imported.tags,
+        aliases: imported.aliases,
+        journalDate: journalDate,
+      );
+      _invalidateNoteProviders();
+      ForegroundSyncService.scheduleSync(
+        reason: 'Markdown note imported',
+        debounce: const Duration(seconds: 2),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Imported ${picked.name}')),
+      );
+      await _navigateToEditor(note);
+    } on NoteTransferException catch (error) {
+      _showError('Could not import Markdown (${error.code})');
+    } catch (error) {
+      _showError('Could not import Markdown', error);
+    }
+  }
+
+  void _invalidateNoteProviders() {
     ref.invalidate(notesProvider);
+    ref.invalidate(archivedNotesProvider);
+    ref.invalidate(noteTemplatesProvider);
+    ref.invalidate(knowledgeIndexProvider);
+  }
+
+  void _showError(String message, [Object? error]) {
+    if (!mounted) return;
+    final detail = error == null ? message : '$message: $error';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(detail)),
+    );
   }
 
   Future<void> _togglePin(Note note) async {
@@ -449,14 +650,18 @@ class _ArchivedNotesScreen extends ConsumerWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.archive_outlined,
-                      size: 64, color: Theme.of(context).colorScheme.outline),
+                  Icon(
+                    Icons.archive_outlined,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     'No archived notes',
                     style: TextStyle(
-                        fontSize: 16,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      fontSize: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -494,15 +699,18 @@ class _ArchivedNotesScreen extends ConsumerWidget {
                     builder: (ctx) => AlertDialog(
                       title: const Text('Delete Note'),
                       content: Text(
-                          'Delete "${note.title}"? This cannot be undone.'),
+                        'Delete "${note.title}"? This cannot be undone.',
+                      ),
                       actions: [
                         TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Cancel')),
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
                         FilledButton(
                           style: FilledButton.styleFrom(
-                              backgroundColor:
-                                  Theme.of(context).colorScheme.error),
+                            backgroundColor:
+                                Theme.of(context).colorScheme.error,
+                          ),
                           onPressed: () => Navigator.pop(ctx, true),
                           child: const Text('Delete'),
                         ),
@@ -535,16 +743,17 @@ class _ArchivedNotesScreen extends ConsumerWidget {
 String _noteSemanticLabel(Note note) {
   final displayTitle = _noteDisplayTitle(note);
   final title = displayTitle.isEmpty ? 'Untitled' : displayTitle;
-  if (note.isChecklist) {
-    final checked = note.checklistItems.where((item) => item.isChecked).length;
-    return 'Note, $title, checklist $checked of ${note.checklistItems.length} items checked';
+  final preview = _notePreview(note);
+  if (preview.taskCount > 0) {
+    return 'Note, $title, ${preview.completedTaskCount} of '
+        '${preview.taskCount} tasks complete';
   }
 
-  if (note.content.isEmpty) {
+  if (preview.text.isEmpty) {
     return 'Note, $title';
   }
 
-  return 'Note, $title, ${note.content}';
+  return 'Note, $title, ${preview.text}';
 }
 
 String _noteDisplayTitle(Note note) {
@@ -552,6 +761,40 @@ String _noteDisplayTitle(Note note) {
   if (title.isNotEmpty) return title;
   if (note.isChecklist) return 'Checklist';
   return '';
+}
+
+_NotePreviewData _notePreview(Note note) {
+  final parsed = _knowledgeNoteParser.parse(note.markdownContent);
+  var text = parsed.plainText;
+  if (parsed.headings.isNotEmpty &&
+      parsed.headings.first.headingStart == 0 &&
+      parsed.headings.first.title.trim().toLowerCase() ==
+          note.title.trim().toLowerCase()) {
+    final lines = text.split('\n');
+    if (lines.isNotEmpty &&
+        lines.first.trim().toLowerCase() == note.title.trim().toLowerCase()) {
+      text = lines.skip(1).join('\n');
+    }
+  }
+  return _NotePreviewData(
+    text: text,
+    taskCount: parsed.taskCount,
+    completedTaskCount: parsed.completedTaskCount,
+  );
+}
+
+class _NotePreviewData {
+  final String text;
+  final int taskCount;
+  final int completedTaskCount;
+
+  const _NotePreviewData({
+    required this.text,
+    required this.taskCount,
+    required this.completedTaskCount,
+  });
+
+  String get taskSummary => '$completedTaskCount/$taskCount tasks complete';
 }
 
 class _ArchivedNoteCard extends StatelessWidget {
@@ -571,6 +814,7 @@ class _ArchivedNoteCard extends StatelessWidget {
     final backgroundColor = note.getBackgroundColor(brightness);
     final textColor = note.getTextColor(brightness);
     final displayTitle = _noteDisplayTitle(note);
+    final preview = _notePreview(note);
 
     return Semantics(
       container: true,
@@ -585,14 +829,16 @@ class _ArchivedNoteCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          subtitle: Text(
-            note.isChecklist
-                ? '${note.checklistItems.where((i) => i.isChecked).length}/${note.checklistItems.length} items checked'
-                : note.content,
-            style: TextStyle(color: textColor),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
+          subtitle: preview.text.isEmpty && preview.taskCount == 0
+              ? null
+              : Text(
+                  preview.taskCount == 0
+                      ? preview.text
+                      : '${preview.taskSummary} - ${preview.text}',
+                  style: TextStyle(color: textColor),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -635,8 +881,11 @@ class _NoteCard extends StatelessWidget {
     final borderColor = note.getBorderColor(brightness);
     final iconColor = NoteColorPalette.getIconColor(brightness);
     final tagBgColor = NoteColorPalette.getTagBackgroundColor(
-        note.color.colorIndex, brightness);
+      note.color.colorIndex,
+      brightness,
+    );
     final displayTitle = _noteDisplayTitle(note);
+    final preview = _notePreview(note);
     final showTitleRow = displayTitle.isNotEmpty || note.isPinned;
 
     return Semantics(
@@ -661,8 +910,8 @@ class _NoteCard extends StatelessWidget {
           padding: const EdgeInsets.only(left: 16),
           decoration: BoxDecoration(
             color: note.isPinned
-                ? Colors.grey.withOpacity(0.3)
-                : Colors.blue.withOpacity(0.3),
+                ? Colors.grey.withValues(alpha: 0.3)
+                : Colors.blue.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
@@ -674,7 +923,7 @@ class _NoteCard extends StatelessWidget {
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 16),
           decoration: BoxDecoration(
-            color: Colors.orange.withOpacity(0.3),
+            color: Colors.orange.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(8),
           ),
           child: const Icon(Icons.archive, color: Colors.orange),
@@ -718,13 +967,8 @@ class _NoteCard extends StatelessWidget {
                   ],
                   if (note.isChecklist && note.checklistItems.isNotEmpty)
                     _buildChecklistPreview(note, textColor)
-                  else if (note.content.isNotEmpty)
-                    Text(
-                      note.content,
-                      style: TextStyle(fontSize: 14, color: textColor),
-                      maxLines: 30,
-                      overflow: TextOverflow.fade,
-                    ),
+                  else if (preview.text.isNotEmpty || preview.taskCount > 0)
+                    _buildMarkdownPreview(preview, textColor),
                   if (note.tags.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Wrap(
@@ -733,7 +977,9 @@ class _NoteCard extends StatelessWidget {
                       children: note.tags.take(3).map((tag) {
                         return Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: tagBgColor,
                             borderRadius: BorderRadius.circular(4),
@@ -768,44 +1014,49 @@ class _NoteCard extends StatelessWidget {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: textColor.withOpacity(0.65),
+            color: textColor.withValues(alpha: 0.65),
           ),
         ),
         const SizedBox(height: 6),
-        ...items.map((item) => Padding(
-              padding: const EdgeInsets.only(bottom: 5),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 1),
-                    child: Icon(
-                      item.isChecked
-                          ? Icons.check_box
-                          : Icons.check_box_outline_blank,
-                      size: 16,
-                      color: textColor.withOpacity(item.isChecked ? 0.5 : 0.8),
+        ...items.map(
+          (item) => Padding(
+            padding: const EdgeInsets.only(bottom: 5),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Icon(
+                    item.isChecked
+                        ? Icons.check_box
+                        : Icons.check_box_outline_blank,
+                    size: 16,
+                    color: textColor.withValues(
+                      alpha: item.isChecked ? 0.5 : 0.8,
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      item.text.trim().isEmpty ? 'Empty item' : item.text,
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.25,
-                        color:
-                            textColor.withOpacity(item.isChecked ? 0.5 : 1.0),
-                        decoration:
-                            item.isChecked ? TextDecoration.lineThrough : null,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    item.text.trim().isEmpty ? 'Empty item' : item.text,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.25,
+                      color: textColor.withValues(
+                        alpha: item.isChecked ? 0.5 : 1.0,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      decoration:
+                          item.isChecked ? TextDecoration.lineThrough : null,
                     ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ],
-              ),
-            )),
+                ),
+              ],
+            ),
+          ),
+        ),
         if (remaining > 0)
           Padding(
             padding: const EdgeInsets.only(top: 2),
@@ -813,9 +1064,35 @@ class _NoteCard extends StatelessWidget {
               '+$remaining more',
               style: TextStyle(
                 fontSize: 11,
-                color: textColor.withOpacity(0.55),
+                color: textColor.withValues(alpha: 0.55),
               ),
             ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildMarkdownPreview(_NotePreviewData preview, Color textColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (preview.taskCount > 0) ...[
+          Text(
+            preview.taskSummary,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: textColor.withValues(alpha: 0.65),
+            ),
+          ),
+          if (preview.text.isNotEmpty) const SizedBox(height: 6),
+        ],
+        if (preview.text.isNotEmpty)
+          Text(
+            preview.text,
+            style: TextStyle(fontSize: 14, color: textColor),
+            maxLines: 30,
+            overflow: TextOverflow.fade,
           ),
       ],
     );
@@ -845,15 +1122,11 @@ class _NoteListTile extends StatelessWidget {
     final textColor = note.getTextColor(brightness);
     final iconColor = NoteColorPalette.getIconColor(brightness);
     final displayTitle = _noteDisplayTitle(note);
+    final preview = _notePreview(note);
 
-    String subtitle;
-    if (note.isChecklist && note.checklistItems.isNotEmpty) {
-      final checked = note.checklistItems.where((i) => i.isChecked).length;
-      final total = note.checklistItems.length;
-      subtitle = '$checked/$total items checked';
-    } else {
-      subtitle = note.content;
-    }
+    final subtitle = preview.taskCount == 0
+        ? preview.text
+        : '${preview.taskSummary} - ${preview.text}';
 
     return Semantics(
       container: true,
@@ -876,8 +1149,8 @@ class _NoteListTile extends StatelessWidget {
           alignment: Alignment.centerLeft,
           padding: const EdgeInsets.only(left: 16),
           color: note.isPinned
-              ? Colors.grey.withOpacity(0.3)
-              : Colors.blue.withOpacity(0.3),
+              ? Colors.grey.withValues(alpha: 0.3)
+              : Colors.blue.withValues(alpha: 0.3),
           child: Icon(
             note.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
             color: note.isPinned ? Colors.grey : Colors.blue,
@@ -886,7 +1159,7 @@ class _NoteListTile extends StatelessWidget {
         secondaryBackground: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 16),
-          color: Colors.orange.withOpacity(0.3),
+          color: Colors.orange.withValues(alpha: 0.3),
           child: const Icon(Icons.archive, color: Colors.orange),
         ),
         onDismissed: (_) => onArchive(),
@@ -896,7 +1169,7 @@ class _NoteListTile extends StatelessWidget {
           child: ListTile(
             leading: note.isPinned
                 ? Icon(Icons.push_pin, color: iconColor)
-                : note.isChecklist
+                : preview.taskCount > 0
                     ? Icon(Icons.checklist, color: iconColor)
                     : null,
             title: Text(

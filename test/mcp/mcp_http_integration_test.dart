@@ -107,12 +107,25 @@ void main() {
     addTearDown(client.close);
 
     final tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name), contains('list_notes'));
+    expect(
+      tools.tools.map((tool) => tool.name),
+      containsAll([
+        'list_notes',
+        'resolve_note_link',
+        'get_note_outline',
+        'list_backlinks',
+        'resolve_block_reference',
+      ]),
+    );
     for (final toolName in [
       'list_notes',
       'list_note_tags',
       'search_notes',
       'get_note',
+      'resolve_note_link',
+      'get_note_outline',
+      'list_backlinks',
+      'resolve_block_reference',
     ]) {
       final tool = tools.tools.singleWhere((tool) => tool.name == toolName);
       expect(tool.annotations?.readOnlyHint, isTrue, reason: toolName);

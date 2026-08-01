@@ -23,11 +23,17 @@ class Note with _$Note {
     required String uuid,
     required String title,
     required String content,
+    // Version 1 is the original plain-text/separate-checklist representation.
+    // Version 2 stores canonical Markdown in [content].
+    @Default(1) int formatVersion,
     @Default(NoteColor.white) NoteColor color,
     @Default(false) bool isPinned,
     @Default([]) List<String> tags,
+    @Default([]) List<String> aliases,
     @Default(false) bool isChecklist,
     @Default([]) List<ChecklistItem> checklistItems,
+    DateTime? journalDate,
+    @Default(false) bool isTemplate,
     @Default(false) bool isArchived,
     @Default(0) int sortOrder,
     required DateTime createdAt,
@@ -115,6 +121,20 @@ enum NoteColor {
 
 extension NoteExtension on Note {
   String toJsonString() => jsonEncode(toJson());
+
+  /// Markdown body used by the knowledge-note editor and MCP APIs.
+  ///
+  /// Legacy checklist notes are converted without mutating storage. They are
+  /// persisted as format version 2 the next time the user edits them.
+  String get markdownContent {
+    if (!isChecklist) return content;
+    return checklistItems.map((item) {
+      final marker = item.isChecked ? 'x' : ' ';
+      return '- [$marker] ${item.text}';
+    }).join('\n');
+  }
+
+  bool get isMarkdown => formatVersion >= 2;
 
   /// Get background color for this note based on brightness
   Color getBackgroundColor(Brightness brightness) {

@@ -82,9 +82,25 @@ Use copy actions for username, password, and TOTP codes. Enable clipboard auto-c
 
 ## Notes
 
-Notes can store private text, checklists, recovery codes, secure references, and short private documents.
+Notes store canonical Markdown. Use the Edit and Preview modes for headings,
+lists, task lists, links, code, quotes, and tables. Existing checklist notes are
+shown as Markdown and migrate to the new format the next time they are edited.
 
-Use pinning for high-priority notes, colors and tags for organization, archive for old notes, and search for quick lookup. Mobile uses a single-column notes list for readability.
+Select add to start from a blank, daily log, meeting, project, or encrypted
+saved template. The Notes action menu opens Daily notes, the knowledge graph,
+template management, and Markdown import. Export writes one decrypted `.md`
+file with front matter, so store exported files with the same care as any
+other plaintext secret.
+
+Use `[[Note title]]` or `[[Alias#Heading|label]]` to link notes. Preview links
+open the target; the editor can show backlinks, unlinked mentions, and the
+document outline. Add `^block-id` at the end of a line and reference it with
+`((block-id))`. Derived links and graph indexes exist only in memory while the
+vault is unlocked.
+
+Use pinning for high-priority notes, colors, tags, and aliases for organization,
+archive for old notes, and search for quick lookup. Mobile uses a single-column
+notes list for readability.
 
 ## Desktop AI Apps And MCP
 
@@ -118,6 +134,13 @@ notes.
 Search checks note bodies only when the app also has **Read note content**.
 Without that permission, search is limited to titles and tags and returns no
 content snippets.
+
+Knowledge-note tools can resolve titles and aliases, return outlines and task
+counts, list scoped backlinks, and resolve block references. Journal tools can
+get or create one note per calendar date and append Markdown to it. Section
+updates replace only the requested heading body and still require the latest
+`modified_at` value. Encrypted templates are never returned by ordinary MCP
+note tools.
 
 Writes ask for approval by default. The Desktop dialog shows the application,
 operation, note, and before/after content. Approvals expire after 60 seconds.

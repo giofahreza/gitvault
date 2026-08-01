@@ -8,6 +8,13 @@ import '../../core/crypto/key_storage.dart';
 import '../models/note.dart';
 import 'sync_tombstone_store.dart';
 
+class JournalNoteResult {
+  final Note note;
+  final bool created;
+
+  const JournalNoteResult({required this.note, required this.created});
+}
+
 /// Repository for managing encrypted notes (separate from vault entries)
 class NotesRepository {
   // All repository instances in the foreground isolate share the same Hive
@@ -51,11 +58,15 @@ class NotesRepository {
   Future<Note> createNote({
     required String title,
     required String content,
+    int formatVersion = 2,
     NoteColor color = NoteColor.white,
     bool isPinned = false,
     List<String> tags = const [],
+    List<String> aliases = const [],
     bool isChecklist = false,
     List<ChecklistItem> checklistItems = const [],
+    DateTime? journalDate,
+    bool isTemplate = false,
   }) async {
     final now = DateTime.now();
     final nextSortOrder = await _getNextSortOrder();
@@ -63,11 +74,15 @@ class NotesRepository {
       uuid: _uuid.v4(),
       title: title,
       content: content,
+      formatVersion: formatVersion,
       color: color,
       isPinned: isPinned,
       tags: tags,
+      aliases: aliases,
       isChecklist: isChecklist,
       checklistItems: checklistItems,
+      journalDate: journalDate == null ? null : journalDay(journalDate),
+      isTemplate: isTemplate,
       sortOrder: nextSortOrder,
       createdAt: now,
       modifiedAt: now,
@@ -192,7 +207,8 @@ class NotesRepository {
     final notes = await getAllStoredNotes();
 
     // Filter out archived notes
-    final activeNotes = notes.where((n) => !n.isArchived).toList();
+    final activeNotes =
+        notes.where((note) => !note.isArchived && !note.isTemplate).toList();
 
     // Sort: pinned first, then by sortOrder asc, then createdAt desc as tiebreaker
     activeNotes.sort((a, b) {
@@ -241,7 +257,7 @@ class NotesRepository {
     for (final uuid in _notesBox.keys) {
       try {
         final note = await getNote(uuid as String);
-        if (note != null && note.isArchived) {
+        if (note != null && note.isArchived && !note.isTemplate) {
           notes.add(note);
         }
       } catch (e) {
@@ -274,6 +290,69 @@ class NotesRepository {
       tags.addAll(note.tags);
     }
     return tags.toList()..sort();
+  }
+
+  /// Get reusable encrypted note templates.
+  Future<List<Note>> getTemplates() async {
+    final templates = (await getAllStoredNotes())
+        .where((note) => note.isTemplate && !note.isArchived)
+        .toList();
+    templates.sort((left, right) => left.title.compareTo(right.title));
+    return templates;
+  }
+
+  Future<Note?> findJournalNote(DateTime date) async {
+    final day = journalDay(date);
+    for (final note in await getAllStoredNotes()) {
+      final journalDate = note.journalDate;
+      if (!note.isTemplate &&
+          journalDate != null &&
+          journalDay(journalDate) == day) {
+        return note;
+      }
+    }
+    return null;
+  }
+
+  /// Return the journal note for [date], creating it atomically when absent.
+  Future<JournalNoteResult> getOrCreateJournalNote({
+    required DateTime date,
+    required String title,
+    required String content,
+    List<String> tags = const ['journal'],
+    List<String> aliases = const [],
+    NoteColor color = NoteColor.white,
+  }) {
+    final day = journalDay(date);
+    return _enqueueWrite(() async {
+      for (final key in _notesBox.keys) {
+        final note = await getNote(key as String);
+        final journalDate = note?.journalDate;
+        if (note != null &&
+            !note.isTemplate &&
+            journalDate != null &&
+            journalDay(journalDate) == day) {
+          return JournalNoteResult(note: note, created: false);
+        }
+      }
+
+      final now = DateTime.now();
+      final note = Note(
+        uuid: _uuid.v4(),
+        title: title,
+        content: content,
+        formatVersion: 2,
+        color: color,
+        tags: tags,
+        aliases: aliases,
+        journalDate: day,
+        sortOrder: await _getNextSortOrder(),
+        createdAt: now,
+        modifiedAt: now,
+      );
+      await _writeNote(note);
+      return JournalNoteResult(note: note, created: true);
+    });
   }
 
   /// Reorder notes by updating sortOrder for each UUID in the given order
@@ -359,3 +438,6 @@ class NotesRepository {
     }
   }
 }
+
+DateTime journalDay(DateTime date) =>
+    DateTime.utc(date.year, date.month, date.day);

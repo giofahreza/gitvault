@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gitvault/core/session/vault_session_controller.dart';
 import 'package:gitvault/data/models/note.dart';
+import 'package:gitvault/data/repositories/notes_repository.dart';
 import 'package:gitvault/mcp/mcp_approval_controller.dart';
 import 'package:gitvault/mcp/mcp_client_registry.dart';
 import 'package:gitvault/mcp/mcp_models.dart';
@@ -352,6 +353,232 @@ void main() {
     );
     expect(repository.notes, isEmpty);
   });
+
+  test('knowledge tools resolve aliases and enforce backlink scope', () async {
+    final repository = MemoryNotesRepository([
+      testNote(
+        id: 'architecture',
+        title: 'Architecture',
+        content: '# Storage\nDecision. ^storage-decision',
+        tags: const ['work'],
+      ).copyWith(aliases: const ['System design']),
+      testNote(
+        id: 'visible-link',
+        title: 'Plan',
+        content: 'See [[System design#Storage]].',
+        tags: const ['work'],
+      ),
+      testNote(
+        id: 'hidden-link',
+        title: 'Private plan',
+        content: 'See [[Architecture]].',
+        tags: const ['private'],
+      ),
+    ]);
+    final issued = await registry.createClient(
+      displayName: 'Knowledge reader',
+      transport: McpClientTransport.streamableHttp,
+      permissions: const {
+        McpPermission.readMetadata,
+        McpPermission.readContent,
+      },
+      allowedTags: const {'work'},
+    );
+    final service = NotesMcpService(
+      notesRepository: repository,
+      registry: registry,
+      approvalController: approvals,
+      readSession: () => session,
+    );
+
+    final resolution = await service.resolveNoteLink(
+      clientId: issued.client.id,
+      query: 'System design',
+    );
+    expect(resolution['status'], 'resolved');
+    expect(((resolution['matches'] as List).single as Map)['uuid'],
+        'architecture',);
+
+    final backlinks = await service.listBacklinks(
+      clientId: issued.client.id,
+      noteId: 'architecture',
+    );
+    final sources = (backlinks['backlinks'] as List)
+        .map((item) => ((item as Map)['source'] as Map)['uuid']);
+    expect(sources, ['visible-link']);
+
+    final block = await service.resolveBlockReference(
+      clientId: issued.client.id,
+      blockId: '^storage-decision',
+    );
+    expect(block['status'], 'resolved');
+  });
+
+  test('outline and section update use Markdown heading boundaries', () async {
+    final original = testNote(
+      id: 'structured',
+      title: 'Structured',
+      content: '# First\nold\n## Child\nold child\n# Second\nkeep\n',
+    );
+    final repository = MemoryNotesRepository([original]);
+    final issued = await registry.createClient(
+      displayName: 'Section editor',
+      transport: McpClientTransport.streamableHttp,
+      permissions: const {
+        McpPermission.readContent,
+        McpPermission.edit,
+      },
+      writePolicy: McpWritePolicy.allowWhileUnlocked,
+    );
+    final service = NotesMcpService(
+      notesRepository: repository,
+      registry: registry,
+      approvalController: approvals,
+      readSession: () => session,
+    );
+
+    final outline = await service.getNoteOutline(
+      clientId: issued.client.id,
+      noteId: original.uuid,
+    );
+    expect(
+      (outline['headings'] as List).map((item) => (item as Map)['anchor']),
+      ['first', 'child', 'second'],
+    );
+
+    final result = await service.updateNoteSection(
+      clientId: issued.client.id,
+      noteId: original.uuid,
+      expectedModifiedAt: original.modifiedAt.toUtc().toIso8601String(),
+      heading: 'first',
+      content: 'new body',
+    );
+    expect(
+      (result['note'] as Map)['content'],
+      '# First\nnew body\n# Second\nkeep\n',
+    );
+  });
+
+  test('daily note tools create once and append with concurrency', () async {
+    final repository = MemoryNotesRepository(const []);
+    final issued = await registry.createClient(
+      displayName: 'Journal writer',
+      transport: McpClientTransport.streamableHttp,
+      permissions: const {
+        McpPermission.create,
+        McpPermission.append,
+        McpPermission.readContent,
+      },
+      writePolicy: McpWritePolicy.allowWhileUnlocked,
+    );
+    final service = NotesMcpService(
+      notesRepository: repository,
+      registry: registry,
+      approvalController: approvals,
+      readSession: () => session,
+    );
+
+    final created = await service.getOrCreateDailyNote(
+      clientId: issued.client.id,
+      date: '2026-08-01',
+      template: '# Journal\n',
+    );
+    expect(created['created'], isTrue);
+    final initial = created['note'] as Map<String, dynamic>;
+    expect(initial['journal_date'], startsWith('2026-08-01'));
+
+    final returned = await service.getOrCreateDailyNote(
+      clientId: issued.client.id,
+      date: '2026-08-01',
+    );
+    expect(returned['created'], isFalse);
+
+    final appended = await service.appendToDailyNote(
+      clientId: issued.client.id,
+      date: '2026-08-01',
+      text: '- Added by MCP',
+      expectedModifiedAt: initial['modified_at'] as String,
+    );
+    expect(
+      ((appended['note'] as Map)['content'] as String),
+      contains('- Added by MCP'),
+    );
+  });
+
+  test('daily note creation handles a concurrent journal safely', () async {
+    final existing = testNote(
+      id: 'concurrent-journal',
+      title: '2026-08-01',
+      tags: const ['journal'],
+    ).copyWith(journalDate: DateTime.utc(2026, 8, 1));
+    final repository = _RacingDailyNotesRepository(existing);
+    final issued = await registry.createClient(
+      displayName: 'Racing journal writer',
+      transport: McpClientTransport.streamableHttp,
+      permissions: const {
+        McpPermission.create,
+        McpPermission.append,
+        McpPermission.readContent,
+      },
+      writePolicy: McpWritePolicy.allowWhileUnlocked,
+    );
+    var mutations = 0;
+    final service = NotesMcpService(
+      notesRepository: repository,
+      registry: registry,
+      approvalController: approvals,
+      readSession: () => session,
+      onMutation: () => mutations++,
+    );
+
+    final returned = await service.getOrCreateDailyNote(
+      clientId: issued.client.id,
+      date: '2026-08-01',
+    );
+    expect(returned['created'], isFalse);
+    expect((returned['note'] as Map)['uuid'], existing.uuid);
+    expect(mutations, 0);
+
+    await expectLater(
+      service.appendToDailyNote(
+        clientId: issued.client.id,
+        date: '2026-08-01',
+        text: 'Must not be silently dropped',
+      ),
+      throwsA(
+        isA<McpOperationException>()
+            .having((error) => error.code, 'code', 'conflict'),
+      ),
+    );
+    expect(repository.notes[existing.uuid]?.content, existing.content);
+    expect(mutations, 0);
+  });
+
+  test('templates are never exposed through ordinary MCP note tools', () async {
+    final repository = MemoryNotesRepository([
+      testNote(id: 'normal', title: 'Normal'),
+      testNote(id: 'template', title: 'Secret template')
+          .copyWith(isTemplate: true),
+    ]);
+    final issued = await registry.createClient(
+      displayName: 'Reader',
+      transport: McpClientTransport.streamableHttp,
+      permissions: const {
+        McpPermission.readMetadata,
+        McpPermission.includeArchived,
+      },
+    );
+    final service = NotesMcpService(
+      notesRepository: repository,
+      registry: registry,
+      approvalController: approvals,
+      readSession: () => session,
+    );
+
+    final listed = await service.listNotes(clientId: issued.client.id);
+    expect(listed['total'], 1);
+    expect(((listed['notes'] as List).single as Map)['uuid'], 'normal');
+  });
 }
 
 class _BlockingListNotesRepository extends MemoryNotesRepository {
@@ -365,5 +592,26 @@ class _BlockingListNotesRepository extends MemoryNotesRepository {
     started.complete();
     await release.future;
     return super.getAllNotes();
+  }
+}
+
+class _RacingDailyNotesRepository extends MemoryNotesRepository {
+  final Note concurrentNote;
+
+  _RacingDailyNotesRepository(this.concurrentNote) : super([concurrentNote]);
+
+  @override
+  Future<Note?> findJournalNote(DateTime date) async => null;
+
+  @override
+  Future<JournalNoteResult> getOrCreateJournalNote({
+    required DateTime date,
+    required String title,
+    required String content,
+    List<String> tags = const ['journal'],
+    List<String> aliases = const [],
+    NoteColor color = NoteColor.white,
+  }) async {
+    return JournalNoteResult(note: concurrentNote, created: false);
   }
 }

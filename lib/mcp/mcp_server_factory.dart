@@ -84,6 +84,31 @@ class GitVaultMcpServerFactory {
           () => notesService.listNoteTags(clientId: client.id),
         ),
       );
+
+      server.registerTool(
+        'resolve_note_link',
+        description:
+            'Resolve a GitVault note title, alias, wiki-link target, or UUID without reading note bodies.',
+        inputSchema: JsonSchema.object(
+          properties: {
+            'query': JsonSchema.string(maxLength: 500),
+          },
+          required: const ['query'],
+          additionalProperties: false,
+        ),
+        annotations: const ToolAnnotations(
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        ),
+        callback: (args, extra) => _result(
+          () => notesService.resolveNoteLink(
+            clientId: client.id,
+            query: _requiredString(args, 'query'),
+          ),
+        ),
+      );
     }
 
     if (client.permissions.contains(McpPermission.search)) {
@@ -141,6 +166,78 @@ class GitVaultMcpServerFactory {
           ),
         ),
       );
+
+      server.registerTool(
+        'get_note_outline',
+        description:
+            'Return Markdown headings, block anchors, and task counts for one note.',
+        inputSchema: _noteIdSchema(),
+        annotations: const ToolAnnotations(
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        ),
+        callback: (args, extra) => _result(
+          () => notesService.getNoteOutline(
+            clientId: client.id,
+            noteId: _requiredString(args, 'note_id'),
+          ),
+        ),
+      );
+
+      server.registerTool(
+        'list_backlinks',
+        description:
+            'List scoped notes that link to or mention the requested note.',
+        inputSchema: JsonSchema.object(
+          properties: {
+            'note_id': JsonSchema.string(maxLength: 100),
+            'include_unlinked_mentions': JsonSchema.boolean(defaultValue: true),
+          },
+          required: const ['note_id'],
+          additionalProperties: false,
+        ),
+        annotations: const ToolAnnotations(
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        ),
+        callback: (args, extra) => _result(
+          () => notesService.listBacklinks(
+            clientId: client.id,
+            noteId: _requiredString(args, 'note_id'),
+            includeUnlinkedMentions:
+                _boolean(args, 'include_unlinked_mentions', true),
+          ),
+        ),
+      );
+
+      server.registerTool(
+        'resolve_block_reference',
+        description:
+            'Resolve a scoped Markdown block anchor such as ^decision-1.',
+        inputSchema: JsonSchema.object(
+          properties: {
+            'block_id': JsonSchema.string(maxLength: 100),
+          },
+          required: const ['block_id'],
+          additionalProperties: false,
+        ),
+        annotations: const ToolAnnotations(
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        ),
+        callback: (args, extra) => _result(
+          () => notesService.resolveBlockReference(
+            clientId: client.id,
+            blockId: _requiredString(args, 'block_id'),
+          ),
+        ),
+      );
     }
 
     if (client.permissions.contains(McpPermission.create)) {
@@ -153,6 +250,7 @@ class GitVaultMcpServerFactory {
             'title': JsonSchema.string(maxLength: 500),
             'content': JsonSchema.string(maxLength: 256 * 1024),
             'tags': _tagsSchema(),
+            'aliases': _aliasesSchema(),
             'color': _colorSchema(),
             'pinned': JsonSchema.boolean(defaultValue: false),
             'checklist': JsonSchema.boolean(defaultValue: false),
@@ -173,10 +271,38 @@ class GitVaultMcpServerFactory {
             title: _requiredString(args, 'title'),
             content: _requiredString(args, 'content'),
             tags: _strings(args, 'tags'),
+            aliases: _strings(args, 'aliases'),
             color: _string(args, 'color') ?? 'white',
             pinned: _boolean(args, 'pinned', false),
             checklist: _boolean(args, 'checklist', false),
             checklistItems: _objects(args, 'checklist_items'),
+          ),
+        ),
+      );
+
+      server.registerTool(
+        'get_or_create_daily_note',
+        description:
+            'Return the journal note for a date, creating encrypted Markdown from an optional template when absent.',
+        inputSchema: JsonSchema.object(
+          properties: {
+            'date': _dateSchema(),
+            'template': JsonSchema.string(maxLength: 256 * 1024),
+          },
+          required: const ['date'],
+          additionalProperties: false,
+        ),
+        annotations: const ToolAnnotations(
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        ),
+        callback: (args, extra) => _result(
+          () => notesService.getOrCreateDailyNote(
+            clientId: client.id,
+            date: _requiredString(args, 'date'),
+            template: _string(args, 'template'),
           ),
         ),
       );
@@ -213,6 +339,35 @@ class GitVaultMcpServerFactory {
           ),
         ),
       );
+
+      server.registerTool(
+        'append_to_daily_note',
+        description:
+            'Append Markdown to a dated journal note. Existing notes require expected_modified_at; creation also requires Create permission.',
+        inputSchema: JsonSchema.object(
+          properties: {
+            'date': _dateSchema(),
+            'text': JsonSchema.string(maxLength: 256 * 1024),
+            'expected_modified_at': _timestampSchema(),
+          },
+          required: const ['date', 'text'],
+          additionalProperties: false,
+        ),
+        annotations: const ToolAnnotations(
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        ),
+        callback: (args, extra) => _result(
+          () => notesService.appendToDailyNote(
+            clientId: client.id,
+            date: _requiredString(args, 'date'),
+            text: _requiredString(args, 'text'),
+            expectedModifiedAt: _string(args, 'expected_modified_at'),
+          ),
+        ),
+      );
     }
 
     if (client.permissions.contains(McpPermission.edit)) {
@@ -227,6 +382,7 @@ class GitVaultMcpServerFactory {
             'title': JsonSchema.string(maxLength: 500),
             'content': JsonSchema.string(maxLength: 256 * 1024),
             'tags': _tagsSchema(),
+            'aliases': _aliasesSchema(),
             'color': _colorSchema(),
             'pinned': JsonSchema.boolean(),
             'checklist': JsonSchema.boolean(),
@@ -249,12 +405,50 @@ class GitVaultMcpServerFactory {
             title: _string(args, 'title'),
             content: _string(args, 'content'),
             tags: args.containsKey('tags') ? _strings(args, 'tags') : null,
+            aliases:
+                args.containsKey('aliases') ? _strings(args, 'aliases') : null,
             color: _string(args, 'color'),
             pinned: args['pinned'] as bool?,
             checklist: args['checklist'] as bool?,
             checklistItems: args.containsKey('checklist_items')
                 ? _objects(args, 'checklist_items')
                 : null,
+          ),
+        ),
+      );
+
+      server.registerTool(
+        'update_note_section',
+        description:
+            'Replace one Markdown heading section using its outline title or anchor and optimistic concurrency.',
+        inputSchema: JsonSchema.object(
+          properties: {
+            'note_id': JsonSchema.string(maxLength: 100),
+            'expected_modified_at': _timestampSchema(),
+            'heading': JsonSchema.string(maxLength: 500),
+            'content': JsonSchema.string(maxLength: 256 * 1024),
+          },
+          required: const [
+            'note_id',
+            'expected_modified_at',
+            'heading',
+            'content',
+          ],
+          additionalProperties: false,
+        ),
+        annotations: const ToolAnnotations(
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: true,
+          openWorldHint: false,
+        ),
+        callback: (args, extra) => _result(
+          () => notesService.updateNoteSection(
+            clientId: client.id,
+            noteId: _requiredString(args, 'note_id'),
+            expectedModifiedAt: _requiredString(args, 'expected_modified_at'),
+            heading: _requiredString(args, 'heading'),
+            content: _requiredString(args, 'content'),
           ),
         ),
       );
@@ -410,6 +604,17 @@ class GitVaultMcpServerFactory {
         items: JsonSchema.string(maxLength: 80),
         maxItems: 50,
         uniqueItems: true,
+      );
+
+  JsonArray _aliasesSchema() => JsonSchema.array(
+        items: JsonSchema.string(maxLength: 200),
+        maxItems: 50,
+        uniqueItems: true,
+      );
+
+  JsonString _dateSchema() => JsonSchema.string(
+        format: 'date',
+        description: 'A calendar date in YYYY-MM-DD format.',
       );
 
   JsonString _colorSchema() => JsonSchema.string(

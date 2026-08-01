@@ -195,7 +195,7 @@
             <dl class="docs-meta">
               <div><dt>Type</dt><dd>How-to guides</dd></div>
               <div><dt>Applies to</dt><dd>Windows, macOS, and Linux Desktop</dd></div>
-              <div><dt>Updated</dt><dd>July 29, 2026</dd></div>
+              <div><dt>Updated</dt><dd>August 1, 2026</dd></div>
             </dl>
           </div>
 
@@ -209,7 +209,8 @@
 
       <h2>What AI Apps can access</h2>
       <p>An app can receive only the note operations you enable: list metadata, read content, search, create, append, edit, archive, delete, and include archived notes. GitVault enforces these permissions inside the local server.</p>
-      <p>Available note tools are <code>list_notes</code>, <code>search_notes</code>, <code>get_note</code>, <code>list_note_tags</code>, <code>create_note</code>, <code>append_to_note</code>, <code>update_note</code>, <code>archive_note</code>, and <code>delete_note</code>.</p>
+      <p>Available read tools are <code>list_notes</code>, <code>search_notes</code>, <code>get_note</code>, <code>list_note_tags</code>, <code>resolve_note_link</code>, <code>get_note_outline</code>, <code>list_backlinks</code>, and <code>resolve_block_reference</code>. Write tools are <code>create_note</code>, <code>get_or_create_daily_note</code>, <code>append_to_note</code>, <code>append_to_daily_note</code>, <code>update_note</code>, <code>update_note_section</code>, <code>archive_note</code>, and <code>delete_note</code>.</p>
+      <p>Knowledge indexes are built only from decrypted notes visible inside that client's permission and tag scope. Saved templates are hidden records and are never exposed by ordinary MCP note tools.</p>
 
       <h2>Enable the local service</h2>
       <ol class="docs-steps">
@@ -264,6 +265,15 @@
         <li><strong>Delete</strong> Always requires explicit approval and never gains an always-allow exemption.</li>
       </ul>
       <p>Updates use the note's <code>modified_at</code> timestamp. If the note changes while approval is pending, GitVault returns a conflict instead of replacing the newer edit.</p>
+
+      <h2>Use knowledge and journal tools</h2>
+      <ul class="docs-list">
+        <li><strong>Resolve links</strong> Resolve a title, alias, wiki-link target, or UUID before reading a note.</li>
+        <li><strong>Inspect structure</strong> Read heading anchors, block anchors, and Markdown task counts with <code>get_note_outline</code>.</li>
+        <li><strong>Follow context</strong> List scoped backlinks and unlinked mentions or resolve a specific block anchor.</li>
+        <li><strong>Work by date</strong> Get or create one journal note for <code>YYYY-MM-DD</code>, then append with optimistic concurrency.</li>
+        <li><strong>Edit one section</strong> Replace a heading body with <code>update_note_section</code> while preserving the rest of the document.</li>
+      </ul>
 
       <h2>Lock, rotate, or revoke</h2>
       <ul class="docs-list">
