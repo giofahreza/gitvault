@@ -433,6 +433,13 @@ class McpDesktopServer extends ChangeNotifier {
   }
 
   Future<List<int>> _readBoundedBody(HttpRequest request) async {
+    if (request.contentLength > maximumRequestBytes) {
+      await request.drain<void>();
+      throw const McpOperationException(
+        'invalid_input',
+        'MCP request body exceeds the 1 MiB limit.',
+      );
+    }
     final bytes = <int>[];
     await for (final chunk in request) {
       bytes.addAll(chunk);
@@ -633,11 +640,27 @@ class McpDesktopServer extends ChangeNotifier {
     int status,
     String message,
   ) async {
+    await _discardRequestBody(request);
     request.response
       ..statusCode = status
       ..headers.contentType = ContentType.text
       ..write(message);
     await request.response.close();
+  }
+
+  Future<void> _discardRequestBody(HttpRequest request) async {
+    try {
+      var receivedBytes = 0;
+      await for (final chunk in request) {
+        receivedBytes += chunk.length;
+        if (receivedBytes > maximumRequestBytes) {
+          request.response.persistentConnection = false;
+          return;
+        }
+      }
+    } catch (_) {
+      // The MCP transport may already have consumed the request stream.
+    }
   }
 
   Future<void> _jsonRpcError(
