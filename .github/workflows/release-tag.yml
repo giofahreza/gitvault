@@ -125,10 +125,10 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             label: Linux
-          - os: windows-latest
+          - os: windows-2022
             platform: windows
             label: Windows
-          - os: macos-latest
+          - os: macos-14
             platform: macos
             label: macOS
 
