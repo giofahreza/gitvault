@@ -67,6 +67,7 @@ UX_*.md
 
 # Test files
 test_*.dart
+!test/mcp/test_support.dart
 test_*.png
 window_dump.xml
 screenshot.png
