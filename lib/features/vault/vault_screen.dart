@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/providers.dart';
 import '../../core/services/foreground_sync_service.dart';
 import '../../core/widgets/group_selector_field.dart';
-import '../../core/widgets/web_lock_action.dart';
+import '../../core/widgets/vault_lock_action.dart';
 import '../../data/models/vault_entry.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/totp_generator.dart';
@@ -101,7 +101,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               tooltip: 'Close search',
               onPressed: _clearSearch,
             ),
-          const WebLockAction(compactOnly: true),
+          const VaultLockAction(compactOnly: true),
         ],
       ),
       body: entriesAsync.when(

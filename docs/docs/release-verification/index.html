@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <meta name="description" content="Verify APK checksums, release assets, and deployed web version before trusting an update.">
+    <meta name="description" content="Verify APK and Desktop archive checksums plus the deployed web version before trusting an update.">
     <title>Release verification - GitVault Docs</title>
     <link rel="icon" type="image/jpeg" href="/assets/icon/gitvault_new.jpeg">
     <link rel="canonical" href="https://gitvault.giofahreza.com/docs/release-verification/">
@@ -85,6 +85,11 @@
                 <small>Create private notes, checklists, tags, colors, pinned notes, archive, and search.</small>
               </a>
 
+              <a href="/docs/ai-apps/" data-title="AI Apps and MCP" data-category="How-to guides" data-summary="Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions." data-keywords="ai apps mcp model context protocol desktop windows macos linux stdio streamable http permissions tags approval revoke rotate credential tray">
+                <span>AI Apps and MCP</span>
+                <small>Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions.</small>
+              </a>
+
               <a href="/docs/totp/" data-title="2FA codes" data-category="How-to guides" data-summary="Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing." data-keywords="2fa totp authenticator code timer secret issuer account group dropdown copy countdown">
                 <span>2FA codes</span>
                 <small>Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing.</small>
@@ -109,9 +114,9 @@
             <div class="docs-nav-group">
               <p class="docs-toc-label">Reference</p>
 
-              <a href="/docs/platform-support/" data-title="Platform support" data-category="Reference" data-summary="Feature availability across the web app and Android APK." data-keywords="platform support web android browser apk autofill keyboard biometric ssh terminal recent apps">
+              <a href="/docs/platform-support/" data-title="Platform support" data-category="Reference" data-summary="Feature availability across web, Android, Windows, macOS, and Linux." data-keywords="platform support web android desktop windows macos linux browser apk autofill keyboard biometric ssh terminal mcp ai apps">
                 <span>Platform support</span>
-                <small>Feature availability across the web app and Android APK.</small>
+                <small>Feature availability across web, Android, Windows, macOS, and Linux.</small>
               </a>
 
               <a href="/docs/sync-behavior/" data-title="Sync behavior" data-category="Reference" data-summary="How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work." data-keywords="sync behavior auto sync last write wins conflict tombstones deleted items interval github device revocation">
@@ -147,14 +152,14 @@
             <div class="docs-nav-group">
               <p class="docs-toc-label">Operations</p>
 
-              <a href="/docs/install-update/" data-title="Install and update" data-category="Operations" data-summary="Open the web app, install Android APKs, verify release assets, and understand version updates." data-keywords="install update apk universal abi sha256 release tag github pages web app version android">
+              <a href="/docs/install-update/" data-title="Install and update" data-category="Operations" data-summary="Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates." data-keywords="install update apk universal abi desktop windows macos linux archive zip tar sha256 release tag github pages web app version android">
                 <span>Install and update</span>
-                <small>Open the web app, install Android APKs, verify release assets, and understand version updates.</small>
+                <small>Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates.</small>
               </a>
 
-              <a href="/docs/release-verification/" data-title="Release verification" data-category="Operations" data-summary="Verify APK checksums, release assets, and deployed web version before trusting an update." data-keywords="release verification apk sha256 checksum sha256sums version tag github releases web pages verify download" aria-current="page" class="is-active">
+              <a href="/docs/release-verification/" data-title="Release verification" data-category="Operations" data-summary="Verify APK and Desktop archive checksums plus the deployed web version before trusting an update." data-keywords="release verification apk desktop windows macos linux archive zip tar sha256 checksum sha256sums version tag github releases web pages verify download" aria-current="page" class="is-active">
                 <span>Release verification</span>
-                <small>Verify APK checksums, release assets, and deployed web version before trusting an update.</small>
+                <small>Verify APK and Desktop archive checksums plus the deployed web version before trusting an update.</small>
               </a>
             </div>
 
@@ -179,6 +184,7 @@
 <a href="/docs/category/devices/" data-title="Devices" data-category="Topic" data-summary="Trusted devices, Link New Device, recovery requests, alerts, and removal behavior." data-keywords="devices"><span>Devices</span><small>Trusted devices, Link New Device, recovery requests, alerts, and removal behavior.</small></a>
 <a href="/docs/category/android/" data-title="Android" data-category="Topic" data-summary="APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support." data-keywords="android"><span>Android</span><small>APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support.</small></a>
 <a href="/docs/category/web/" data-title="Web" data-category="Topic" data-summary="Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment." data-keywords="web"><span>Web</span><small>Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.</small></a>
+<a href="/docs/category/desktop/" data-title="Desktop" data-category="Topic" data-summary="Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases." data-keywords="desktop"><span>Desktop</span><small>Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases.</small></a>
           </div>
         </aside>
 
@@ -188,13 +194,13 @@
             <h1>Release verification</h1>
             <dl class="docs-meta">
               <div><dt>Type</dt><dd>Operations</dd></div>
-              <div><dt>Applies to</dt><dd>Android and web release checks</dd></div>
+              <div><dt>Applies to</dt><dd>Android, Desktop, and web release checks</dd></div>
               <div><dt>Updated</dt><dd>July 29, 2026</dd></div>
             </dl>
           </div>
 
 
-      <p class="docs-lead">Verification is optional for casual testing, but it is a good habit before installing an APK that will hold real secrets.</p>
+      <p class="docs-lead">Verify release downloads before running an app that will hold real secrets.</p>
 
       <figure class="docs-figure">
         <div class="docs-figure-frame">
@@ -205,26 +211,31 @@
 
       <h2>What to verify</h2>
       <ul class="docs-list">
-        <li><strong>Same release</strong> Download the APK and <code>SHA256SUMS.txt</code> from the same GitHub release page.</li>
-        <li><strong>Correct filename</strong> Compare the checksum line for the exact APK file you installed.</li>
+        <li><strong>Same release</strong> Download the application and its platform checksum file from the same GitHub release page.</li>
+        <li><strong>Correct filename</strong> Compare the checksum line for the exact APK or archive you downloaded.</li>
         <li><strong>Visible version</strong> Check Settings, then About, after install or web deployment.</li>
-        <li><strong>Recovery available</strong> Confirm recovery material is available before replacing a phone or browser profile.</li>
+        <li><strong>Recovery available</strong> Confirm recovery material is available before replacing an existing installation.</li>
       </ul>
 
-      <h2>Verify an APK checksum</h2>
+      <h2>Verify an Android APK</h2>
       <ol class="docs-steps">
         <li><span>1</span><div><strong>Download release assets.</strong><p>Download <code>gitvault-vX.Y.Z-universal.apk</code> and <code>SHA256SUMS.txt</code> from the same release.</p></div></li>
-        <li><span>2</span><div><strong>Calculate the APK hash.</strong><p>Use the command for your desktop OS, or an Android terminal app if you verify directly on the phone.</p></div></li>
-        <li><span>3</span><div><strong>Compare exactly.</strong><p>The calculated SHA-256 value must match the checksum line for that APK filename.</p></div></li>
+        <li><span>2</span><div><strong>Calculate the hash.</strong><p>On Windows use <code>certutil -hashfile gitvault-vX.Y.Z-universal.apk SHA256</code>. On macOS or Linux use <code>sha256sum gitvault-vX.Y.Z-universal.apk</code>.</p></div></li>
+        <li><span>3</span><div><strong>Compare exactly.</strong><p>The calculated SHA-256 value must match the APK filename in <code>SHA256SUMS.txt</code>.</p></div></li>
         <li><span>4</span><div><strong>Install only after a match.</strong><p>If the values differ, delete the file and download again from GitHub Releases.</p></div></li>
       </ol>
 
-      <h2>Windows checksum</h2>
-      <pre><code>certutil -hashfile gitvault-vX.Y.Z-universal.apk SHA256</code></pre>
+      <h2>Verify a Desktop archive</h2>
+      <p>Download the archive and its matching checksum file into one directory. Compare the archive hash before extraction.</p>
+      <pre><code># Windows PowerShell
+Get-FileHash -Algorithm SHA256 gitvault-vX.Y.Z-windows-x64.zip
+Get-Content SHA256SUMS-windows.txt
 
-      <h2>macOS or Linux checksum</h2>
-      <pre><code>sha256sum gitvault-vX.Y.Z-universal.apk
-cat SHA256SUMS.txt</code></pre>
+# Linux
+sha256sum -c SHA256SUMS-linux.txt
+
+# macOS
+shasum -a 256 -c SHA256SUMS-macos.txt</code></pre>
 
       <h2>Verify the web app</h2>
       <ol class="docs-steps compact">
@@ -235,8 +246,8 @@ cat SHA256SUMS.txt</code></pre>
 
       <h2>When verification fails</h2>
       <ul class="docs-list">
-        <li><strong>Checksum mismatch</strong> Delete the APK and download it again from the release page.</li>
-        <li><strong>Missing APK</strong> Wait for the release workflow to finish, then refresh the release page.</li>
+        <li><strong>Checksum mismatch</strong> Delete the download and fetch it again from the release page.</li>
+        <li><strong>Missing asset</strong> Wait for the release workflow to finish, then refresh the release page.</li>
         <li><strong>Old web version</strong> Check GitHub Pages deployment status and reload after the deploy completes.</li>
       </ul>
 
@@ -244,8 +255,8 @@ cat SHA256SUMS.txt</code></pre>
           <section class="docs-related" aria-labelledby="see-also">
             <h2 id="see-also">See also</h2>
             <ul class="docs-link-list">
-              <li><a href="/docs/install-update/">Install and update</a> - Open the web app, install Android APKs, verify release assets, and understand version updates.</li>
-              <li><a href="/docs/platform-support/">Platform support</a> - Feature availability across the web app and Android APK.</li>
+              <li><a href="/docs/install-update/">Install and update</a> - Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates.</li>
+              <li><a href="/docs/platform-support/">Platform support</a> - Feature availability across web, Android, Windows, macOS, and Linux.</li>
               <li><a href="/docs/security/">Security model</a> - How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.</li>
               <li><a href="/docs/faq/">FAQ and common mistakes</a> - Answers for common setup, sync, device trust, recovery, autofill, and release questions.</li>
               <li><a href="/docs/troubleshooting/">Troubleshooting</a> - Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order.</li>

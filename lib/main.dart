@@ -12,8 +12,11 @@ import 'core/services/background_sync_service.dart';
 import 'core/services/device_identity_service.dart';
 import 'core/services/foreground_sync_service.dart';
 import 'core/services/persistent_ssh_service.dart';
+import 'core/session/vault_session_controller.dart';
 import 'core/theme/app_theme.dart';
-import 'core/widgets/web_lock_action.dart';
+import 'core/widgets/vault_lock_action.dart';
+import 'mcp/mcp_platform.dart';
+import 'mcp/mcp_runtime_scope.dart';
 import 'data/models/vault_entry.dart';
 import 'data/repositories/sync_engine.dart';
 import 'features/onboarding/onboarding_screen.dart';
@@ -23,6 +26,7 @@ import 'features/ssh/ssh_screen.dart';
 import 'features/notes/notes_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/autofill/autofill_select_screen.dart';
+import 'features/ai_apps/mcp_approval_host.dart';
 import 'utils/pointer_focus.dart';
 
 /// Extract the registered domain from a URL string (strips www.).
@@ -141,7 +145,7 @@ class GitVaultApp extends ConsumerWidget {
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),
       themeMode: themeMode.toThemeMode(),
-      home: const AppShell(),
+      home: const McpRuntimeScope(child: AppShell()),
     );
   }
 }
@@ -220,6 +224,7 @@ class _ForegroundSyncScopeState extends ConsumerState<ForegroundSyncScope>
     final error = ForegroundSyncService.lastTrustError;
     if (error is! DeviceRevokedException) return;
 
+    ref.read(vaultSessionProvider.notifier).revoke(reason: error.message);
     ref.read(autoSyncIntervalProvider.notifier).state = 0;
     final credentialsSignal =
         ref.read(githubCredentialsSignalProvider.notifier);
@@ -282,21 +287,23 @@ class BiometricGate extends ConsumerStatefulWidget {
 
 class _BiometricGateState extends ConsumerState<BiometricGate>
     with WidgetsBindingObserver {
-  bool _authenticated = false;
   bool _checking = true;
   bool _showPinEntry = false;
   String? _error;
   DateTime? _inactiveSince;
+  Timer? _inactiveLockTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ref.read(vaultSessionProvider.notifier).markStarting();
     _attemptBiometric();
   }
 
   @override
   void dispose() {
+    _inactiveLockTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -304,14 +311,34 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _inactiveLockTimer?.cancel();
+      _inactiveLockTimer = null;
       unawaited(_handleAppResumed());
       return;
     }
 
-    if (_isInactiveState(state) && _authenticated) {
+    if (_isInactiveState(state) && _isAuthenticated) {
       _inactiveSince ??= DateTime.now();
+      _scheduleInactiveLock();
     }
   }
+
+  void _scheduleInactiveLock() {
+    _inactiveLockTimer?.cancel();
+    final timeoutSeconds = ref.read(authLockTimeoutSecondsProvider);
+    _inactiveLockTimer = Timer(
+      Duration(seconds: timeoutSeconds <= 0 ? 0 : timeoutSeconds),
+      () async {
+        final inactiveSince = _inactiveSince;
+        if (!mounted || !_isAuthenticated || inactiveSince == null) return;
+        if (await _shouldLockAfterInactive(inactiveSince) && mounted) {
+          _lockVault(promptImmediately: false);
+        }
+      },
+    );
+  }
+
+  bool get _isAuthenticated => ref.read(vaultSessionProvider).canAccessVault;
 
   bool _isInactiveState(AppLifecycleState state) {
     return state == AppLifecycleState.inactive ||
@@ -321,10 +348,12 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
   }
 
   Future<void> _handleAppResumed() async {
+    if (ref.read(vaultSessionProvider).isTerminal) return;
+
     final inactiveSince = _inactiveSince;
     _inactiveSince = null;
 
-    if (_authenticated && inactiveSince != null) {
+    if (_isAuthenticated && inactiveSince != null) {
       final shouldLock = await _shouldLockAfterInactive(inactiveSince);
       if (!mounted) return;
       if (shouldLock) {
@@ -333,7 +362,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
       return;
     }
 
-    if (!_authenticated) {
+    if (!_isAuthenticated) {
       if (mounted) setState(() => _checking = true);
       await _attemptBiometric();
     }
@@ -352,16 +381,20 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
     return inactiveFor >= Duration(seconds: timeoutSeconds);
   }
 
-  void _lockVault() {
-    if (!_authenticated || !mounted) return;
+  void _lockVault({bool promptImmediately = true}) {
+    if (!_isAuthenticated || !mounted) return;
 
+    ref
+        .read(vaultSessionProvider.notifier)
+        .lock(reason: 'Authentication required');
     setState(() {
-      _authenticated = false;
       _checking = true;
       _showPinEntry = false;
       _error = null;
     });
-    unawaited(_attemptBiometric());
+    if (promptImmediately) {
+      unawaited(_attemptBiometric());
+    }
   }
 
   /// Poll native side for pending autofill request (cold-start case).
@@ -403,6 +436,14 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
   }
 
   Future<void> _attemptBiometric() async {
+    if (ref.read(vaultSessionProvider).isTerminal) {
+      if (mounted) setState(() => _checking = false);
+      return;
+    }
+
+    ref
+        .read(vaultSessionProvider.notifier)
+        .beginUnlock(reason: 'Authentication in progress');
     final biometricEnabled = ref.read(biometricEnabledProvider);
 
     if (!biometricEnabled) {
@@ -417,9 +458,9 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
         return;
       }
       setState(() {
-        _authenticated = true;
         _checking = false;
       });
+      ref.read(vaultSessionProvider.notifier).unlock();
       _pollPendingAutofill();
       return;
     }
@@ -440,9 +481,9 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           return;
         }
         setState(() {
-          _authenticated = true;
           _checking = false;
         });
+        ref.read(vaultSessionProvider.notifier).unlock();
         _pollPendingAutofill();
         return;
       }
@@ -459,9 +500,9 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           return;
         }
         setState(() {
-          _authenticated = true;
           _checking = false;
         });
+        ref.read(vaultSessionProvider.notifier).unlock();
         _pollPendingAutofill();
         return;
       }
@@ -474,9 +515,9 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
       if (mounted) {
         if (result) {
           setState(() {
-            _authenticated = true;
             _checking = false;
           });
+          ref.read(vaultSessionProvider.notifier).unlock();
           _pollPendingAutofill();
         } else {
           // Biometric failed — offer PIN fallback
@@ -504,9 +545,9 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           });
         } else {
           setState(() {
-            _authenticated = true;
             _checking = false;
           });
+          ref.read(vaultSessionProvider.notifier).unlock();
           _pollPendingAutofill();
         }
       }
@@ -523,9 +564,9 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           });
         } else {
           setState(() {
-            _authenticated = true;
             _checking = false;
           });
+          ref.read(vaultSessionProvider.notifier).unlock();
           _pollPendingAutofill();
         }
       }
@@ -534,6 +575,8 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
 
   @override
   Widget build(BuildContext context) {
+    final vaultSession = ref.watch(vaultSessionProvider);
+
     ref.listen<int>(appLockSignalProvider, (previous, next) {
       if (previous != null && previous != next) {
         _lockVault();
@@ -546,7 +589,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
       );
     }
 
-    if (_authenticated) {
+    if (vaultSession.canAccessVault) {
       // Check for pending autofill request and show autofill screen directly
       final pendingRequest =
           AutofillRequestHandler.instance.consumePendingRequest();
@@ -556,14 +599,16 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
           domain: pendingRequest['domain'],
         );
       }
-      return const ForegroundSyncScope(child: MainScreen());
+      return const ForegroundSyncScope(
+        child: McpApprovalHost(child: MainScreen()),
+      );
     }
 
     if (_showPinEntry) {
       return _PinEntryScreen(
         onSuccess: () {
+          ref.read(vaultSessionProvider.notifier).unlock();
           setState(() {
-            _authenticated = true;
             _showPinEntry = false;
           });
           _pollPendingAutofill();
@@ -578,6 +623,12 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
         },
       );
     }
+
+    final sessionError = vaultSession.status == VaultSessionStatus.revoked
+        ? vaultSession.reason ?? 'This device is no longer trusted.'
+        : vaultSession.status == VaultSessionStatus.duress
+            ? 'Vault access is unavailable.'
+            : _error ?? 'Authenticate to continue';
 
     // Auth failed — show retry screen
     return Scaffold(
@@ -596,23 +647,24 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
               ),
               const SizedBox(height: 8),
               Text(
-                _error ?? 'Authenticate to continue',
+                sessionError,
                 style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-              FilledButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _checking = true;
-                    _error = null;
-                  });
-                  _attemptBiometric();
-                },
-                icon: const Icon(Icons.fingerprint),
-                label: const Text('Unlock'),
-              ),
+              if (!vaultSession.isTerminal)
+                FilledButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _checking = true;
+                      _error = null;
+                    });
+                    _attemptBiometric();
+                  },
+                  icon: const Icon(Icons.fingerprint),
+                  label: const Text('Unlock'),
+                ),
             ],
           ),
         ),
@@ -885,6 +937,23 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     });
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
+
+    if (enteredPin.length == _maxPinLength) {
+      final duressManager = ref.read(duressManagerProvider);
+      if (await duressManager.verifyDuressPin(enteredPin)) {
+        await duressManager.executePanicWipe();
+        ref
+            .read(vaultSessionProvider.notifier)
+            .activateDuress(reason: 'Duress PIN entered');
+        ref.invalidate(isVaultSetupProvider);
+        _pin = '';
+        _clearWebPinInput();
+        if (mounted) {
+          setState(() => _verifying = false);
+        }
+        return;
+      }
+    }
 
     final valid = await pinAuth.verifyPin(enteredPin);
     if (!mounted) return;
@@ -1307,13 +1376,13 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   labelType:
                       useExtendedRail ? null : NavigationRailLabelType.all,
                   minExtendedWidth: 200,
-                  trailing: kIsWeb
+                  trailing: kIsWeb || isDesktopPlatform
                       ? const Expanded(
                           child: Align(
                             alignment: Alignment.bottomCenter,
                             child: Padding(
                               padding: EdgeInsets.only(bottom: 16),
-                              child: WebLockAction(filled: true),
+                              child: VaultLockAction(filled: true),
                             ),
                           ),
                         )

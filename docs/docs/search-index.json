@@ -49,15 +49,16 @@
     {
       "title": "Platform support",
       "category": "Reference",
-      "summary": "Feature availability across the web app and Android APK.",
-      "keywords": "platform support web android browser apk autofill keyboard biometric ssh terminal recent apps",
+      "summary": "Feature availability across web, Android, Windows, macOS, and Linux.",
+      "keywords": "platform support web android desktop windows macos linux browser apk autofill keyboard biometric ssh terminal mcp ai apps",
       "headings": [
         "Support matrix",
         "Web notes",
         "Android notes",
+        "Desktop notes",
         "Unsupported or conditional behavior"
       ],
-      "excerpt": "Most vault features work on web and Android. Android adds system autofill, GitVault Keyboard, recent-app privacy, and mobile SSH terminal behavior where supported.",
+      "excerpt": "Core vault features work across web, Android, and Desktop. Android adds system integrations; Desktop adds local MCP access for approved AI apps.",
       "href": "/docs/platform-support/"
     },
     {
@@ -105,6 +106,25 @@
       ],
       "excerpt": "Notes can be plain private text or checklists. Use pinning, colors, tags, archive, and search to keep private information usable.",
       "href": "/docs/notes/"
+    },
+    {
+      "title": "AI Apps and MCP",
+      "category": "How-to guides",
+      "summary": "Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions.",
+      "keywords": "ai apps mcp model context protocol desktop windows macos linux stdio streamable http permissions tags approval revoke rotate credential tray",
+      "headings": [
+        "What AI Apps can access",
+        "Enable the local service",
+        "Connect an AI app",
+        "Choose a transport",
+        "Set permissions and tag scope",
+        "Approve writes",
+        "Lock, rotate, or revoke",
+        "Security boundary",
+        "Troubleshooting"
+      ],
+      "excerpt": "GitVault Desktop hosts a local MCP service for notes. Every AI app gets its own credential, permissions, tag scope, write policy, and redacted activity history.",
+      "href": "/docs/ai-apps/"
     },
     {
       "title": "2FA codes",
@@ -229,32 +249,32 @@
     {
       "title": "Install and update",
       "category": "Operations",
-      "summary": "Open the web app, install Android APKs, verify release assets, and understand version updates.",
-      "keywords": "install update apk universal abi sha256 release tag github pages web app version android",
+      "summary": "Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates.",
+      "keywords": "install update apk universal abi desktop windows macos linux archive zip tar sha256 release tag github pages web app version android",
       "headings": [
         "Web app",
         "Android APK",
+        "Desktop archives",
         "Release assets",
         "Verify the version",
         "Upgrade habits"
       ],
-      "excerpt": "The web app is served at /app/ and the Android APK is published on GitHub Releases. The visible version is derived from the release tag.",
+      "excerpt": "The web app is served at /app/, while Android and Desktop builds are published on GitHub Releases. Their visible version is derived from the release tag.",
       "href": "/docs/install-update/"
     },
     {
       "title": "Release verification",
       "category": "Operations",
-      "summary": "Verify APK checksums, release assets, and deployed web version before trusting an update.",
-      "keywords": "release verification apk sha256 checksum sha256sums version tag github releases web pages verify download",
+      "summary": "Verify APK and Desktop archive checksums plus the deployed web version before trusting an update.",
+      "keywords": "release verification apk desktop windows macos linux archive zip tar sha256 checksum sha256sums version tag github releases web pages verify download",
       "headings": [
         "What to verify",
-        "Verify an APK checksum",
-        "Windows checksum",
-        "macOS or Linux checksum",
+        "Verify an Android APK",
+        "Verify a Desktop archive",
         "Verify the web app",
         "When verification fails"
       ],
-      "excerpt": "Use SHA256SUMS.txt from the same GitHub release to verify an APK download, then check the in-app version against the release tag after installing or opening the web app.",
+      "excerpt": "Use the matching SHA256SUMS file from the same GitHub release to verify an Android or Desktop download, then check the in-app version against the release tag.",
       "href": "/docs/release-verification/"
     },
     {
@@ -308,7 +328,7 @@
       "headings": [
         "Pages in this category"
       ],
-      "excerpt": "Passwords, Notes, 2FA codes, TOTP import, SSH credentials, Autofill and GitVault Keyboard",
+      "excerpt": "Passwords, Notes, AI Apps and MCP, 2FA codes, TOTP import, SSH credentials, Autofill and GitVault Keyboard",
       "href": "/docs/category/how-to-guides/"
     },
     {
@@ -409,6 +429,17 @@
       ],
       "excerpt": "Platform support, Security model, Install and update, Release verification, Troubleshooting",
       "href": "/docs/category/web/"
+    },
+    {
+      "title": "Desktop",
+      "category": "Topic",
+      "summary": "Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases.",
+      "keywords": "desktop Desktop",
+      "headings": [
+        "Pages in this category"
+      ],
+      "excerpt": "Platform support, AI Apps and MCP, Install and update, Security model, Troubleshooting",
+      "href": "/docs/category/desktop/"
     }
   ]
 }

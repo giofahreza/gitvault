@@ -48,6 +48,34 @@
 
 ---
 
+### Desktop AI Apps (MCP)
+
+GitVault Desktop for Windows, macOS, and Linux can give any
+MCP-compatible application explicitly approved access to notes.
+
+- **Notes only** - passwords, TOTP secrets, SSH credentials, GitHub tokens,
+  recovery data, and root keys are never exposed through MCP
+- **Per-app access** - separate credentials, permissions, tag scopes, and
+  write policies for every connected application
+- **Desktop-authorized connections** - a connection can be created only by an
+  unlocked user pressing **Connect app** in GitVault Desktop; unsolicited
+  pairing requests are not accepted
+- **Local transports** - authenticated Streamable HTTP on `127.0.0.1` and a
+  bundled `gitvault_mcp` stdio bridge
+- **Desktop approvals** - inspect create, append, edit, archive, and delete
+  requests before allowing them
+- **Conflict protection** - stale edits return a conflict instead of
+  overwriting a newer note
+- **Immediate lock and revocation** - locking GitVault blocks note access;
+  rotating or revoking a connection invalidates its sessions
+- **Redacted local activity** - 30-day history records actions and results,
+  never note bodies or credentials
+
+See [AI Apps and MCP](https://gitvault.giofahreza.com/docs/ai-apps/) for setup,
+permissions, supported transports, and the local OS-user trust boundary.
+
+---
+
 ### 🔐 Passwords
 <table>
   <tr>
@@ -165,11 +193,12 @@
 
 - [Live Docs](https://gitvault.giofahreza.com/docs/) - multi-page user docs for setup, sync, vault items, devices, recovery, and troubleshooting.
 - [Quick Start](https://gitvault.giofahreza.com/docs/quick-start/) - first setup flow for web or Android.
-- [Platform Support](https://gitvault.giofahreza.com/docs/platform-support/) - web and Android feature matrix.
+- [Platform Support](https://gitvault.giofahreza.com/docs/platform-support/) - web, Android, and Desktop feature matrix.
+- [AI Apps and MCP](https://gitvault.giofahreza.com/docs/ai-apps/) - connect desktop AI applications to scoped notes.
 - [GitHub Sync](https://gitvault.giofahreza.com/docs/github-sync/) - private repository and fine-grained token setup.
 - [Connected Devices](https://gitvault.giofahreza.com/docs/devices/) - Link New Device, alerts, removal, and trust behavior.
 - [Recovery](https://gitvault.giofahreza.com/docs/recovery/) - trusted-device approval and lost-device new-token recovery.
-- [Release Verification](https://gitvault.giofahreza.com/docs/release-verification/) - APK checksum and web version verification.
+- [Release Verification](https://gitvault.giofahreza.com/docs/release-verification/) - APK and desktop archive checksums plus web version verification.
 - [FAQ](https://gitvault.giofahreza.com/docs/faq/) - common setup, sync, recovery, autofill, and release mistakes.
 - [Docs Index](docs/README.md) - repository documentation entry point.
 - [User Guide](docs/user-guide.md) - single-file setup and recovery reference.
@@ -179,10 +208,25 @@
 
 ## Installation
 
+### Android
+
 1. Download the latest `gitvault-v*-universal.apk` from [Releases](../../releases)
 2. Enable "Install from unknown sources" on your Android device
 3. Install the APK
 4. Follow the onboarding flow
+
+### Desktop
+
+1. Download the Windows, macOS, or Linux archive from
+   [Releases](../../releases).
+2. Extract the complete archive so the app and `gitvault_mcp` bridge stay
+   together.
+3. Open GitVault, unlock the vault, then use **Settings > AI Apps** to enable
+   local MCP access.
+
+Unsigned macOS builds can show a Gatekeeper warning. Linux builds require GTK
+3, AppIndicator, and Secret Service libraries supplied by the desktop
+distribution.
 
 ---
 
@@ -333,14 +377,16 @@ Settings → Security → Biometric Authentication → toggle off then on → re
 
 ## Building from Source
 
-**Prerequisites:** Flutter SDK (stable), Android SDK API 23+, Kotlin 1.9+, Gradle 8.14+
+**Prerequisites:** Flutter 3.29.3, Android SDK API 23+, Kotlin 1.9+, Gradle 8.14+
 
 ```bash
 git clone https://github.com/giofahreza/gitvault
 cd gitvault
 flutter pub get
-cd android && ./gradlew assembleRelease
-# Output: build/app/outputs/flutter-apk/app-release.apk
+flutter test
+flutter build apk --release
+flutter build linux --release   # or windows / macos on that host OS
+dart compile exe bin/gitvault_mcp.dart -o gitvault_mcp
 ```
 
 ---

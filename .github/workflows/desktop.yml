@@ -1,0 +1,95 @@
+name: Desktop
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/desktop.yml"
+      - "bin/**"
+      - "lib/**"
+      - "linux/**"
+      - "macos/**"
+      - "windows/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "test/mcp/**"
+  pull_request:
+    paths:
+      - ".github/workflows/desktop.yml"
+      - "bin/**"
+      - "lib/**"
+      - "linux/**"
+      - "macos/**"
+      - "windows/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "test/mcp/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            label: Linux
+          - os: windows-latest
+            platform: windows
+            label: Windows
+          - os: macos-latest
+            platform: macos
+            label: macOS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libgtk-3-dev \
+            libayatana-appindicator3-dev libsecret-1-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          cache: true
+
+      - name: Enable desktop platform
+        shell: bash
+        run: flutter config --enable-${{ matrix.platform }}-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate model code
+        run: flutter pub run build_runner build --delete-conflicting-outputs
+
+      - name: Run MCP tests
+        run: flutter test test/mcp
+
+      - name: Build desktop app
+        run: flutter build ${{ matrix.platform }} --release
+
+      - name: Compile stdio bridge
+        shell: bash
+        run: dart compile exe bin/gitvault_mcp.dart -o gitvault_mcp${{ runner.os == 'Windows' && '.exe' || '' }}
+
+      - name: Upload stdio bridge
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitvault-mcp-${{ matrix.platform }}
+          path: gitvault_mcp*
+          if-no-files-found: error
+          retention-days: 7

@@ -7,7 +7,7 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../../core/providers/providers.dart';
 import '../../core/services/foreground_sync_service.dart';
 import '../../core/theme/note_colors.dart';
-import '../../core/widgets/web_lock_action.dart';
+import '../../core/widgets/vault_lock_action.dart';
 import '../../data/models/note.dart';
 import '../../utils/pointer_focus.dart';
 import 'note_editor_screen.dart'; // NoteEditorDialog
@@ -97,7 +97,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               onPressed: () => setState(() => _isGridView = !_isGridView),
             ),
           ],
-          const WebLockAction(compactOnly: true),
+          const VaultLockAction(compactOnly: true),
         ],
       ),
       body: notesAsync.when(
@@ -300,16 +300,13 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       },
       itemBuilder: (context, index) {
         final note = notes[index];
-        return ReorderableDragStartListener(
+        return _NoteListTile(
           key: ValueKey('reorder_${note.uuid}'),
-          index: index,
-          child: _NoteListTile(
-            note: note,
-            onTap: () => _navigateToEditor(note),
-            onArchive: () => _archiveNote(note),
-            onTogglePin: () => _togglePin(note),
-            showDragHandle: true,
-          ),
+          note: note,
+          onTap: () => _navigateToEditor(note),
+          onArchive: () => _archiveNote(note),
+          onTogglePin: () => _togglePin(note),
+          dragHandleIndex: index,
         );
       },
     );
@@ -830,7 +827,7 @@ class _NoteListTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onArchive;
   final VoidCallback onTogglePin;
-  final bool showDragHandle;
+  final int? dragHandleIndex;
 
   const _NoteListTile({
     super.key,
@@ -838,7 +835,7 @@ class _NoteListTile extends StatelessWidget {
     required this.onTap,
     required this.onArchive,
     required this.onTogglePin,
-    this.showDragHandle = false,
+    this.dragHandleIndex,
   });
 
   @override
@@ -916,8 +913,21 @@ class _NoteListTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   )
                 : null,
-            trailing: showDragHandle
-                ? Icon(Icons.drag_handle, color: iconColor)
+            trailing: dragHandleIndex != null
+                ? ReorderableDragStartListener(
+                    index: dragHandleIndex!,
+                    child: Semantics(
+                      label: 'Reorder note',
+                      button: true,
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Center(
+                          child: Icon(Icons.drag_handle, color: iconColor),
+                        ),
+                      ),
+                    ),
+                  )
                 : null,
             onTap: onTap,
           ),

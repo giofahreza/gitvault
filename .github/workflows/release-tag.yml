@@ -3,7 +3,7 @@ name: Release Tag Pipeline
 on:
   push:
     tags:
-      - "*"
+      - "v*"
 
 permissions:
   contents: read
@@ -14,10 +14,8 @@ concurrency:
 
 jobs:
   android-release:
-    name: Build Android APKs + Publish Release
+    name: Build Android APKs
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -38,7 +36,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.27.1"
+          flutter-version: "3.29.3"
           cache: true
 
       - name: Flutter pub get
@@ -114,17 +112,213 @@ jobs:
         with:
           name: android-release-${{ github.ref_name }}
           path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Create or update GitHub Release
+  desktop-release:
+    name: Build ${{ matrix.label }} Desktop
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            label: Linux
+          - os: windows-latest
+            platform: windows
+            label: Windows
+          - os: macos-latest
+            platform: macos
+            label: macOS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config libgtk-3-dev \
+            libayatana-appindicator3-dev libsecret-1-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          cache: true
+
+      - name: Enable desktop platform
+        shell: bash
+        run: flutter config --enable-${{ matrix.platform }}-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate model code
+        run: flutter pub run build_runner build --delete-conflicting-outputs
+
+      - name: Derive release version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must look like v1.2.3 or 1.2.3"
+            exit 1
+          fi
+          BUILD_NUMBER="$(echo "$VERSION" | awk -F. '{ print ($1 * 1000000) + ($2 * 1000) + $3 }')"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Run MCP tests
+        run: flutter test test/mcp
+
+      - name: Build desktop app
+        shell: bash
+        run: >-
+          flutter build ${{ matrix.platform }} --release
+          --build-name "$RELEASE_VERSION"
+          --build-number "$RELEASE_BUILD_NUMBER"
+          --dart-define "GITVAULT_VERSION=$RELEASE_VERSION"
+          --dart-define "GITVAULT_BUILD_NUMBER=$RELEASE_BUILD_NUMBER"
+
+      - name: Compile and bundle Linux stdio bridge
+        if: runner.os == 'Linux'
+        run: dart compile exe bin/gitvault_mcp.dart -o build/linux/x64/release/bundle/gitvault_mcp
+
+      - name: Compile and bundle Windows stdio bridge
+        if: runner.os == 'Windows'
+        run: dart compile exe bin/gitvault_mcp.dart -o build/windows/x64/runner/Release/gitvault_mcp.exe
+
+      - name: Compile and bundle macOS stdio bridge
+        if: runner.os == 'macOS'
+        run: dart compile exe bin/gitvault_mcp.dart -o build/macos/Build/Products/Release/gitvault.app/Contents/MacOS/gitvault_mcp
+
+      - name: Validate Linux bundle
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test -x build/linux/x64/release/bundle/gitvault
+          test -x build/linux/x64/release/bundle/gitvault_mcp
+          test -f build/linux/x64/release/bundle/lib/libflutter_linux_gtk.so
+          test -d build/linux/x64/release/bundle/data/flutter_assets
+
+      - name: Validate Windows bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $required = @(
+            "build/windows/x64/runner/Release/gitvault.exe",
+            "build/windows/x64/runner/Release/gitvault_mcp.exe",
+            "build/windows/x64/runner/Release/flutter_windows.dll",
+            "build/windows/x64/runner/Release/data/flutter_assets"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) {
+              throw "Missing required Windows release path: $path"
+            }
+          }
+
+      - name: Validate macOS bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test -x build/macos/Build/Products/Release/gitvault.app/Contents/MacOS/gitvault
+          test -x build/macos/Build/Products/Release/gitvault.app/Contents/MacOS/gitvault_mcp
+          test -d build/macos/Build/Products/Release/gitvault.app/Contents/Frameworks
+          test -f build/macos/Build/Products/Release/gitvault.app/Contents/Info.plist
+
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          tar -C build/linux/x64/release -czf \
+            "release-artifacts/gitvault-${GITHUB_REF_NAME}-linux-x64.tar.gz" \
+            bundle
+          (cd release-artifacts && sha256sum -- *.tar.gz > SHA256SUMS-linux.txt)
+
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-artifacts | Out-Null
+          $archive = "release-artifacts/gitvault-$env:GITHUB_REF_NAME-windows-x64.zip"
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath $archive
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
+          "$hash  $(Split-Path $archive -Leaf)" | Set-Content "release-artifacts/SHA256SUMS-windows.txt"
+
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Release/gitvault.app \
+            "release-artifacts/gitvault-${GITHUB_REF_NAME}-macos.zip"
+          (cd release-artifacts && shasum -a 256 -- *.zip > SHA256SUMS-macos.txt)
+
+      - name: Upload desktop workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitvault-${{ github.ref_name }}-${{ matrix.platform }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: Publish GitHub Release
+    needs:
+      - android-release
+      - desktop-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-${{ github.ref_name }}*"
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Verify complete release asset set
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          required=(
+            "gitvault-${TAG}-universal.apk"
+            "gitvault-${TAG}-armeabi-v7a.apk"
+            "gitvault-${TAG}-arm64-v8a.apk"
+            "gitvault-${TAG}-x86_64.apk"
+            "gitvault-${TAG}-linux-x64.tar.gz"
+            "gitvault-${TAG}-windows-x64.zip"
+            "gitvault-${TAG}-macos.zip"
+            "SHA256SUMS.txt"
+            "SHA256SUMS-linux.txt"
+            "SHA256SUMS-windows.txt"
+            "SHA256SUMS-macos.txt"
+          )
+          for asset in "${required[@]}"; do
+            test -s "release-artifacts/$asset" || {
+              echo "::error::Missing or empty release asset: $asset"
+              exit 1
+            }
+          done
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
           draft: false
           prerelease: false
-          files: |
-            release-artifacts/*.apk
-            release-artifacts/SHA256SUMS.txt
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: release-artifacts/*
 
   deploy-web:
     name: Build + Deploy Web to GitHub Pages
@@ -141,7 +335,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.27.1"
+          flutter-version: "3.29.3"
           cache: true
 
       - name: Enable web support
@@ -231,6 +425,7 @@ jobs:
           test -f pages-dist/docs/sync-behavior/index.html
           test -f pages-dist/docs/passwords/index.html
           test -f pages-dist/docs/notes/index.html
+          test -f pages-dist/docs/ai-apps/index.html
           test -f pages-dist/docs/totp/index.html
           test -f pages-dist/docs/totp-import/index.html
           test -f pages-dist/docs/ssh/index.html

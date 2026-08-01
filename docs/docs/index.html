@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <meta name="description" content="GitVault documentation for setup, GitHub sync, passwords, notes, 2FA codes, SSH credentials, connected devices, recovery, and troubleshooting.">
+    <meta name="description" content="GitVault documentation for setup, GitHub sync, passwords, notes, AI Apps and MCP, 2FA codes, SSH credentials, devices, recovery, and troubleshooting.">
     <title>Documentation - GitVault Docs</title>
     <link rel="icon" type="image/jpeg" href="/assets/icon/gitvault_new.jpeg">
     <link rel="canonical" href="https://gitvault.giofahreza.com/docs/">
@@ -85,6 +85,11 @@
                 <small>Create private notes, checklists, tags, colors, pinned notes, archive, and search.</small>
               </a>
 
+              <a href="/docs/ai-apps/" data-title="AI Apps and MCP" data-category="How-to guides" data-summary="Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions." data-keywords="ai apps mcp model context protocol desktop windows macos linux stdio streamable http permissions tags approval revoke rotate credential tray">
+                <span>AI Apps and MCP</span>
+                <small>Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions.</small>
+              </a>
+
               <a href="/docs/totp/" data-title="2FA codes" data-category="How-to guides" data-summary="Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing." data-keywords="2fa totp authenticator code timer secret issuer account group dropdown copy countdown">
                 <span>2FA codes</span>
                 <small>Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing.</small>
@@ -109,9 +114,9 @@
             <div class="docs-nav-group">
               <p class="docs-toc-label">Reference</p>
 
-              <a href="/docs/platform-support/" data-title="Platform support" data-category="Reference" data-summary="Feature availability across the web app and Android APK." data-keywords="platform support web android browser apk autofill keyboard biometric ssh terminal recent apps">
+              <a href="/docs/platform-support/" data-title="Platform support" data-category="Reference" data-summary="Feature availability across web, Android, Windows, macOS, and Linux." data-keywords="platform support web android desktop windows macos linux browser apk autofill keyboard biometric ssh terminal mcp ai apps">
                 <span>Platform support</span>
-                <small>Feature availability across the web app and Android APK.</small>
+                <small>Feature availability across web, Android, Windows, macOS, and Linux.</small>
               </a>
 
               <a href="/docs/sync-behavior/" data-title="Sync behavior" data-category="Reference" data-summary="How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work." data-keywords="sync behavior auto sync last write wins conflict tombstones deleted items interval github device revocation">
@@ -147,14 +152,14 @@
             <div class="docs-nav-group">
               <p class="docs-toc-label">Operations</p>
 
-              <a href="/docs/install-update/" data-title="Install and update" data-category="Operations" data-summary="Open the web app, install Android APKs, verify release assets, and understand version updates." data-keywords="install update apk universal abi sha256 release tag github pages web app version android">
+              <a href="/docs/install-update/" data-title="Install and update" data-category="Operations" data-summary="Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates." data-keywords="install update apk universal abi desktop windows macos linux archive zip tar sha256 release tag github pages web app version android">
                 <span>Install and update</span>
-                <small>Open the web app, install Android APKs, verify release assets, and understand version updates.</small>
+                <small>Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates.</small>
               </a>
 
-              <a href="/docs/release-verification/" data-title="Release verification" data-category="Operations" data-summary="Verify APK checksums, release assets, and deployed web version before trusting an update." data-keywords="release verification apk sha256 checksum sha256sums version tag github releases web pages verify download">
+              <a href="/docs/release-verification/" data-title="Release verification" data-category="Operations" data-summary="Verify APK and Desktop archive checksums plus the deployed web version before trusting an update." data-keywords="release verification apk desktop windows macos linux archive zip tar sha256 checksum sha256sums version tag github releases web pages verify download">
                 <span>Release verification</span>
-                <small>Verify APK checksums, release assets, and deployed web version before trusting an update.</small>
+                <small>Verify APK and Desktop archive checksums plus the deployed web version before trusting an update.</small>
               </a>
             </div>
 
@@ -179,6 +184,7 @@
 <a href="/docs/category/devices/" data-title="Devices" data-category="Topic" data-summary="Trusted devices, Link New Device, recovery requests, alerts, and removal behavior." data-keywords="devices"><span>Devices</span><small>Trusted devices, Link New Device, recovery requests, alerts, and removal behavior.</small></a>
 <a href="/docs/category/android/" data-title="Android" data-category="Topic" data-summary="APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support." data-keywords="android"><span>Android</span><small>APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support.</small></a>
 <a href="/docs/category/web/" data-title="Web" data-category="Topic" data-summary="Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment." data-keywords="web"><span>Web</span><small>Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.</small></a>
+<a href="/docs/category/desktop/" data-title="Desktop" data-category="Topic" data-summary="Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases." data-keywords="desktop"><span>Desktop</span><small>Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases.</small></a>
           </div>
         </aside>
 
@@ -186,7 +192,7 @@
           <div class="docs-heading">
             <p class="eyebrow">Product documentation</p>
             <h1>Documentation</h1>
-            <dl class="docs-meta"><div><dt>Product</dt><dd>GitVault</dd></div><div><dt>Applies to</dt><dd>Web and Android</dd></div><div><dt>Updated</dt><dd>July 29, 2026</dd></div></dl>
+            <dl class="docs-meta"><div><dt>Product</dt><dd>GitVault</dd></div><div><dt>Applies to</dt><dd>Web, Android, and Desktop</dd></div><div><dt>Updated</dt><dd>July 29, 2026</dd></div></dl>
           </div>
 
 
@@ -224,6 +230,7 @@
               <li><a href="/docs/github-sync/"><span>GitHub sync setup</span><small>Create private encrypted storage with a fine-grained token.</small></a></li>
               <li><a href="/docs/devices/"><span>Add or remove devices</span><small>Use Link New Device, recognize trusted devices, and remove devices you no longer trust.</small></a></li>
               <li><a href="/docs/recovery/"><span>Restore access</span><small>Recover with another trusted device or the lost-device new-token path.</small></a></li>
+              <li><a href="/docs/ai-apps/"><span>Connect an AI app</span><small>Give an MCP-compatible desktop app scoped access to approved notes.</small></a></li>
               <li><a href="/docs/autofill-keyboard/"><span>Set up Android autofill</span><small>Enable the system autofill provider and GitVault Keyboard fallback.</small></a></li>
               <li><a href="/docs/troubleshooting/"><span>Fix common issues</span><small>Resolve sync, token, unlock, device, autofill, and biometric problems.</small></a></li>
             </ul>
@@ -246,6 +253,7 @@
               <ul class="docs-link-list">
                 <li><a href="/docs/passwords/">Passwords</a> - Add, group, search, copy, edit, delete, and fill password entries.</li>
                 <li><a href="/docs/notes/">Notes</a> - Create private notes, checklists, tags, colors, pinned notes, archive, and search.</li>
+                <li><a href="/docs/ai-apps/">AI Apps and MCP</a> - Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions.</li>
                 <li><a href="/docs/totp/">2FA codes</a> - Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing.</li>
                 <li><a href="/docs/totp-import/">TOTP import</a> - Import authenticator secrets from manual secrets, otpauth links, or QR codes when supported.</li>
                 <li><a href="/docs/ssh/">SSH credentials</a> - Save SSH hosts, ports, usernames, passwords, keys, and Android terminal entries.</li>
@@ -257,7 +265,7 @@
               <h3 id="category-reference"><a href="/docs/category/reference/">Reference</a></h3>
               <p>Stable behavior, support, security, settings, and sync details.</p>
               <ul class="docs-link-list">
-                <li><a href="/docs/platform-support/">Platform support</a> - Feature availability across the web app and Android APK.</li>
+                <li><a href="/docs/platform-support/">Platform support</a> - Feature availability across web, Android, Windows, macOS, and Linux.</li>
                 <li><a href="/docs/sync-behavior/">Sync behavior</a> - How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work.</li>
                 <li><a href="/docs/security/">Security model</a> - How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.</li>
                 <li><a href="/docs/settings/">Settings</a> - Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery.</li>
@@ -277,8 +285,8 @@
               <h3 id="category-operations"><a href="/docs/category/operations/">Operations</a></h3>
               <p>Install, update, release, and verification procedures.</p>
               <ul class="docs-link-list">
-                <li><a href="/docs/install-update/">Install and update</a> - Open the web app, install Android APKs, verify release assets, and understand version updates.</li>
-                <li><a href="/docs/release-verification/">Release verification</a> - Verify APK checksums, release assets, and deployed web version before trusting an update.</li>
+                <li><a href="/docs/install-update/">Install and update</a> - Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates.</li>
+                <li><a href="/docs/release-verification/">Release verification</a> - Verify APK and Desktop archive checksums plus the deployed web version before trusting an update.</li>
               </ul>
             </section>
 
@@ -300,12 +308,13 @@
               <li><a href="/docs/category/devices/"><span>Devices</span><small>Trusted devices, Link New Device, recovery requests, alerts, and removal behavior.</small></a></li>
               <li><a href="/docs/category/android/"><span>Android</span><small>APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support.</small></a></li>
               <li><a href="/docs/category/web/"><span>Web</span><small>Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.</small></a></li>
+              <li><a href="/docs/category/desktop/"><span>Desktop</span><small>Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases.</small></a></li>
             </ul>
           </section>
 
           <section aria-labelledby="release-status">
             <h2 id="release-status">Release and status</h2>
-            <p>Use <a class="docs-inline-link" href="https://github.com/giofahreza/gitvault/releases/latest">GitHub Releases</a> for Android APKs and <a class="docs-inline-link" href="/app/">/app/</a> for the web app. Static docs deploy from the same repository through GitHub Pages.</p>
+            <p>Use <a class="docs-inline-link" href="https://github.com/giofahreza/gitvault/releases/latest">GitHub Releases</a> for Android and Desktop downloads and <a class="docs-inline-link" href="/app/">/app/</a> for the web app. Static docs deploy from the same repository through GitHub Pages.</p>
           </section>
 
         </article>

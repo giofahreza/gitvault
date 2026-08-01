@@ -6,17 +6,17 @@ GitVault is an open source password manager that encrypts passwords, private not
 
 ## Platform Support
 
-Most vault features work on both the web app and Android APK:
+Core vault features work on the web app, Android APK, and Desktop:
 
-| Feature | Web | Android | Notes |
-|---|---|---|---|
-| Passwords, notes, 2FA codes, SSH credential storage | Yes | Yes | Synced as encrypted vault data |
-| Keyboard PIN entry | Yes | On-screen keypad | Web users can type the PIN with a laptop keyboard |
-| Biometric unlock | Browser-dependent | Device-dependent | PIN remains the backup unlock method |
-| System autofill | No | Yes | Requires selecting GitVault as Android autofill provider |
-| GitVault Keyboard | No | Yes | Fallback when Android autofill does not appear |
-| SSH terminal | No | Supported where Android terminal dependencies work | Test before relying on it |
-| Recent-app privacy | Browser-managed | Yes | Android hides the latest vault view where the OS honors secure window flags |
+| Feature | Web | Android | Desktop | Notes |
+|---|---|---|---|---|
+| Passwords, notes, 2FA codes, SSH credential storage | Yes | Yes | Yes | Synced as encrypted vault data |
+| Keyboard PIN entry | Yes | On-screen keypad | Yes | PIN remains the backup unlock method |
+| Biometric unlock | Browser-dependent | Device-dependent | OS-dependent | Availability depends on platform support |
+| System autofill | No | Yes | No | Requires selecting GitVault as Android autofill provider |
+| GitVault Keyboard | No | Yes | No | Fallback when Android autofill does not appear |
+| AI Apps / MCP | No | No | Yes | Local, notes-only access while Desktop is running |
+| Recent-app privacy | Browser-managed | Yes | OS-managed | Android uses secure window flags |
 
 ## Quick Start
 
@@ -85,6 +85,55 @@ Use copy actions for username, password, and TOTP codes. Enable clipboard auto-c
 Notes can store private text, checklists, recovery codes, secure references, and short private documents.
 
 Use pinning for high-priority notes, colors and tags for organization, archive for old notes, and search for quick lookup. Mobile uses a single-column notes list for readability.
+
+## Desktop AI Apps And MCP
+
+GitVault Desktop for Windows, macOS, and Linux can host a local MCP service for
+applications that support MCP over stdio or Streamable HTTP. The web and
+Android apps do not host this service.
+
+1. Open and unlock GitVault Desktop.
+2. Open Settings, then **AI Apps**.
+3. Enable **Allow AI apps**.
+4. Select **Connect AI App** and enter a recognizable name.
+5. Choose stdio when the target app launches MCP commands, or Streamable HTTP
+   when it accepts a local URL and request headers.
+6. Grant only the note permissions and tag scope that app needs.
+7. Copy the generated configuration into the target app.
+
+GitVault creates connections only after this direct action in the unlocked
+Desktop UI. The local service does not accept unsolicited pairing requests
+from other applications.
+
+Each app has a separate credential. HTTP credentials are displayed only once;
+stdio profiles are stored in the current user's protected configuration
+directory.
+
+Available permissions cover note metadata, content, search, create, append,
+edit, archive, delete, and archived-note visibility. An allowed-tag list limits
+access to notes containing at least one listed tag. Denied tags always take
+priority. An empty allowed-tag list means all notes except denied or archived
+notes.
+
+Search checks note bodies only when the app also has **Read note content**.
+Without that permission, search is limited to titles and tags and returns no
+content snippets.
+
+Writes ask for approval by default. The Desktop dialog shows the application,
+operation, note, and before/after content. Approvals expire after 60 seconds.
+Delete always requires approval. If a note changes while approval is pending,
+GitVault returns a conflict instead of overwriting the newer edit.
+
+Locking GitVault immediately blocks note operations. Rotating a credential,
+changing permissions, revoking an app, or removing it invalidates active
+sessions. Quit GitVault to stop the MCP service; closing to the tray keeps it
+running when that option is enabled.
+
+MCP is notes-only. It has no path to passwords, TOTP secrets or codes, SSH
+credentials, GitHub tokens, root keys, PIN data, recovery phrases, or
+device-linking secrets. The operating-system user is the local trust boundary:
+another process already running as the same compromised OS user may be able to
+impersonate a local AI app.
 
 ## 2FA Codes
 
@@ -175,20 +224,28 @@ Open `https://gitvault.giofahreza.com/app/`. The web app version is derived from
 
 Download the latest APK from GitHub Releases. The universal APK works on most devices; ABI-specific APKs are available for smaller downloads.
 
+### Desktop
+
+Download the Windows, macOS, or Linux archive and its matching platform
+checksum file from GitHub Releases. Extract the entire archive so GitVault,
+its runtime files, and the bundled `gitvault_mcp` executable remain together.
+
 ### Verify A Release
 
-Before installing an APK that will hold real secrets:
+Before running a release that will hold real secrets:
 
-1. Download the APK and `SHA256SUMS.txt` from the same GitHub release.
-2. Calculate the SHA-256 hash for the APK.
-3. Compare the value with the exact filename line in `SHA256SUMS.txt`.
-4. Install only when the values match.
+1. Download the APK or Desktop archive and its checksum file from the same GitHub release.
+2. Calculate the SHA-256 hash for the downloaded application.
+3. Compare the value with the exact filename line in the matching checksum file.
+4. Install or extract only when the values match.
 5. Open Settings, then About, and confirm the app version matches the release tag.
 
 On Windows:
 
 ```powershell
 certutil -hashfile gitvault-vX.Y.Z-universal.apk SHA256
+Get-FileHash -Algorithm SHA256 gitvault-vX.Y.Z-windows-x64.zip
+Get-Content SHA256SUMS-windows.txt
 ```
 
 On macOS or Linux:
@@ -196,6 +253,8 @@ On macOS or Linux:
 ```bash
 sha256sum gitvault-vX.Y.Z-universal.apk
 cat SHA256SUMS.txt
+sha256sum -c SHA256SUMS-linux.txt
+shasum -a 256 -c SHA256SUMS-macos.txt
 ```
 
 ## FAQ And Common Mistakes
@@ -220,3 +279,6 @@ cat SHA256SUMS.txt
 | Autofill not showing | Android autofill provider is not selected or browser support is limited | Select GitVault in Android Autofill settings and try Chrome when Samsung Internet does not show third-party providers |
 | Autofill still missing in one app | The target app does not expose fields to Android autofill | Enable GitVault Keyboard and switch keyboards in that app |
 | Biometric unlock unavailable | The browser or device does not expose biometric support | Use PIN unlock, or try a supported browser/device |
+| AI app reports Desktop unavailable | GitVault Desktop is closed or AI Apps is disabled | Open Desktop and enable Allow AI apps |
+| AI app reports vault locked | GitVault is running but locked | Unlock in Desktop; MCP never opens the unlock prompt itself |
+| AI app reports conflict | The note changed after the app read it | Read the note again and retry with the newest modified timestamp |

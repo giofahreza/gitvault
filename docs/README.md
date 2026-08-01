@@ -4,7 +4,7 @@ Detailed documentation lives here so the root README can stay focused on showcas
 
 ## Guides
 
-- [User Guide](user-guide.md) - single-file setup, GitHub sync, passwords, notes, 2FA, SSH credentials, connected devices, recovery, install/update, and troubleshooting.
+- [User Guide](user-guide.md) - single-file setup, GitHub sync, passwords, notes, Desktop AI Apps/MCP, 2FA, SSH credentials, connected devices, recovery, install/update, and troubleshooting.
 
 Published docs are also exposed by the GitHub Pages site:
 
@@ -20,6 +20,7 @@ Published docs are also exposed by the GitHub Pages site:
 - Sync behavior: `https://gitvault.giofahreza.com/docs/sync-behavior/`
 - Passwords: `https://gitvault.giofahreza.com/docs/passwords/`
 - Notes: `https://gitvault.giofahreza.com/docs/notes/`
+- AI Apps and MCP: `https://gitvault.giofahreza.com/docs/ai-apps/`
 - 2FA codes: `https://gitvault.giofahreza.com/docs/totp/`
 - TOTP import: `https://gitvault.giofahreza.com/docs/totp-import/`
 - SSH credentials: `https://gitvault.giofahreza.com/docs/ssh/`

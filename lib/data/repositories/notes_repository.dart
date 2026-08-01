@@ -84,6 +84,23 @@ class NotesRepository {
     return updated;
   }
 
+  /// Update only when the stored note still has the version the caller read.
+  Future<Note?> updateNoteIfUnchanged(
+    Note note, {
+    required DateTime expectedModifiedAt,
+  }) {
+    return _enqueueWrite(() async {
+      final current = await getNote(note.uuid);
+      if (current == null ||
+          !current.modifiedAt.isAtSameMomentAs(expectedModifiedAt)) {
+        return null;
+      }
+      final updated = note.copyWith(modifiedAt: DateTime.now());
+      await _writeNote(updated);
+      return updated;
+    });
+  }
+
   /// Delete a note
   Future<void> deleteNote(String uuid, {DateTime? deletedAt}) async {
     if (!_isInitialized) {
@@ -93,6 +110,30 @@ class NotesRepository {
     await _enqueueWrite(() async {
       await _notesBox.delete(uuid);
       await SyncTombstoneStore.recordDeletion(uuid, deletedAt: deletionTime);
+    });
+  }
+
+  /// Delete only when the stored note still has the version the caller read.
+  Future<bool> deleteNoteIfUnchanged(
+    String uuid, {
+    required DateTime expectedModifiedAt,
+    DateTime? deletedAt,
+  }) {
+    if (!_isInitialized) {
+      throw StateError('NotesRepository not initialized');
+    }
+    return _enqueueWrite(() async {
+      final current = await getNote(uuid);
+      if (current == null ||
+          !current.modifiedAt.isAtSameMomentAs(expectedModifiedAt)) {
+        return false;
+      }
+      await _notesBox.delete(uuid);
+      await SyncTombstoneStore.recordDeletion(
+        uuid,
+        deletedAt: deletedAt ?? DateTime.now(),
+      );
+      return true;
     });
   }
 
@@ -279,7 +320,8 @@ class NotesRepository {
 
     final jsonString = note.toJsonString();
     final jsonBytes = utf8.encode(jsonString);
-    final paddedBytes = _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
+    final paddedBytes =
+        _cryptoManager.addRandomPadding(Uint8List.fromList(jsonBytes));
     final encryptedBox = await _cryptoManager.encryptXChaCha20(
       data: paddedBytes,
       key: rootKey,

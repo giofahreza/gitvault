@@ -14,7 +14,7 @@ import '../../core/services/device_identity_service.dart';
 import '../../core/services/github_service.dart';
 import '../../core/services/ime_service.dart';
 import '../../core/services/foreground_sync_service.dart';
-import '../../core/widgets/web_lock_action.dart';
+import '../../core/widgets/vault_lock_action.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/constants.dart';
 import '../../utils/auth_helper.dart';
@@ -23,6 +23,8 @@ import '../../utils/mnemonic_helper.dart';
 import '../../utils/pointer_focus.dart';
 import '../../utils/recovery_phrase_grid.dart';
 import '../device_linking/link_device_screen.dart';
+import '../ai_apps/ai_apps_screen.dart';
+import '../../mcp/mcp_platform.dart';
 import 'background_sync_settings.dart';
 
 /// Settings and security controls screen
@@ -76,6 +78,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       defaultTargetPlatform == TargetPlatform.macOS ||
       defaultTargetPlatform == TargetPlatform.windows ||
       defaultTargetPlatform == TargetPlatform.linux;
+
+  bool get _isAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   void _requestSettingsFocus() {
     void request() {
@@ -170,7 +175,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       appBar: AppBar(
         title: const Text('Settings'),
         actions: const [
-          WebLockAction(compactOnly: true),
+          VaultLockAction(compactOnly: true),
         ],
       ),
       body: Focus(
@@ -199,11 +204,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const Divider(),
               const _SectionHeader(title: 'Security'),
-              if (kIsWeb)
+              if (!_isAndroid)
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: Text(
-                    'Web biometric unlock uses your browser passkey or platform authenticator. Autofill and GitVault Keyboard are available in the Android app.',
+                    'Biometric support depends on this platform. Autofill and GitVault Keyboard are available in the Android app.',
                     style: TextStyle(fontSize: 12),
                   ),
                 ),
@@ -289,7 +294,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onTap: () =>
                     _showClipboardSettings(context, ref, clipboardSeconds),
               ),
-              if (kIsWeb) ...[
+              if (!_isAndroid) ...[
                 const _WebOnlySettingsTile(
                   icon: Icons.android,
                   title: 'Android App Features',
@@ -313,6 +318,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ],
               const Divider(),
+              if (isDesktopPlatform) ...[
+                const _SectionHeader(title: 'AI Apps'),
+                ListTile(
+                  leading: const Icon(Icons.smart_toy_outlined),
+                  title: const Text('AI Apps'),
+                  subtitle: const Text(
+                    'Connect MCP-compatible apps to your notes',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AiAppsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(),
+              ],
               const _SectionHeader(title: 'Devices'),
               _DeviceListSection(isActive: widget.isActive),
               ListTile(
@@ -973,7 +997,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ref
                   .read(keyStorageProvider)
                   .setThemeMode(value.toStorageString());
-              IMEService.setThemeMode(value.toStorageString());
+              if (_isAndroid) {
+                IMEService.setThemeMode(value.toStorageString());
+              }
               Navigator.pop(ctx);
             },
           ),
@@ -986,7 +1012,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ref
                   .read(keyStorageProvider)
                   .setThemeMode(value.toStorageString());
-              IMEService.setThemeMode(value.toStorageString());
+              if (_isAndroid) {
+                IMEService.setThemeMode(value.toStorageString());
+              }
               Navigator.pop(ctx);
             },
           ),
@@ -1000,7 +1028,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ref
                   .read(keyStorageProvider)
                   .setThemeMode(value.toStorageString());
-              IMEService.setThemeMode(value.toStorageString());
+              if (_isAndroid) {
+                IMEService.setThemeMode(value.toStorageString());
+              }
               Navigator.pop(ctx);
             },
           ),
@@ -1250,12 +1280,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showKeyboardSettings(BuildContext context, WidgetRef ref) async {
-    if (kIsWeb) {
+    if (!_isAndroid) {
       _showWebUnavailableDialog(
         context,
         title: 'GitVault Keyboard',
-        message:
-            'The GitVault keyboard is available in the Android app. Browser keyboards cannot be changed from the web app.',
+        message: 'The GitVault keyboard is available only in the Android app.',
       );
       return;
     }
@@ -1318,12 +1347,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showAutofillSettings(BuildContext context, WidgetRef ref) async {
-    if (kIsWeb) {
+    if (!_isAndroid) {
       _showWebUnavailableDialog(
         context,
         title: 'System-wide Autofill',
-        message:
-            'System-wide autofill is available in the Android app. Browser autofill settings are controlled by your browser.',
+        message: 'System-wide autofill is available only in the Android app.',
       );
       return;
     }
@@ -1457,6 +1485,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await repo.clearAllEntries();
       final keyStorage = ref.read(keyStorageProvider);
       await keyStorage.wipeAllKeys();
+      ref
+          .read(vaultSessionProvider.notifier)
+          .lock(reason: 'Vault data was wiped');
       ref.invalidate(isVaultSetupProvider);
       ref.invalidate(vaultEntriesProvider);
       if (context.mounted) {

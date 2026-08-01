@@ -8,6 +8,7 @@ import '../auth/pin_auth.dart';
 import '../crypto/blind_handshake.dart';
 import '../services/autofill_service.dart';
 import '../services/ime_service.dart';
+import '../session/vault_session_controller.dart';
 import '../theme/theme_provider.dart';
 import '../../data/repositories/vault_repository.dart';
 import '../../data/repositories/notes_repository.dart';
@@ -36,6 +37,12 @@ final biometricAuthProvider = Provider<BiometricAuth>((ref) {
 
 /// Incrementing signal used to request an app lock from any authenticated UI.
 final appLockSignalProvider = StateProvider<int>((ref) => 0);
+
+/// Single source of truth for whether sensitive vault data may be accessed.
+final vaultSessionProvider =
+    StateNotifierProvider<VaultSessionController, VaultSessionState>((ref) {
+  return VaultSessionController();
+});
 
 /// Incrementing signal used to refresh UI that reflects GitHub credentials.
 final githubCredentialsSignalProvider = StateProvider<int>((ref) => 0);

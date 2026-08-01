@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions.">
+    <title>AI Apps and MCP - GitVault Docs</title>
+    <link rel="icon" type="image/jpeg" href="/assets/icon/gitvault_new.jpeg">
+    <link rel="canonical" href="https://gitvault.giofahreza.com/docs/ai-apps/">
+    <link rel="stylesheet" href="/docs.css?v=20260729d">
+  </head>
+  <body>
+    <a class="skip-link" href="#docs-content">Skip to docs content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="brand" href="/" aria-label="GitVault home">
+          <img src="/assets/icon/gitvault_new.jpeg" alt="" width="30" height="30">
+          <span>GitVault</span>
+        </a>
+        <nav aria-label="Primary">
+          <a href="/#vault" aria-label="Vault">
+            <span class="nav-label-full" aria-hidden="true">Vault</span>
+            <span class="nav-label-short" aria-hidden="true">Vault</span>
+          </a>
+          <a href="/#sync" aria-label="Sync">
+            <span class="nav-label-full" aria-hidden="true">Sync</span>
+            <span class="nav-label-short" aria-hidden="true">Sync</span>
+          </a>
+          <a href="/#security" aria-label="Security">
+            <span class="nav-label-full" aria-hidden="true">Security</span>
+            <span class="nav-label-short" aria-hidden="true">Safe</span>
+          </a>
+          <a href="/#setup" aria-label="Setup">
+            <span class="nav-label-full" aria-hidden="true">Setup</span>
+            <span class="nav-label-short" aria-hidden="true">Setup</span>
+          </a>
+          <a href="/docs/" aria-label="Docs" aria-current="page">
+            <span class="nav-label-full" aria-hidden="true">Docs</span>
+            <span class="nav-label-short" aria-hidden="true">Docs</span>
+          </a>
+          <a class="nav-action" href="/app/" aria-label="Get Started">
+            <span class="nav-label-full" aria-hidden="true">Get Started</span>
+            <span class="nav-label-short" aria-hidden="true">Start</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="docs-page-shell">
+      <div class="docs-layout">
+        <aside class="docs-toc" aria-label="Docs pages">
+          <label class="docs-search" for="docs-search">
+            <span>Search docs</span>
+            <input id="docs-search" type="search" autocomplete="off" placeholder="Search docs">
+          </label>
+          <div id="docs-search-results" class="docs-search-results" aria-live="polite"></div>
+          <a class="docs-home-link" href="/docs/">Docs home</a>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Tutorials</p>
+
+              <a href="/docs/quick-start/" data-title="Quick start" data-category="Tutorials" data-summary="Create your vault, save recovery, set a PIN, add an item, and connect encrypted sync." data-keywords="setup onboarding create vault recovery phrase pin github sync first run link device restore">
+                <span>Quick start</span>
+                <small>Create your vault, save recovery, set a PIN, add an item, and connect encrypted sync.</small>
+              </a>
+
+              <a href="/docs/github-sync/" data-title="GitHub sync setup" data-category="Tutorials" data-summary="Prepare a private repository and fine-grained token for encrypted GitVault storage." data-keywords="github repository repo token pat fine grained contents metadata private sync storage bearer classic token">
+                <span>GitHub sync setup</span>
+                <small>Prepare a private repository and fine-grained token for encrypted GitVault storage.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">How-to guides</p>
+
+              <a href="/docs/passwords/" data-title="Passwords" data-category="How-to guides" data-summary="Add, group, search, copy, edit, delete, and fill password entries." data-keywords="password credentials username url notes group dropdown create group copy edit delete autofill totp">
+                <span>Passwords</span>
+                <small>Add, group, search, copy, edit, delete, and fill password entries.</small>
+              </a>
+
+              <a href="/docs/notes/" data-title="Notes" data-category="How-to guides" data-summary="Create private notes, checklists, tags, colors, pinned notes, archive, and search." data-keywords="notes checklist pinned list grid single column mobile tags archive color search private text">
+                <span>Notes</span>
+                <small>Create private notes, checklists, tags, colors, pinned notes, archive, and search.</small>
+              </a>
+
+              <a href="/docs/ai-apps/" data-title="AI Apps and MCP" data-category="How-to guides" data-summary="Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions." data-keywords="ai apps mcp model context protocol desktop windows macos linux stdio streamable http permissions tags approval revoke rotate credential tray" aria-current="page" class="is-active">
+                <span>AI Apps and MCP</span>
+                <small>Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions.</small>
+              </a>
+
+              <a href="/docs/totp/" data-title="2FA codes" data-category="How-to guides" data-summary="Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing." data-keywords="2fa totp authenticator code timer secret issuer account group dropdown copy countdown">
+                <span>2FA codes</span>
+                <small>Store TOTP secrets, organize codes by group, copy live codes, and handle countdown timing.</small>
+              </a>
+
+              <a href="/docs/totp-import/" data-title="TOTP import" data-category="How-to guides" data-summary="Import authenticator secrets from manual secrets, otpauth links, or QR codes when supported." data-keywords="totp import otpauth qr code scanner secret google authenticator issuer account migration">
+                <span>TOTP import</span>
+                <small>Import authenticator secrets from manual secrets, otpauth links, or QR codes when supported.</small>
+              </a>
+
+              <a href="/docs/ssh/" data-title="SSH credentials" data-category="How-to guides" data-summary="Save SSH hosts, ports, usernames, passwords, keys, and Android terminal entries." data-keywords="ssh terminal host username port password private key android credentials ping connect session">
+                <span>SSH credentials</span>
+                <small>Save SSH hosts, ports, usernames, passwords, keys, and Android terminal entries.</small>
+              </a>
+
+              <a href="/docs/autofill-keyboard/" data-title="Autofill and GitVault Keyboard" data-category="How-to guides" data-summary="Enable Android autofill and GitVault Keyboard for easier password entry in other apps." data-keywords="android autofill service keyboard ime inline suggestions samsung chrome pixel gboard swiftkey">
+                <span>Autofill and GitVault Keyboard</span>
+                <small>Enable Android autofill and GitVault Keyboard for easier password entry in other apps.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Reference</p>
+
+              <a href="/docs/platform-support/" data-title="Platform support" data-category="Reference" data-summary="Feature availability across web, Android, Windows, macOS, and Linux." data-keywords="platform support web android desktop windows macos linux browser apk autofill keyboard biometric ssh terminal mcp ai apps">
+                <span>Platform support</span>
+                <small>Feature availability across web, Android, Windows, macOS, and Linux.</small>
+              </a>
+
+              <a href="/docs/sync-behavior/" data-title="Sync behavior" data-category="Reference" data-summary="How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work." data-keywords="sync behavior auto sync last write wins conflict tombstones deleted items interval github device revocation">
+                <span>Sync behavior</span>
+                <small>How encrypted GitHub sync, auto-sync, conflict handling, deletion tombstones, and device checks work.</small>
+              </a>
+
+              <a href="/docs/security/" data-title="Security model" data-category="Reference" data-summary="How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work." data-keywords="security encryption xchacha20 poly1305 local first pin biometric lock auth interval duress panic clipboard github ciphertext">
+                <span>Security model</span>
+                <small>How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.</small>
+              </a>
+
+              <a href="/docs/settings/" data-title="Settings" data-category="Reference" data-summary="Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery." data-keywords="settings theme clipboard autofill keyboard github biometric pin interval recovery kit connected devices auto sync lock">
+                <span>Settings</span>
+                <small>Configuration reference for PIN, biometric, auth interval, sync, clipboard, autofill, keyboard, theme, devices, and recovery.</small>
+              </a>
+
+              <a href="/docs/devices/" data-title="Connected devices" data-category="Reference" data-summary="Link, approve, recognize, remove, and recover trusted web and Android devices." data-keywords="devices linked trusted remove approval recognize recovery token registry alert link new device qr transfer code pin">
+                <span>Connected devices</span>
+                <small>Link, approve, recognize, remove, and recover trusted web and Android devices.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Recovery</p>
+
+              <a href="/docs/recovery/" data-title="Recovery flows" data-category="Recovery" data-summary="Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens." data-keywords="recovery phrase trusted device approval old token new token lost all devices restore onboarding wait approval">
+                <span>Recovery flows</span>
+                <small>Restore with trusted-device approval or recover after losing every trusted device with old and new GitHub tokens.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Operations</p>
+
+              <a href="/docs/install-update/" data-title="Install and update" data-category="Operations" data-summary="Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates." data-keywords="install update apk universal abi desktop windows macos linux archive zip tar sha256 release tag github pages web app version android">
+                <span>Install and update</span>
+                <small>Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates.</small>
+              </a>
+
+              <a href="/docs/release-verification/" data-title="Release verification" data-category="Operations" data-summary="Verify APK and Desktop archive checksums plus the deployed web version before trusting an update." data-keywords="release verification apk desktop windows macos linux archive zip tar sha256 checksum sha256sums version tag github releases web pages verify download">
+                <span>Release verification</span>
+                <small>Verify APK and Desktop archive checksums plus the deployed web version before trusting an update.</small>
+              </a>
+            </div>
+
+            <div class="docs-nav-group">
+              <p class="docs-toc-label">Troubleshooting</p>
+
+              <a href="/docs/faq/" data-title="FAQ and common mistakes" data-category="Troubleshooting" data-summary="Answers for common setup, sync, device trust, recovery, autofill, and release questions." data-keywords="faq common mistakes github token device alert recognize link device restore recovery autofill checksum web version pin throttling">
+                <span>FAQ and common mistakes</span>
+                <small>Answers for common setup, sync, device trust, recovery, autofill, and release questions.</small>
+              </a>
+
+              <a href="/docs/troubleshooting/" data-title="Troubleshooting" data-category="Troubleshooting" data-summary="Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order." data-keywords="troubleshooting sync token device pin biometric autofill alert web android version github pages diagnostics">
+                <span>Troubleshooting</span>
+                <small>Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order.</small>
+              </a>
+            </div>
+
+          <div class="docs-nav-group docs-nav-group-compact">
+            <p class="docs-toc-label">Browse topics</p>
+            <a href="/docs/category/security/" data-title="Security" data-category="Topic" data-summary="Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust." data-keywords="security"><span>Security</span><small>Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust.</small></a>
+<a href="/docs/category/sync/" data-title="Sync" data-category="Topic" data-summary="GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics." data-keywords="sync"><span>Sync</span><small>GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics.</small></a>
+<a href="/docs/category/devices/" data-title="Devices" data-category="Topic" data-summary="Trusted devices, Link New Device, recovery requests, alerts, and removal behavior." data-keywords="devices"><span>Devices</span><small>Trusted devices, Link New Device, recovery requests, alerts, and removal behavior.</small></a>
+<a href="/docs/category/android/" data-title="Android" data-category="Topic" data-summary="APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support." data-keywords="android"><span>Android</span><small>APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support.</small></a>
+<a href="/docs/category/web/" data-title="Web" data-category="Topic" data-summary="Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment." data-keywords="web"><span>Web</span><small>Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.</small></a>
+<a href="/docs/category/desktop/" data-title="Desktop" data-category="Topic" data-summary="Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases." data-keywords="desktop"><span>Desktop</span><small>Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases.</small></a>
+          </div>
+        </aside>
+
+        <article id="docs-content" class="docs-content docs-article" data-page-slug="ai-apps">
+          <div class="docs-heading">
+            <p class="eyebrow">How-to guides</p>
+            <h1>AI Apps and MCP</h1>
+            <dl class="docs-meta">
+              <div><dt>Type</dt><dd>How-to guides</dd></div>
+              <div><dt>Applies to</dt><dd>Windows, macOS, and Linux Desktop</dd></div>
+              <div><dt>Updated</dt><dd>July 29, 2026</dd></div>
+            </dl>
+          </div>
+
+
+      <p class="docs-lead">AI Apps lets MCP-compatible applications work with GitVault notes while GitVault Desktop remains the approval and permission authority.</p>
+
+      <div class="docs-note danger">
+        <strong>Notes only.</strong>
+        <p>AI Apps cannot access passwords, TOTP secrets or codes, SSH credentials, GitHub tokens, recovery phrases, PIN data, root keys, or device-linking secrets.</p>
+      </div>
+
+      <h2>What AI Apps can access</h2>
+      <p>An app can receive only the note operations you enable: list metadata, read content, search, create, append, edit, archive, delete, and include archived notes. GitVault enforces these permissions inside the local server.</p>
+      <p>Available note tools are <code>list_notes</code>, <code>search_notes</code>, <code>get_note</code>, <code>list_note_tags</code>, <code>create_note</code>, <code>append_to_note</code>, <code>update_note</code>, <code>archive_note</code>, and <code>delete_note</code>.</p>
+
+      <h2>Enable the local service</h2>
+      <ol class="docs-steps">
+        <li><span>1</span><div><strong>Install and open GitVault Desktop.</strong><p>Use the Windows, macOS, or Linux release. The web and Android apps do not host MCP.</p></div></li>
+        <li><span>2</span><div><strong>Unlock the vault.</strong><p>MCP can connect while locked, but every note operation returns a locked error.</p></div></li>
+        <li><span>3</span><div><strong>Open Settings, then AI Apps.</strong><p>Turn on Allow AI apps. The service binds only to the local loopback interface.</p></div></li>
+        <li><span>4</span><div><strong>Choose lifecycle options.</strong><p>Enable launch at sign-in or Keep running in tray only when you want local AI apps available after closing the window.</p></div></li>
+      </ol>
+
+      <h2>Connect an AI app</h2>
+      <div class="docs-note">
+        <strong>Direct Desktop authorization.</strong>
+        <p>GitVault creates a connection only after an unlocked user selects Connect app in Desktop. The local service does not accept unsolicited pairing requests from other applications.</p>
+      </div>
+      <ol class="docs-steps">
+        <li><span>1</span><div><strong>Select Connect AI App.</strong><p>Give the connection a name you will recognize in approvals and activity history.</p></div></li>
+        <li><span>2</span><div><strong>Select stdio or Streamable HTTP.</strong><p>Use the transport supported by the target application.</p></div></li>
+        <li><span>3</span><div><strong>Select permissions and tag scope.</strong><p>Start with the smallest set required for the task.</p></div></li>
+        <li><span>4</span><div><strong>Copy the generated configuration.</strong><p>Add it to the target application's MCP settings. HTTP credentials are shown only once; stdio configurations refer to a protected profile managed by Desktop.</p></div></li>
+        <li><span>5</span><div><strong>Test while GitVault is unlocked.</strong><p>Ask the application to list note titles before granting write permissions.</p></div></li>
+      </ol>
+
+      <h2>Choose a transport</h2>
+      <div class="docs-table-wrap">
+        <table class="docs-table">
+          <thead><tr><th>Transport</th><th>Use it when</th><th>How it connects</th></tr></thead>
+          <tbody>
+            <tr><td>stdio</td><td>The AI application launches a local MCP command.</td><td>The bundled <code>gitvault_mcp</code> bridge reads a protected client profile and forwards to Desktop.</td></tr>
+            <tr><td>Streamable HTTP</td><td>The AI application accepts a local MCP URL and headers.</td><td>The client connects to the generated <code>127.0.0.1</code> URL with its bearer credential.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Do not paste an HTTP credential into chat, logs, issue reports, or a shared configuration repository. Rotate it from AI Apps if it may have been exposed.</p>
+
+      <h2>Set permissions and tag scope</h2>
+      <ul class="docs-list">
+        <li><strong>Read metadata</strong> Allows titles, tags, note IDs, and timestamps without note bodies.</li>
+        <li><strong>Read content</strong> Allows full note bodies for notes inside the app scope.</li>
+        <li><strong>Search</strong> Allows bounded search results. It checks note bodies only when Read content is also enabled; otherwise it searches titles and tags and returns no content snippet.</li>
+        <li><strong>Write permissions</strong> Grant create, append, edit, archive, and delete separately.</li>
+        <li><strong>Allowed tags</strong> When empty, all notes are in scope unless denied. When set, a note must contain at least one allowed tag.</li>
+        <li><strong>Denied tags</strong> Always take priority over allowed tags.</li>
+        <li><strong>Archived notes</strong> Stay hidden unless Include archived notes is enabled.</li>
+      </ul>
+
+      <h2>Approve writes</h2>
+      <p>The default write policy asks in GitVault Desktop. The approval shows the app, operation, note, and before/after content. Approvals expire after 60 seconds and are cancelled when the vault locks.</p>
+      <ul class="docs-list">
+        <li><strong>Allow once</strong> Applies only that request.</li>
+        <li><strong>Always allow</strong> Exempts that write type for this app while the vault is unlocked.</li>
+        <li><strong>Deny</strong> Leaves the note unchanged.</li>
+        <li><strong>Delete</strong> Always requires explicit approval and never gains an always-allow exemption.</li>
+      </ul>
+      <p>Updates use the note's <code>modified_at</code> timestamp. If the note changes while approval is pending, GitVault returns a conflict instead of replacing the newer edit.</p>
+
+      <h2>Lock, rotate, or revoke</h2>
+      <ul class="docs-list">
+        <li><strong>Lock</strong> Immediately blocks note reads and writes without stopping the local listener.</li>
+        <li><strong>Rotate credential</strong> Invalidates the old credential and produces a replacement configuration.</li>
+        <li><strong>Revoke</strong> Disconnects that app and invalidates its credential.</li>
+        <li><strong>Remove</strong> Deletes the local registration and stdio profile.</li>
+        <li><strong>Quit GitVault</strong> Stops the MCP service. Closing to tray does not quit when Keep running in tray is enabled.</li>
+      </ul>
+      <p>Recent activity is kept locally for 30 days, contains no note body or credential, and can be cleared from AI Apps.</p>
+
+      <h2>Security boundary</h2>
+      <p>The MCP endpoint is local-only, rejects browser origins, validates the host, rate-limits requests, and authenticates every request. Client registrations stay on this desktop and are not synchronized through GitHub.</p>
+      <p>The operating-system user account is the local trust boundary. Another process already running as the same compromised OS user may be able to impersonate a local AI application. GitVault does not claim to verify a third-party app's brand name.</p>
+
+      <h2>Troubleshooting</h2>
+      <ul class="docs-list">
+        <li><strong>Desktop unavailable</strong> Open GitVault Desktop and confirm Allow AI apps is enabled.</li>
+        <li><strong>Vault locked</strong> Unlock in GitVault. MCP never opens a biometric or PIN prompt by itself.</li>
+        <li><strong>Unauthorized</strong> Rotate the app credential, replace its configuration, and reconnect.</li>
+        <li><strong>Permission denied</strong> Review that app's permissions and tag scope in AI Apps.</li>
+        <li><strong>Approval timeout</strong> Retry the write and answer the Desktop dialog within 60 seconds.</li>
+        <li><strong>Conflict</strong> Read the note again and retry using the newest <code>modified_at</code>.</li>
+      </ul>
+
+
+          <section class="docs-related" aria-labelledby="see-also">
+            <h2 id="see-also">See also</h2>
+            <ul class="docs-link-list">
+              <li><a href="/docs/notes/">Notes</a> - Create private notes, checklists, tags, colors, pinned notes, archive, and search.</li>
+              <li><a href="/docs/platform-support/">Platform support</a> - Feature availability across web, Android, Windows, macOS, and Linux.</li>
+              <li><a href="/docs/security/">Security model</a> - How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.</li>
+              <li><a href="/docs/troubleshooting/">Troubleshooting</a> - Diagnose sync, token, unlock, device, autofill, biometric, web version, and Android issues in order.</li>
+            </ul>
+          </section>
+        </article>
+
+        <aside class="docs-on-page" aria-label="On this page">
+          <p class="docs-toc-label">On this page</p>
+          <nav id="on-this-page"></nav>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <span>GitVault Docs</span>
+      <span><a href="https://github.com/giofahreza/gitvault">github.com/giofahreza/gitvault</a></span>
+    </footer>
+    <script src="/docs.js?v=20260729d" defer></script>
+  </body>
+</html>

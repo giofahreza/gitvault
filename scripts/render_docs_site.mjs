@@ -14,7 +14,7 @@ const primaryGroups = [
   },
   {
     label: "How-to guides",
-    pages: ["passwords", "notes", "totp", "totp-import", "ssh", "autofill-keyboard"],
+    pages: ["passwords", "notes", "ai-apps", "totp", "totp-import", "ssh", "autofill-keyboard"],
   },
   {
     label: "Reference",
@@ -64,6 +64,12 @@ const topicGroups = [
     title: "Web",
     summary: "Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.",
     pages: ["platform-support", "security", "install-update", "release-verification", "troubleshooting"],
+  },
+  {
+    slug: "desktop",
+    title: "Desktop",
+    summary: "Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases.",
+    pages: ["platform-support", "ai-apps", "install-update", "security", "troubleshooting"],
   },
 ];
 
@@ -201,33 +207,33 @@ const pages = [
     slug: "platform-support",
     title: "Platform support",
     category: "Reference",
-    applies: "Web and Android",
-    summary: "Feature availability across the web app and Android APK.",
-    keywords: "platform support web android browser apk autofill keyboard biometric ssh terminal recent apps",
-    headings: ["Support matrix", "Web notes", "Android notes", "Unsupported or conditional behavior"],
+    applies: "Web, Android, and Desktop",
+    summary: "Feature availability across web, Android, Windows, macOS, and Linux.",
+    keywords: "platform support web android desktop windows macos linux browser apk autofill keyboard biometric ssh terminal mcp ai apps",
+    headings: ["Support matrix", "Web notes", "Android notes", "Desktop notes", "Unsupported or conditional behavior"],
     excerpt:
-      "Most vault features work on web and Android. Android adds system autofill, GitVault Keyboard, recent-app privacy, and mobile SSH terminal behavior where supported.",
+      "Core vault features work across web, Android, and Desktop. Android adds system integrations; Desktop adds local MCP access for approved AI apps.",
     related: ["install-update", "autofill-keyboard", "security", "troubleshooting"],
     body: `
-      <p class="docs-lead">GitVault shares the same encrypted vault across web and Android, but some integrations depend on the platform.</p>
+      <p class="docs-lead">GitVault shares the same encrypted vault across web, Android, Windows, macOS, and Linux, but system integrations depend on the platform.</p>
 
       <h2>Support matrix</h2>
       <div class="docs-table-wrap">
         <table class="docs-table">
-          <thead><tr><th>Feature</th><th>Web app</th><th>Android APK</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Feature</th><th>Web app</th><th>Android APK</th><th>Desktop</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td>Passwords</td><td>Supported</td><td>Supported</td><td>Add, group, search, copy, edit, and delete entries.</td></tr>
-            <tr><td>Notes</td><td>Supported</td><td>Supported</td><td>Mobile uses a single-column list for readability.</td></tr>
-            <tr><td>2FA live codes</td><td>Supported</td><td>Supported</td><td>Live TOTP codes and countdowns are available in the vault.</td></tr>
-            <tr><td>TOTP import link</td><td>Supported</td><td>Supported</td><td>Paste otpauth links on either platform.</td></tr>
-            <tr><td>TOTP QR scan</td><td>Browser-dependent</td><td>Supported where camera permission works</td><td>Paste the secret when scanning is unavailable.</td></tr>
-            <tr><td>SSH credential storage</td><td>Supported</td><td>Supported</td><td>Credentials are encrypted like other vault data.</td></tr>
-            <tr><td>SSH terminal</td><td>Not the primary target</td><td>Supported where Android terminal dependencies work</td><td>Test a host before relying on terminal sessions.</td></tr>
-            <tr><td>System autofill</td><td>Not available</td><td>Android 8.0+</td><td>Requires selecting GitVault as the Android autofill provider.</td></tr>
-            <tr><td>GitVault Keyboard</td><td>Not available</td><td>Android input method</td><td>Useful when an app does not trigger autofill reliably.</td></tr>
-            <tr><td>Biometric unlock</td><td>Supported on capable browsers/devices</td><td>Supported on capable devices</td><td>PIN remains the backup unlock method.</td></tr>
-            <tr><td>Lock button</td><td>Supported</td><td>Supported</td><td>Use it before leaving an unlocked vault.</td></tr>
-            <tr><td>Recent-app privacy</td><td>Browser-managed</td><td>Supported</td><td>Android hides the latest vault view from the app switcher where the OS honors secure window flags.</td></tr>
+            <tr><td>Passwords</td><td>Supported</td><td>Supported</td><td>Supported</td><td>Add, group, search, copy, edit, and delete entries.</td></tr>
+            <tr><td>Notes</td><td>Supported</td><td>Supported</td><td>Supported</td><td>Mobile uses a single-column list for readability.</td></tr>
+            <tr><td>2FA live codes</td><td>Supported</td><td>Supported</td><td>Supported</td><td>Live TOTP codes and countdowns are available in the vault.</td></tr>
+            <tr><td>TOTP import link</td><td>Supported</td><td>Supported</td><td>Supported</td><td>Paste otpauth links where QR scanning is unavailable.</td></tr>
+            <tr><td>TOTP QR scan</td><td>Browser-dependent</td><td>Camera-dependent</td><td>Camera-dependent</td><td>Paste the secret when scanning is unavailable.</td></tr>
+            <tr><td>SSH credential storage</td><td>Supported</td><td>Supported</td><td>Supported</td><td>Credentials are encrypted like other vault data.</td></tr>
+            <tr><td>SSH terminal</td><td>Not the primary target</td><td>Platform-dependent</td><td>Platform-dependent</td><td>Test a host before relying on terminal sessions.</td></tr>
+            <tr><td>System autofill</td><td>Not available</td><td>Android 8.0+</td><td>Not available</td><td>Requires selecting GitVault as the Android autofill provider.</td></tr>
+            <tr><td>GitVault Keyboard</td><td>Not available</td><td>Android input method</td><td>Not available</td><td>Useful when an Android app does not trigger autofill reliably.</td></tr>
+            <tr><td>Biometric unlock</td><td>Browser-dependent</td><td>Device-dependent</td><td>OS-dependent</td><td>PIN remains the backup unlock method.</td></tr>
+            <tr><td>AI Apps / MCP</td><td>Not hosted by web</td><td>Not hosted by Android</td><td>Windows, macOS, Linux</td><td>Desktop must be running and unlocked; notes only.</td></tr>
+            <tr><td>Recent-app privacy</td><td>Browser-managed</td><td>Supported</td><td>OS-managed</td><td>Android hides the latest vault view where the OS honors secure window flags.</td></tr>
           </tbody>
         </table>
       </div>
@@ -246,8 +252,16 @@ const pages = [
         <li><strong>APK</strong> The universal APK is easiest. ABI-specific APKs are available for smaller downloads.</li>
       </ul>
 
+      <h2>Desktop notes</h2>
+      <ul class="docs-list">
+        <li><strong>AI Apps</strong> Desktop can host the loopback MCP service for explicitly connected local AI applications.</li>
+        <li><strong>Lock behavior</strong> Connected apps lose note access immediately when the vault locks.</li>
+        <li><strong>Tray</strong> GitVault can stay available in the system tray; use Quit GitVault to stop the local MCP service.</li>
+        <li><strong>Distribution</strong> Desktop archives include the Flutter app and the Dart stdio bridge used by stdio-only MCP clients.</li>
+      </ul>
+
       <h2>Unsupported or conditional behavior</h2>
-      <p>Some Android vendors restrict third-party autofill in their own browsers or system builds. When autofill does not appear, try Chrome and the GitVault Keyboard fallback.</p>
+      <p>Some Android vendors restrict third-party autofill. Desktop biometric, tray, and launch-at-sign-in behavior depends on the operating system and desktop environment. MCP is local-only and requires an MCP-compatible client.</p>
     `,
   },
   {
@@ -399,6 +413,108 @@ const pages = [
 
       <h2>Archive or delete</h2>
       <p>Archive notes you may need later. Delete only when you are sure, then sync so other devices receive the delete tombstone.</p>
+    `,
+  },
+  {
+    slug: "ai-apps",
+    title: "AI Apps and MCP",
+    category: "How-to guides",
+    applies: "Windows, macOS, and Linux Desktop",
+    summary: "Connect MCP-compatible AI applications to approved GitVault notes with per-app permissions.",
+    keywords: "ai apps mcp model context protocol desktop windows macos linux stdio streamable http permissions tags approval revoke rotate credential tray",
+    headings: ["What AI Apps can access", "Enable the local service", "Connect an AI app", "Choose a transport", "Set permissions and tag scope", "Approve writes", "Lock, rotate, or revoke", "Security boundary", "Troubleshooting"],
+    excerpt:
+      "GitVault Desktop hosts a local MCP service for notes. Every AI app gets its own credential, permissions, tag scope, write policy, and redacted activity history.",
+    related: ["notes", "platform-support", "security", "troubleshooting"],
+    body: `
+      <p class="docs-lead">AI Apps lets MCP-compatible applications work with GitVault notes while GitVault Desktop remains the approval and permission authority.</p>
+
+      <div class="docs-note danger">
+        <strong>Notes only.</strong>
+        <p>AI Apps cannot access passwords, TOTP secrets or codes, SSH credentials, GitHub tokens, recovery phrases, PIN data, root keys, or device-linking secrets.</p>
+      </div>
+
+      <h2>What AI Apps can access</h2>
+      <p>An app can receive only the note operations you enable: list metadata, read content, search, create, append, edit, archive, delete, and include archived notes. GitVault enforces these permissions inside the local server.</p>
+      <p>Available note tools are <code>list_notes</code>, <code>search_notes</code>, <code>get_note</code>, <code>list_note_tags</code>, <code>create_note</code>, <code>append_to_note</code>, <code>update_note</code>, <code>archive_note</code>, and <code>delete_note</code>.</p>
+
+      <h2>Enable the local service</h2>
+      <ol class="docs-steps">
+        <li><span>1</span><div><strong>Install and open GitVault Desktop.</strong><p>Use the Windows, macOS, or Linux release. The web and Android apps do not host MCP.</p></div></li>
+        <li><span>2</span><div><strong>Unlock the vault.</strong><p>MCP can connect while locked, but every note operation returns a locked error.</p></div></li>
+        <li><span>3</span><div><strong>Open Settings, then AI Apps.</strong><p>Turn on Allow AI apps. The service binds only to the local loopback interface.</p></div></li>
+        <li><span>4</span><div><strong>Choose lifecycle options.</strong><p>Enable launch at sign-in or Keep running in tray only when you want local AI apps available after closing the window.</p></div></li>
+      </ol>
+
+      <h2>Connect an AI app</h2>
+      <div class="docs-note">
+        <strong>Direct Desktop authorization.</strong>
+        <p>GitVault creates a connection only after an unlocked user selects Connect app in Desktop. The local service does not accept unsolicited pairing requests from other applications.</p>
+      </div>
+      <ol class="docs-steps">
+        <li><span>1</span><div><strong>Select Connect AI App.</strong><p>Give the connection a name you will recognize in approvals and activity history.</p></div></li>
+        <li><span>2</span><div><strong>Select stdio or Streamable HTTP.</strong><p>Use the transport supported by the target application.</p></div></li>
+        <li><span>3</span><div><strong>Select permissions and tag scope.</strong><p>Start with the smallest set required for the task.</p></div></li>
+        <li><span>4</span><div><strong>Copy the generated configuration.</strong><p>Add it to the target application's MCP settings. HTTP credentials are shown only once; stdio configurations refer to a protected profile managed by Desktop.</p></div></li>
+        <li><span>5</span><div><strong>Test while GitVault is unlocked.</strong><p>Ask the application to list note titles before granting write permissions.</p></div></li>
+      </ol>
+
+      <h2>Choose a transport</h2>
+      <div class="docs-table-wrap">
+        <table class="docs-table">
+          <thead><tr><th>Transport</th><th>Use it when</th><th>How it connects</th></tr></thead>
+          <tbody>
+            <tr><td>stdio</td><td>The AI application launches a local MCP command.</td><td>The bundled <code>gitvault_mcp</code> bridge reads a protected client profile and forwards to Desktop.</td></tr>
+            <tr><td>Streamable HTTP</td><td>The AI application accepts a local MCP URL and headers.</td><td>The client connects to the generated <code>127.0.0.1</code> URL with its bearer credential.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Do not paste an HTTP credential into chat, logs, issue reports, or a shared configuration repository. Rotate it from AI Apps if it may have been exposed.</p>
+
+      <h2>Set permissions and tag scope</h2>
+      <ul class="docs-list">
+        <li><strong>Read metadata</strong> Allows titles, tags, note IDs, and timestamps without note bodies.</li>
+        <li><strong>Read content</strong> Allows full note bodies for notes inside the app scope.</li>
+        <li><strong>Search</strong> Allows bounded search results. It checks note bodies only when Read content is also enabled; otherwise it searches titles and tags and returns no content snippet.</li>
+        <li><strong>Write permissions</strong> Grant create, append, edit, archive, and delete separately.</li>
+        <li><strong>Allowed tags</strong> When empty, all notes are in scope unless denied. When set, a note must contain at least one allowed tag.</li>
+        <li><strong>Denied tags</strong> Always take priority over allowed tags.</li>
+        <li><strong>Archived notes</strong> Stay hidden unless Include archived notes is enabled.</li>
+      </ul>
+
+      <h2>Approve writes</h2>
+      <p>The default write policy asks in GitVault Desktop. The approval shows the app, operation, note, and before/after content. Approvals expire after 60 seconds and are cancelled when the vault locks.</p>
+      <ul class="docs-list">
+        <li><strong>Allow once</strong> Applies only that request.</li>
+        <li><strong>Always allow</strong> Exempts that write type for this app while the vault is unlocked.</li>
+        <li><strong>Deny</strong> Leaves the note unchanged.</li>
+        <li><strong>Delete</strong> Always requires explicit approval and never gains an always-allow exemption.</li>
+      </ul>
+      <p>Updates use the note's <code>modified_at</code> timestamp. If the note changes while approval is pending, GitVault returns a conflict instead of replacing the newer edit.</p>
+
+      <h2>Lock, rotate, or revoke</h2>
+      <ul class="docs-list">
+        <li><strong>Lock</strong> Immediately blocks note reads and writes without stopping the local listener.</li>
+        <li><strong>Rotate credential</strong> Invalidates the old credential and produces a replacement configuration.</li>
+        <li><strong>Revoke</strong> Disconnects that app and invalidates its credential.</li>
+        <li><strong>Remove</strong> Deletes the local registration and stdio profile.</li>
+        <li><strong>Quit GitVault</strong> Stops the MCP service. Closing to tray does not quit when Keep running in tray is enabled.</li>
+      </ul>
+      <p>Recent activity is kept locally for 30 days, contains no note body or credential, and can be cleared from AI Apps.</p>
+
+      <h2>Security boundary</h2>
+      <p>The MCP endpoint is local-only, rejects browser origins, validates the host, rate-limits requests, and authenticates every request. Client registrations stay on this desktop and are not synchronized through GitHub.</p>
+      <p>The operating-system user account is the local trust boundary. Another process already running as the same compromised OS user may be able to impersonate a local AI application. GitVault does not claim to verify a third-party app's brand name.</p>
+
+      <h2>Troubleshooting</h2>
+      <ul class="docs-list">
+        <li><strong>Desktop unavailable</strong> Open GitVault Desktop and confirm Allow AI apps is enabled.</li>
+        <li><strong>Vault locked</strong> Unlock in GitVault. MCP never opens a biometric or PIN prompt by itself.</li>
+        <li><strong>Unauthorized</strong> Rotate the app credential, replace its configuration, and reconnect.</li>
+        <li><strong>Permission denied</strong> Review that app's permissions and tag scope in AI Apps.</li>
+        <li><strong>Approval timeout</strong> Retry the write and answer the Desktop dialog within 60 seconds.</li>
+        <li><strong>Conflict</strong> Read the note again and retry using the newest <code>modified_at</code>.</li>
+      </ul>
     `,
   },
   {
@@ -830,15 +946,15 @@ GitVault</code></pre>
     slug: "install-update",
     title: "Install and update",
     category: "Operations",
-    applies: "Web and Android",
-    summary: "Open the web app, install Android APKs, verify release assets, and understand version updates.",
-    keywords: "install update apk universal abi sha256 release tag github pages web app version android",
-    headings: ["Web app", "Android APK", "Release assets", "Verify the version", "Upgrade habits"],
+    applies: "Web, Android, and Desktop",
+    summary: "Open the web app, install Android APKs or Desktop archives, verify release assets, and understand version updates.",
+    keywords: "install update apk universal abi desktop windows macos linux archive zip tar sha256 release tag github pages web app version android",
+    headings: ["Web app", "Android APK", "Desktop archives", "Release assets", "Verify the version", "Upgrade habits"],
     excerpt:
-      "The web app is served at /app/ and the Android APK is published on GitHub Releases. The visible version is derived from the release tag.",
+      "The web app is served at /app/, while Android and Desktop builds are published on GitHub Releases. Their visible version is derived from the release tag.",
     related: ["release-verification", "platform-support", "quick-start", "github-sync", "troubleshooting"],
     body: `
-      <p class="docs-lead">Use the web app for browser access and GitHub Releases for Android APK downloads.</p>
+      <p class="docs-lead">Use the web app for browser access and GitHub Releases for Android and Desktop downloads.</p>
 
       <h2>Web app</h2>
       <ol class="docs-steps">
@@ -855,16 +971,27 @@ GitVault</code></pre>
         <li><span>4</span><div><strong>Open GitVault.</strong><p>Existing installs should keep local data. New installs must link or restore.</p></div></li>
       </ol>
 
+      <h2>Desktop archives</h2>
+      <ol class="docs-steps compact">
+        <li><span>1</span><div><strong>Choose the archive for your OS.</strong><p>Download the Windows x64 ZIP, Linux x64 tarball, or macOS ZIP from the same release page.</p></div></li>
+        <li><span>2</span><div><strong>Verify its checksum.</strong><p>Use the matching platform checksum file before running the application.</p></div></li>
+        <li><span>3</span><div><strong>Extract the complete archive.</strong><p>Keep GitVault, its libraries, assets, and the bundled <code>gitvault_mcp</code> bridge together.</p></div></li>
+        <li><span>4</span><div><strong>Open GitVault.</strong><p>Linux requires GTK 3, AppIndicator, and Secret Service libraries. Unsigned macOS builds can require explicit approval in Privacy &amp; Security.</p></div></li>
+      </ol>
+
       <h2>Release assets</h2>
       <ul class="docs-list">
         <li><strong>Universal APK</strong> Easiest Android download and recommended for most users.</li>
         <li><strong>ABI APKs</strong> Smaller downloads for specific device CPU architectures.</li>
-        <li><strong>SHA256SUMS.txt</strong> Checksums for verifying release downloads.</li>
+        <li><strong>Windows x64 ZIP</strong> Complete Windows runner and bundled stdio bridge.</li>
+        <li><strong>Linux x64 tarball</strong> Complete relocatable Flutter bundle and stdio bridge.</li>
+        <li><strong>macOS ZIP</strong> Application bundle and stdio bridge; the release is not notarized.</li>
+        <li><strong>SHA256SUMS files</strong> Separate checksum lists for Android, Windows, Linux, and macOS downloads.</li>
       </ul>
 
       <div class="docs-note">
         <strong>Verify downloads before installing on a high-value device.</strong>
-        <p>Use the <a class="docs-inline-link" href="/docs/release-verification/">release verification guide</a> when you download an APK outside a trusted browser session.</p>
+        <p>Use the <a class="docs-inline-link" href="/docs/release-verification/">release verification guide</a> before installing an APK or running a Desktop archive.</p>
       </div>
 
       <h2>Verify the version</h2>
@@ -882,15 +1009,15 @@ GitVault</code></pre>
     slug: "release-verification",
     title: "Release verification",
     category: "Operations",
-    applies: "Android and web release checks",
-    summary: "Verify APK checksums, release assets, and deployed web version before trusting an update.",
-    keywords: "release verification apk sha256 checksum sha256sums version tag github releases web pages verify download",
-    headings: ["What to verify", "Verify an APK checksum", "Windows checksum", "macOS or Linux checksum", "Verify the web app", "When verification fails"],
+    applies: "Android, Desktop, and web release checks",
+    summary: "Verify APK and Desktop archive checksums plus the deployed web version before trusting an update.",
+    keywords: "release verification apk desktop windows macos linux archive zip tar sha256 checksum sha256sums version tag github releases web pages verify download",
+    headings: ["What to verify", "Verify an Android APK", "Verify a Desktop archive", "Verify the web app", "When verification fails"],
     excerpt:
-      "Use SHA256SUMS.txt from the same GitHub release to verify an APK download, then check the in-app version against the release tag after installing or opening the web app.",
+      "Use the matching SHA256SUMS file from the same GitHub release to verify an Android or Desktop download, then check the in-app version against the release tag.",
     related: ["install-update", "platform-support", "security", "faq", "troubleshooting"],
     body: `
-      <p class="docs-lead">Verification is optional for casual testing, but it is a good habit before installing an APK that will hold real secrets.</p>
+      <p class="docs-lead">Verify release downloads before running an app that will hold real secrets.</p>
 
       <figure class="docs-figure">
         <div class="docs-figure-frame">
@@ -901,26 +1028,31 @@ GitVault</code></pre>
 
       <h2>What to verify</h2>
       <ul class="docs-list">
-        <li><strong>Same release</strong> Download the APK and <code>SHA256SUMS.txt</code> from the same GitHub release page.</li>
-        <li><strong>Correct filename</strong> Compare the checksum line for the exact APK file you installed.</li>
+        <li><strong>Same release</strong> Download the application and its platform checksum file from the same GitHub release page.</li>
+        <li><strong>Correct filename</strong> Compare the checksum line for the exact APK or archive you downloaded.</li>
         <li><strong>Visible version</strong> Check Settings, then About, after install or web deployment.</li>
-        <li><strong>Recovery available</strong> Confirm recovery material is available before replacing a phone or browser profile.</li>
+        <li><strong>Recovery available</strong> Confirm recovery material is available before replacing an existing installation.</li>
       </ul>
 
-      <h2>Verify an APK checksum</h2>
+      <h2>Verify an Android APK</h2>
       <ol class="docs-steps">
         <li><span>1</span><div><strong>Download release assets.</strong><p>Download <code>gitvault-vX.Y.Z-universal.apk</code> and <code>SHA256SUMS.txt</code> from the same release.</p></div></li>
-        <li><span>2</span><div><strong>Calculate the APK hash.</strong><p>Use the command for your desktop OS, or an Android terminal app if you verify directly on the phone.</p></div></li>
-        <li><span>3</span><div><strong>Compare exactly.</strong><p>The calculated SHA-256 value must match the checksum line for that APK filename.</p></div></li>
+        <li><span>2</span><div><strong>Calculate the hash.</strong><p>On Windows use <code>certutil -hashfile gitvault-vX.Y.Z-universal.apk SHA256</code>. On macOS or Linux use <code>sha256sum gitvault-vX.Y.Z-universal.apk</code>.</p></div></li>
+        <li><span>3</span><div><strong>Compare exactly.</strong><p>The calculated SHA-256 value must match the APK filename in <code>SHA256SUMS.txt</code>.</p></div></li>
         <li><span>4</span><div><strong>Install only after a match.</strong><p>If the values differ, delete the file and download again from GitHub Releases.</p></div></li>
       </ol>
 
-      <h2>Windows checksum</h2>
-      <pre><code>certutil -hashfile gitvault-vX.Y.Z-universal.apk SHA256</code></pre>
+      <h2>Verify a Desktop archive</h2>
+      <p>Download the archive and its matching checksum file into one directory. Compare the archive hash before extraction.</p>
+      <pre><code># Windows PowerShell
+Get-FileHash -Algorithm SHA256 gitvault-vX.Y.Z-windows-x64.zip
+Get-Content SHA256SUMS-windows.txt
 
-      <h2>macOS or Linux checksum</h2>
-      <pre><code>sha256sum gitvault-vX.Y.Z-universal.apk
-cat SHA256SUMS.txt</code></pre>
+# Linux
+sha256sum -c SHA256SUMS-linux.txt
+
+# macOS
+shasum -a 256 -c SHA256SUMS-macos.txt</code></pre>
 
       <h2>Verify the web app</h2>
       <ol class="docs-steps compact">
@@ -931,8 +1063,8 @@ cat SHA256SUMS.txt</code></pre>
 
       <h2>When verification fails</h2>
       <ul class="docs-list">
-        <li><strong>Checksum mismatch</strong> Delete the APK and download it again from the release page.</li>
-        <li><strong>Missing APK</strong> Wait for the release workflow to finish, then refresh the release page.</li>
+        <li><strong>Checksum mismatch</strong> Delete the download and fetch it again from the release page.</li>
+        <li><strong>Missing asset</strong> Wait for the release workflow to finish, then refresh the release page.</li>
         <li><strong>Old web version</strong> Check GitHub Pages deployment status and reload after the deploy completes.</li>
       </ul>
     `,
@@ -1342,6 +1474,7 @@ function docsHomeBody() {
               <li><a href="/docs/github-sync/"><span>GitHub sync setup</span><small>Create private encrypted storage with a fine-grained token.</small></a></li>
               <li><a href="/docs/devices/"><span>Add or remove devices</span><small>Use Link New Device, recognize trusted devices, and remove devices you no longer trust.</small></a></li>
               <li><a href="/docs/recovery/"><span>Restore access</span><small>Recover with another trusted device or the lost-device new-token path.</small></a></li>
+              <li><a href="/docs/ai-apps/"><span>Connect an AI app</span><small>Give an MCP-compatible desktop app scoped access to approved notes.</small></a></li>
               <li><a href="/docs/autofill-keyboard/"><span>Set up Android autofill</span><small>Enable the system autofill provider and GitVault Keyboard fallback.</small></a></li>
               <li><a href="/docs/troubleshooting/"><span>Fix common issues</span><small>Resolve sync, token, unlock, device, autofill, and biometric problems.</small></a></li>
             </ul>
@@ -1361,7 +1494,7 @@ function docsHomeBody() {
 
           <section aria-labelledby="release-status">
             <h2 id="release-status">Release and status</h2>
-            <p>Use <a class="docs-inline-link" href="https://github.com/giofahreza/gitvault/releases/latest">GitHub Releases</a> for Android APKs and <a class="docs-inline-link" href="/app/">/app/</a> for the web app. Static docs deploy from the same repository through GitHub Pages.</p>
+            <p>Use <a class="docs-inline-link" href="https://github.com/giofahreza/gitvault/releases/latest">GitHub Releases</a> for Android and Desktop downloads and <a class="docs-inline-link" href="/app/">/app/</a> for the web app. Static docs deploy from the same repository through GitHub Pages.</p>
           </section>
   `;
 }
@@ -1434,13 +1567,13 @@ write(
   layout({
     title: "Documentation",
     description:
-      "GitVault documentation for setup, GitHub sync, passwords, notes, 2FA codes, SSH credentials, connected devices, recovery, and troubleshooting.",
+      "GitVault documentation for setup, GitHub sync, passwords, notes, AI Apps and MCP, 2FA codes, SSH credentials, devices, recovery, and troubleshooting.",
     canonical: "https://gitvault.giofahreza.com/docs/",
     currentPath: "/docs/",
     articleClass: "docs-index-page",
     slug: "",
     headingCategory: "Product documentation",
-    meta: `<dl class="docs-meta"><div><dt>Product</dt><dd>GitVault</dd></div><div><dt>Applies to</dt><dd>Web and Android</dd></div><div><dt>Updated</dt><dd>${UPDATED}</dd></div></dl>`,
+    meta: `<dl class="docs-meta"><div><dt>Product</dt><dd>GitVault</dd></div><div><dt>Applies to</dt><dd>Web, Android, and Desktop</dd></div><div><dt>Updated</dt><dd>${UPDATED}</dd></div></dl>`,
     body: docsHomeBody(),
   }),
 );

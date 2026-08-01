@@ -8,7 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/providers/providers.dart';
 import '../../core/services/foreground_sync_service.dart';
 import '../../core/services/ssh_platform/ssh_platform_support.dart';
-import '../../core/widgets/web_lock_action.dart';
+import '../../core/widgets/vault_lock_action.dart';
 import '../../data/models/ssh_credential.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../core/services/persistent_ssh_service.dart';
@@ -91,7 +91,7 @@ class _SshScreenState extends ConsumerState<SshScreen> {
                 ),
             ],
           ),
-          const WebLockAction(compactOnly: true),
+          const VaultLockAction(compactOnly: true),
         ],
       ),
       body: credentialsAsync.when(

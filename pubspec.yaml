@@ -1,6 +1,6 @@
 name: gitvault
 description: A sovereign, device-centric password manager using GitHub.
-version: 1.0.117+117
+version: 1.0.130+1000130
 publish_to: 'none'
 
 environment:
@@ -26,6 +26,9 @@ dependencies:
   # To talk to GitHub API
   github: ^9.24.0
   http: ^1.1.0
+  mcp_dart: 2.3.0
+  crypto: ^3.0.7
+  path: ^1.9.0
 
   # Local Database (Fast, encrypted NoSQL)
   hive: ^2.2.3
@@ -57,7 +60,7 @@ dependencies:
 
   # --- BACKGROUND SERVICES & BATTERY OPTIMIZATION ---
   # For background sync tasks
-  workmanager: ^0.5.2
+  workmanager: ^0.7.0
   # For getting app directory path (needed in background isolate)
   path_provider: ^2.1.0
   # For checking connectivity status
@@ -82,8 +85,15 @@ dependencies:
   freezed_annotation: ^2.4.1
   json_annotation: ^4.9.0
 
+  # --- DESKTOP MCP & LIFECYCLE ---
+  window_manager: ^0.5.2
+  tray_manager: ^0.5.3
+  launch_at_startup: 0.3.1
+
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/gitvault_launcher.png
   fonts:
     - family: JetBrainsMonoNerd
       fonts:
