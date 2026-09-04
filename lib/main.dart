@@ -270,9 +270,7 @@ class AppShell extends ConsumerWidget {
           return const OnboardingScreen();
         }
       },
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
+      loading: () => const _StartupScreen(),
       error: (err, _) => const BiometricGate(),
     );
   }
@@ -284,6 +282,49 @@ class BiometricGate extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<BiometricGate> createState() => _BiometricGateState();
+}
+
+class _StartupScreen extends StatelessWidget {
+  const _StartupScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      body: Semantics(
+        label: 'Opening GitVault',
+        liveRegion: true,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.lock_outline,
+                size: 30,
+                color: colorScheme.primary,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Opening GitVault',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: 96,
+                child: LinearProgressIndicator(
+                  minHeight: 2,
+                  borderRadius: BorderRadius.circular(1),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _BiometricGateState extends ConsumerState<BiometricGate>
@@ -588,9 +629,7 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
     });
 
     if (_checking) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const _StartupScreen();
     }
 
     if (vaultSession.canAccessVault) {

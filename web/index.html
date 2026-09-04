@@ -33,8 +33,122 @@
 
   <title>GitVault</title>
   <link rel="manifest" href="manifest.json?v=129">
+  <style>
+    :root {
+      color-scheme: light dark;
+      background: #fffbfe;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #fffbfe;
+    }
+
+    #gitvault-loader {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: grid;
+      place-items: center;
+      background: #fffbfe;
+      color: #6750a4;
+      opacity: 1;
+      transition: opacity 180ms ease-out;
+    }
+
+    .gitvault-loader__content {
+      display: grid;
+      justify-items: center;
+      gap: 14px;
+      color: #1d1b20;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .gitvault-loader__mark {
+      width: 30px;
+      height: 30px;
+      color: #6750a4;
+    }
+
+    .gitvault-loader__label {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .gitvault-loader__rail {
+      width: 96px;
+      height: 2px;
+      overflow: hidden;
+      background: #e8def8;
+    }
+
+    .gitvault-loader__rail::after {
+      display: block;
+      width: 42%;
+      height: 100%;
+      content: "";
+      background: #6750a4;
+      animation: gitvault-loader-progress 1100ms ease-in-out infinite;
+    }
+
+    .gitvault-loader--hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    @keyframes gitvault-loader-progress {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(240%); }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root,
+      body,
+      #gitvault-loader {
+        background: #141218;
+      }
+
+      .gitvault-loader__content {
+        color: #e6e0e9;
+      }
+
+      .gitvault-loader__mark {
+        color: #d0bcff;
+      }
+
+      .gitvault-loader__rail {
+        background: #4f435d;
+      }
+
+      .gitvault-loader__rail::after {
+        background: #d0bcff;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #gitvault-loader {
+        transition: none;
+      }
+
+      .gitvault-loader__rail::after {
+        animation: none;
+        transform: translateX(80%);
+      }
+    }
+  </style>
 </head>
 <body>
+  <div id="gitvault-loader" role="status" aria-label="Opening GitVault">
+    <div class="gitvault-loader__content">
+      <svg class="gitvault-loader__mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2Zm-5 7a1.5 1.5 0 1 1 1.5-1.5A1.5 1.5 0 0 1 12 15Zm2-7h-4V6a2 2 0 0 1 4 0v2Z"/>
+      </svg>
+      <span class="gitvault-loader__label">Opening GitVault</span>
+      <span class="gitvault-loader__rail" aria-hidden="true"></span>
+    </div>
+  </div>
   <script>
     (() => {
       const clearOldFlutterCaches = async () => {
@@ -60,6 +174,17 @@
       window.addEventListener("load", () => {
         clearOldFlutterCaches().catch(() => {});
       });
+    })();
+  </script>
+  <script>
+    (() => {
+      const loader = document.getElementById("gitvault-loader");
+      if (!loader) return;
+
+      window.addEventListener("flutter-first-frame", () => {
+        loader.classList.add("gitvault-loader--hidden");
+        window.setTimeout(() => loader.remove(), 180);
+      }, { once: true });
     })();
   </script>
   <script src="flutter_bootstrap.js" async></script>
