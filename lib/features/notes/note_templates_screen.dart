@@ -50,6 +50,7 @@ class NoteTemplatesScreen extends ConsumerWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'note-templates-add',
         tooltip: 'Add template',
         onPressed: () => _edit(context, ref, null),
         child: const Icon(Icons.add),

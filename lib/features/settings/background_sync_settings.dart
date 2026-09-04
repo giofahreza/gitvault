@@ -199,6 +199,7 @@ class _BackgroundSyncSettingsState
         ref.invalidate(vaultEntriesProvider);
         ref.invalidate(notesRepositoryProvider);
         ref.invalidate(notesProvider);
+        ref.invalidate(noteTemplatesProvider);
         ref.invalidate(sshRepositoryProvider);
         ref.invalidate(sshCredentialsProvider);
         ref.invalidate(archivedNotesProvider);

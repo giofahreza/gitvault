@@ -22,11 +22,23 @@ class _TotpScannerScreenState extends State<TotpScannerScreen> {
 
   @override
   void dispose() {
+    _finishUriInput();
     _controller.dispose();
-    _uriController.clear();
     _uriController.dispose();
     _uriFocus.dispose();
     super.dispose();
+  }
+
+  void _finishUriInput() {
+    _uriController.clear();
+    _uriFocus.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
+    TextInput.finishAutofillContext(shouldSave: false);
+  }
+
+  void _close([Map<String, String>? result]) {
+    _finishUriInput();
+    Navigator.pop(context, result);
   }
 
   @override
@@ -38,6 +50,7 @@ class _TotpScannerScreenState extends State<TotpScannerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Scan QR Code'),
+        leading: BackButton(onPressed: _close),
         actions: [
           IconButton(
             icon: ValueListenableBuilder(
@@ -94,74 +107,87 @@ class _TotpScannerScreenState extends State<TotpScannerScreen> {
 
   Widget _buildWebFallback(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Add 2FA from QR'),
-      ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Icon(
-                  Icons.qr_code_2,
-                  size: 72,
-                  color: colorScheme.primary,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Paste an OTP setup link',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'On web, paste an otpauth:// link or Google Authenticator migration link from another app.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: colorScheme.onSurfaceVariant),
-                ),
-                const SizedBox(height: 24),
-                PointerFocus(
-                  focusNode: _uriFocus,
-                  child: TextField(
-                    controller: _uriController,
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _finishUriInput();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Add 2FA from QR'),
+          leading: BackButton(onPressed: _close),
+        ),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Icon(
+                    Icons.qr_code_2,
+                    size: 72,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Paste an OTP setup link',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'On web, paste an otpauth:// link or Google Authenticator migration link from another app.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 24),
+                  PointerFocus(
                     focusNode: _uriFocus,
-                    minLines: 4,
-                    maxLines: 6,
-                    autofocus: true,
-                    style:
-                        const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                    decoration: InputDecoration(
-                      labelText: 'OTP setup link',
-                      hintText: 'otpauth://totp/Example:user@example.com?...',
-                      border: const OutlineInputBorder(),
-                      errorText: _webError,
-                      alignLabelWithHint: true,
+                    child: TextField(
+                      controller: _uriController,
+                      focusNode: _uriFocus,
+                      minLines: 4,
+                      maxLines: 6,
+                      autofocus: true,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'OTP setup link',
+                        hintText: 'otpauth://totp/Example:user@example.com?...',
+                        border: const OutlineInputBorder(),
+                        errorText: _webError,
+                        alignLabelWithHint: true,
+                      ),
+                      onChanged: (_) {
+                        if (_webError != null) {
+                          setState(() => _webError = null);
+                        }
+                      },
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.end,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _pasteOtpLink,
-                      icon: const Icon(Icons.content_paste),
-                      label: const Text('Paste'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _submitOtpLink,
-                      icon: const Icon(Icons.check),
-                      label: const Text('Continue'),
-                    ),
-                  ],
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _pasteOtpLink,
+                        icon: const Icon(Icons.content_paste),
+                        label: const Text('Paste'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _submitOtpLink,
+                        icon: const Icon(Icons.check),
+                        label: const Text('Continue'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -219,7 +245,7 @@ class _TotpScannerScreenState extends State<TotpScannerScreen> {
       _hasScanned = true;
       final parsed = _parseOtpauthUri(value);
       if (parsed != null) {
-        Navigator.pop(context, parsed);
+        _close(parsed);
       } else {
         if (!kIsWeb) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -234,7 +260,7 @@ class _TotpScannerScreenState extends State<TotpScannerScreen> {
     // Check for Google Authenticator migration format
     if (value.startsWith('otpauth-migration://')) {
       _hasScanned = true;
-      Navigator.pop(context, {'migration': value});
+      _close({'migration': value});
       return true;
     }
 

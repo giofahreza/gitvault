@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +12,7 @@ import '../../core/widgets/group_selector_field.dart';
 import '../../core/widgets/vault_lock_action.dart';
 import '../../data/models/vault_entry.dart';
 import '../../data/repositories/sync_engine.dart';
+import '../../utils/auth_helper.dart';
 import '../../utils/clipboard_feedback.dart';
 import '../../utils/pointer_focus.dart';
 import '../../utils/totp_generator.dart';
@@ -40,7 +43,6 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
   int _currentPeriod = 0;
   final _searchController = TextEditingController();
   late final FocusNode _searchFocusNode;
-  String _searchQuery = '';
   bool _isSearching = false;
   final Set<String> _collapsedGroups = {};
 
@@ -111,20 +113,23 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
 
     return Scaffold(
       appBar: AppBar(
+        excludeHeaderSemantics: _isSearching,
         title: !_isSearching
             ? const Text('2FA Codes')
             : PointerFocus(
                 focusNode: _searchFocusNode,
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    hintText: 'Search 2FA codes...',
-                    border: InputBorder.none,
+                child: Semantics(
+                  label: 'Search 2FA codes',
+                  child: TextField(
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search 2FA codes...',
+                      border: InputBorder.none,
+                    ),
+                    style: const TextStyle(fontSize: 18),
                   ),
-                  style: const TextStyle(fontSize: 18),
-                  onChanged: (value) => setState(() => _searchQuery = value),
                 ),
               ),
         actions: [
@@ -187,131 +192,176 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
         ],
       ),
       body: entriesAsync.when(
-        data: (entries) {
-          // Filter entries that have TOTP secrets
-          var totpEntries = entries
-              .where((e) => e.totpSecret != null && e.totpSecret!.isNotEmpty)
-              .toList();
+        data: (entries) => ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _searchController,
+          builder: (context, value, _) {
+            // Filter entries that have TOTP secrets
+            var totpEntries = entries
+                .where((e) => e.totpSecret != null && e.totpSecret!.isNotEmpty)
+                .toList();
 
-          // Apply search filter
-          final query = _searchQuery.trim().toLowerCase();
-          if (query.isNotEmpty) {
-            totpEntries = totpEntries.where((e) {
-              return e.title.toLowerCase().contains(query) ||
-                  (e.username.isNotEmpty &&
-                      e.username.toLowerCase().contains(query)) ||
-                  e.tags.any((t) => t.toLowerCase().contains(query));
-            }).toList();
-          }
+            // Apply search filter
+            final query = value.text.trim().toLowerCase();
+            if (query.isNotEmpty) {
+              totpEntries = totpEntries.where((e) {
+                return e.title.toLowerCase().contains(query) ||
+                    (e.username.isNotEmpty &&
+                        e.username.toLowerCase().contains(query)) ||
+                    e.tags.any((t) => t.toLowerCase().contains(query));
+              }).toList();
+            }
 
-          if (totpEntries.isEmpty && query.isEmpty) {
-            final colorScheme = Theme.of(context).colorScheme;
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.security, size: 64, color: colorScheme.outline),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No 2FA Codes',
-                    style: TextStyle(
-                        fontSize: 18, color: colorScheme.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tap + to add manually, or scan a QR code',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: colorScheme.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 24),
-                  OutlinedButton.icon(
-                    onPressed: _scanQrCode,
-                    icon: const Icon(Icons.qr_code_scanner),
-                    label: const Text('Scan QR Code'),
-                  ),
-                ],
-              ),
-            );
-          }
+            if (totpEntries.isEmpty && query.isEmpty) {
+              final colorScheme = Theme.of(context).colorScheme;
+              return RefreshIndicator(
+                key: const ValueKey('totp_results'),
+                onRefresh: () async => ref.invalidate(vaultEntriesProvider),
+                child: ListView(
+                  key: const ValueKey('totp_results_list'),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.only(bottom: 96),
+                  children: [
+                    SizedBox(
+                      height: _emptyResultsHeight(context),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.security,
+                              size: 64,
+                              color: colorScheme.outline,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No 2FA Codes',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Tap + to add manually, or scan a QR code',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            OutlinedButton.icon(
+                              onPressed: _scanQrCode,
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text('Scan QR Code'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
 
-          if (totpEntries.isEmpty) {
-            return Center(
-              child: Text(
-                'No matching 2FA codes',
-                style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant),
-              ),
-            );
-          }
+            if (totpEntries.isEmpty) {
+              return RefreshIndicator(
+                key: const ValueKey('totp_results'),
+                onRefresh: () async => ref.invalidate(vaultEntriesProvider),
+                child: ListView(
+                  key: const ValueKey('totp_results_list'),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.only(bottom: 96),
+                  children: [
+                    SizedBox(
+                      height: _emptyResultsHeight(context),
+                      child: Center(
+                        child: Text(
+                          'No matching 2FA codes',
+                          style: TextStyle(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
 
-          // Group entries
-          final Map<String, List<VaultEntry>> grouped = {};
-          for (final entry in totpEntries) {
-            final group = _getGroup(entry);
-            grouped.putIfAbsent(group, () => []).add(entry);
-          }
+            // Group entries
+            final Map<String, List<VaultEntry>> grouped = {};
+            for (final entry in totpEntries) {
+              final group = _getGroup(entry);
+              grouped.putIfAbsent(group, () => []).add(entry);
+            }
 
-          // Sort groups: "Ungrouped" last, others alphabetically
-          final sortedGroups = grouped.keys.toList()
-            ..sort((a, b) {
-              if (a == 'Ungrouped') return 1;
-              if (b == 'Ungrouped') return -1;
-              return a.toLowerCase().compareTo(b.toLowerCase());
-            });
+            // Sort groups: "Ungrouped" last, others alphabetically
+            final sortedGroups = grouped.keys.toList()
+              ..sort((a, b) {
+                if (a == 'Ungrouped') return 1;
+                if (b == 'Ungrouped') return -1;
+                return a.toLowerCase().compareTo(b.toLowerCase());
+              });
 
-          // If only one group and it's "Ungrouped", show flat list
-          if (sortedGroups.length == 1 && sortedGroups.first == 'Ungrouped') {
+            // If only one group and it's "Ungrouped", show flat list
+            if (sortedGroups.length == 1 && sortedGroups.first == 'Ungrouped') {
+              return RefreshIndicator(
+                key: const ValueKey('totp_results'),
+                onRefresh: () async => ref.invalidate(vaultEntriesProvider),
+                child: ListView.builder(
+                  key: const ValueKey('totp_results_list'),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                  itemCount: totpEntries.length,
+                  itemBuilder: (context, index) {
+                    final entry = totpEntries[index];
+                    return _TotpCodeCard(
+                      key: ValueKey(entry.uuid),
+                      entry: entry,
+                      secondsRemaining: _secondsRemaining,
+                      onDelete: () => _deleteEntry(entry),
+                      onEdit: () => _showEditTotpDialog(entry),
+                    );
+                  },
+                ),
+              );
+            }
+
             return RefreshIndicator(
+              key: const ValueKey('totp_results'),
               onRefresh: () async => ref.invalidate(vaultEntriesProvider),
               child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                itemCount: totpEntries.length,
+                key: const ValueKey('totp_results_list'),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                itemCount: sortedGroups.length,
                 itemBuilder: (context, index) {
-                  final entry = totpEntries[index];
-                  return _TotpCodeCard(
-                    key: ValueKey(entry.uuid),
-                    entry: entry,
+                  final group = sortedGroups[index];
+                  final groupEntries = grouped[group]!;
+                  final isCollapsed = _collapsedGroups.contains(group);
+
+                  return _TotpGroupSection(
+                    groupName: group,
+                    entries: groupEntries,
+                    isCollapsed: isCollapsed,
                     secondsRemaining: _secondsRemaining,
-                    onDelete: () => _deleteEntry(entry),
-                    onEdit: () => _showEditTotpDialog(entry),
+                    currentPeriod: _currentPeriod,
+                    onToggle: () {
+                      setState(() {
+                        if (isCollapsed) {
+                          _collapsedGroups.remove(group);
+                        } else {
+                          _collapsedGroups.add(group);
+                        }
+                      });
+                    },
+                    onDelete: _deleteEntry,
+                    onEdit: _showEditTotpDialog,
                   );
                 },
               ),
             );
-          }
-
-          return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(vaultEntriesProvider),
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-              itemCount: sortedGroups.length,
-              itemBuilder: (context, index) {
-                final group = sortedGroups[index];
-                final groupEntries = grouped[group]!;
-                final isCollapsed = _collapsedGroups.contains(group);
-
-                return _TotpGroupSection(
-                  groupName: group,
-                  entries: groupEntries,
-                  isCollapsed: isCollapsed,
-                  secondsRemaining: _secondsRemaining,
-                  currentPeriod: _currentPeriod,
-                  onToggle: () {
-                    setState(() {
-                      if (isCollapsed) {
-                        _collapsedGroups.remove(group);
-                      } else {
-                        _collapsedGroups.add(group);
-                      }
-                    });
-                  },
-                  onDelete: _deleteEntry,
-                  onEdit: _showEditTotpDialog,
-                );
-              },
-            ),
-          );
-        },
+          },
+        ),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => Center(
           child: Column(
@@ -327,12 +377,25 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
       floatingActionButton: Semantics(
         label: 'Add 2FA code',
         button: true,
+        excludeSemantics: true,
+        onTap: _showAddTotpActions,
         child: FloatingActionButton(
+          heroTag: 'totp-add-code',
           tooltip: 'Add 2FA code',
           onPressed: _showAddTotpActions,
           child: const Icon(Icons.add),
         ),
       ),
+    );
+  }
+
+  double _emptyResultsHeight(BuildContext context) {
+    return math.max(
+      0,
+      MediaQuery.sizeOf(context).height -
+          kToolbarHeight -
+          MediaQuery.paddingOf(context).top -
+          96,
     );
   }
 
@@ -384,18 +447,20 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
   void _startSearch() {
     setState(() {
       _isSearching = true;
-      _searchQuery = '';
       _searchController.clear();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _searchFocusNode.requestFocus();
+      _requestSearchFocus();
     });
+  }
+
+  void _requestSearchFocus() {
+    if (mounted && _isSearching) _searchFocusNode.requestFocus();
   }
 
   void _clearSearch() {
     setState(() {
       _isSearching = false;
-      _searchQuery = '';
       _searchController.clear();
     });
     FocusScope.of(context).unfocus();
@@ -434,7 +499,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
     }
   }
 
-  void _showEditTotpDialog(VaultEntry entry) {
+  Future<void> _showEditTotpDialog(VaultEntry entry) async {
     final formKey = GlobalKey<FormState>();
     final titleController = TextEditingController(text: entry.title);
     final accountController = TextEditingController(text: entry.username);
@@ -449,6 +514,8 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
     final groupFocus = FocusNode();
     bool saving = false;
     bool showSecret = false;
+    bool authenticatingSecret = false;
+    bool validationRequested = false;
     final availableGroups = _availableTotpGroups(
       ref.read(vaultEntriesProvider).valueOrNull ?? const <VaultEntry>[],
     );
@@ -459,8 +526,10 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
     ) async {
       if (saving) return;
       if (!(formKey.currentState?.validate() ?? false)) {
+        validationRequested = true;
         return;
       }
+      validationRequested = false;
 
       setDialogState(() => saving = true);
       try {
@@ -501,14 +570,44 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
       }
     }
 
-    showDialog(
+    Future<void> toggleSecretVisibility(
+      BuildContext dialogContext,
+      StateSetter setDialogState,
+    ) async {
+      if (saving || authenticatingSecret) return;
+      if (showSecret) {
+        setDialogState(() => showSecret = false);
+        return;
+      }
+
+      setDialogState(() => authenticatingSecret = true);
+      try {
+        final authenticated = await AuthHelper.authenticate(
+          context: dialogContext,
+          ref: ref,
+          reason: 'Authenticate to view 2FA secret',
+        );
+        if (authenticated && dialogContext.mounted) {
+          setDialogState(() => showSecret = true);
+        }
+      } finally {
+        if (dialogContext.mounted) {
+          setDialogState(() => authenticatingSecret = false);
+        }
+      }
+    }
+
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final route = DialogRoute<bool>(
       context: context,
+      themes: InheritedTheme.capture(from: context, to: navigator.context),
       builder: (ctx) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Edit 2FA Code'),
           content: SingleChildScrollView(
             child: Form(
               key: formKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -531,6 +630,11 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                           value == null || value.trim().isEmpty
                               ? 'Service name is required'
                               : null,
+                      onChanged: (_) {
+                        if (validationRequested) {
+                          formKey.currentState?.validate();
+                        }
+                      },
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -568,10 +672,11 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                           icon: Icon(showSecret
                               ? Icons.visibility_off
                               : Icons.visibility),
-                          onPressed: saving
+                          onPressed: saving || authenticatingSecret
                               ? null
-                              : () => setDialogState(
-                                    () => showSecret = !showSecret,
+                              : () => toggleSecretVisibility(
+                                    dialogContext,
+                                    setDialogState,
                                   ),
                         ),
                       ),
@@ -587,6 +692,11 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                           return 'Enter a valid Base32 secret';
                         }
                         return null;
+                      },
+                      onChanged: (_) {
+                        if (validationRequested) {
+                          formKey.currentState?.validate();
+                        }
                       },
                     ),
                   ),
@@ -605,12 +715,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
                   ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
-                    onPressed: saving
-                        ? null
-                        : () {
-                            Navigator.pop(ctx);
-                            _deleteEntry(entry);
-                          },
+                    onPressed: saving ? null : () => Navigator.pop(ctx, true),
                     icon: Icon(Icons.delete_outline,
                         color: Theme.of(context).colorScheme.error),
                     label: Text('Delete 2FA',
@@ -643,20 +748,28 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
           ],
         ),
       ),
-    ).whenComplete(() {
-      titleController.clear();
-      accountController.clear();
-      secretController.clear();
-      groupController.clear();
-      titleController.dispose();
-      accountController.dispose();
-      secretController.dispose();
-      groupController.dispose();
-      titleFocus.dispose();
-      accountFocus.dispose();
-      secretFocus.dispose();
-      groupFocus.dispose();
-    });
+    );
+
+    final deleteRequested = await navigator.push(route);
+    await route.completed;
+
+    titleController.clear();
+    accountController.clear();
+    secretController.clear();
+    groupController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
+    titleController.dispose();
+    accountController.dispose();
+    secretController.dispose();
+    groupController.dispose();
+    titleFocus.dispose();
+    accountFocus.dispose();
+    secretFocus.dispose();
+    groupFocus.dispose();
+
+    if (deleteRequested == true && mounted) {
+      await _deleteEntry(entry);
+    }
   }
 
   void _scheduleTotpSync({
@@ -860,25 +973,142 @@ class _TotpCodeCardState extends State<_TotpCodeCard> {
     final code =
         TotpGenerator.generateCode(widget.entry.totpSecret ?? '') ?? '------';
     final colorScheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.sizeOf(context).width < 400;
 
     // Color changes to warning when < 5 seconds remaining
     final isExpiring = widget.secondsRemaining <= 5;
     final progressColor = isExpiring ? Colors.orange : colorScheme.primary;
-
     final semanticLabel = [
       '2FA code',
       widget.entry.title,
       if (widget.entry.username.isNotEmpty) 'account ${widget.entry.username}',
       '${widget.secondsRemaining} seconds remaining',
     ].join(', ');
+    final identity = Expanded(
+      child: ExcludeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.entry.title,
+              maxLines: compact ? 2 : 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (widget.entry.username.isNotEmpty)
+              Text(
+                widget.entry.username,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    final copyAction = Semantics(
+      container: true,
+      liveRegion: _copied,
+      label: _copied ? '2FA code copied' : 'Copy 2FA code',
+      button: true,
+      excludeSemantics: true,
+      onTap: () => _copyCode(code),
+      child: TextButton.icon(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(40, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+        icon: Icon(_copied ? Icons.check : Icons.copy_outlined),
+        label: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 140),
+          child: Text(
+            _copied ? 'Copied' : 'Copy',
+            key: ValueKey(_copied),
+          ),
+        ),
+        onPressed: () => _copyCode(code),
+      ),
+    );
+    final editAction = IconButton(
+      tooltip: 'Edit 2FA',
+      icon: const Icon(Icons.edit_outlined),
+      onPressed: widget.onEdit,
+    );
+    final deleteAction = IconButton(
+      tooltip: 'Delete 2FA',
+      icon: Icon(Icons.delete_outline, color: colorScheme.error),
+      onPressed: widget.onDelete,
+    );
+    final countdown = ExcludeSemantics(
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CircularProgressIndicator(
+              value: widget.secondsRemaining / 30,
+              strokeWidth: 3,
+              color: progressColor,
+              backgroundColor: colorScheme.surfaceContainerHighest,
+            ),
+            Text(
+              '${widget.secondsRemaining}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: isExpiring ? Colors.orange : colorScheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    final header = compact
+        ? Column(
+            children: [
+              Row(
+                children: [
+                  identity,
+                  const SizedBox(width: 8),
+                  countdown,
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [copyAction, editAction, deleteAction],
+              ),
+            ],
+          )
+        : Row(
+            children: [
+              identity,
+              copyAction,
+              editAction,
+              deleteAction,
+              countdown,
+            ],
+          );
 
     return Semantics(
       container: true,
+      explicitChildNodes: true,
       label: semanticLabel,
       button: true,
+      onTap: () => _copyCode(code),
+      onLongPress: widget.onEdit,
       child: Card(
+        semanticContainer: false,
         margin: const EdgeInsets.only(bottom: 12),
         child: InkWell(
+          excludeFromSemantics: true,
           onTap: () => _copyCode(code),
           onLongPress: widget.onEdit,
           borderRadius: BorderRadius.circular(12),
@@ -887,119 +1117,39 @@ class _TotpCodeCardState extends State<_TotpCodeCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title and issuer
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.entry.title,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          if (widget.entry.username.isNotEmpty)
-                            Text(
-                              widget.entry.username,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    Semantics(
-                      liveRegion: _copied,
-                      label: _copied ? '2FA code copied' : 'Copy 2FA code',
-                      button: true,
-                      child: TextButton.icon(
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(40, 40),
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                        icon: Icon(_copied ? Icons.check : Icons.copy_outlined),
-                        label: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 140),
-                          child: Text(
-                            _copied ? 'Copied' : 'Copy',
-                            key: ValueKey(_copied),
-                          ),
-                        ),
-                        onPressed: () => _copyCode(code),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Edit 2FA',
-                      icon: const Icon(Icons.edit_outlined),
-                      onPressed: widget.onEdit,
-                    ),
-                    IconButton(
-                      tooltip: 'Delete 2FA',
-                      icon:
-                          Icon(Icons.delete_outline, color: colorScheme.error),
-                      onPressed: widget.onDelete,
-                    ),
-                    // Countdown timer
-                    SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          CircularProgressIndicator(
-                            value: widget.secondsRemaining / 30,
-                            strokeWidth: 3,
-                            color: progressColor,
-                            backgroundColor:
-                                colorScheme.surfaceContainerHighest,
-                          ),
-                          Text(
-                            '${widget.secondsRemaining}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: isExpiring
-                                  ? Colors.orange
-                                  : colorScheme.onSurface,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                header,
                 const SizedBox(height: 12),
                 // TOTP Code
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 12, horizontal: 16),
-                        decoration: BoxDecoration(
-                          color: colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            _formatCode(code),
-                            style: const TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 4,
-                              fontFamily: 'monospace',
+                ExcludeSemantics(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 16,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _formatCode(code),
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 4,
+                                fontFamily: 'monospace',
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1107,6 +1257,7 @@ class _AddTotpDialogState extends ConsumerState<_AddTotpDialog> {
     _accountController.clear();
     _totpSecretController.clear();
     _groupController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     _titleController.dispose();
     _accountController.dispose();
     _totpSecretController.dispose();
@@ -1129,6 +1280,7 @@ class _AddTotpDialogState extends ConsumerState<_AddTotpDialog> {
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

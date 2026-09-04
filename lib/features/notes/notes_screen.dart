@@ -1,8 +1,12 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:hive/hive.dart';
 
 import '../../core/notes/knowledge_parser.dart';
 import '../../core/notes/note_file_service.dart';
@@ -32,16 +36,25 @@ class NotesScreen extends ConsumerStatefulWidget {
 }
 
 class _NotesScreenState extends ConsumerState<NotesScreen> {
+  static const _uiSettingsBoxName = 'ui_settings';
+  static const _gridViewKey = 'notes_grid_view';
+
   final _searchController = TextEditingController();
   late final FocusNode _searchFocusNode;
-  String _searchQuery = '';
   bool _isSearching = false;
   bool _isGridView = true;
+  bool _isSavingReorder = false;
+  bool _isPointerReordering = false;
+  int _pointerReorderGeneration = 0;
+  List<String>? _optimisticPinnedOrder;
+  List<String>? _optimisticUnpinnedOrder;
+  final Set<String> _optimisticallyArchivedNoteIds = {};
 
   @override
   void initState() {
     super.initState();
     _searchFocusNode = FocusNode(onKeyEvent: _handleSearchKey);
+    unawaited(_loadViewMode());
   }
 
   @override
@@ -67,20 +80,23 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        excludeHeaderSemantics: _isSearching,
         title: !_isSearching
             ? const Text('Notes')
             : PointerFocus(
                 focusNode: _searchFocusNode,
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    hintText: 'Search notes...',
-                    border: InputBorder.none,
+                child: Semantics(
+                  label: 'Search notes',
+                  child: TextField(
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search notes...',
+                      border: InputBorder.none,
+                    ),
+                    style: const TextStyle(fontSize: 18),
                   ),
-                  style: const TextStyle(fontSize: 18),
-                  onChanged: (value) => setState(() => _searchQuery = value),
                 ),
               ),
         actions: [
@@ -105,7 +121,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             IconButton(
               icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view),
               tooltip: _isGridView ? 'List view' : 'Grid view',
-              onPressed: () => setState(() => _isGridView = !_isGridView),
+              onPressed: _toggleViewMode,
             ),
             PopupMenuButton<_NotesAction>(
               tooltip: 'More note actions',
@@ -150,14 +166,20 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         ],
       ),
       body: notesAsync.when(
-        data: (notes) => _buildNotesList(notes),
+        data: (notes) => ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _searchController,
+          builder: (context, value, _) => _buildNotesList(notes, value.text),
+        ),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => Center(child: Text('Error: $err')),
       ),
       floatingActionButton: Semantics(
         label: 'Add note',
         button: true,
+        excludeSemantics: true,
+        onTap: _createNote,
         child: FloatingActionButton(
+          heroTag: 'notes-add-note',
           tooltip: 'Add note',
           onPressed: _createNote,
           child: const Icon(Icons.add),
@@ -169,28 +191,60 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   void _startSearch() {
     setState(() {
       _isSearching = true;
-      _searchQuery = '';
       _searchController.clear();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _searchFocusNode.requestFocus();
+      _requestSearchFocus();
     });
+  }
+
+  void _requestSearchFocus() {
+    if (mounted && _isSearching) _searchFocusNode.requestFocus();
+  }
+
+  Future<void> _loadViewMode() async {
+    try {
+      final box = await Hive.openBox<String>(_uiSettingsBoxName);
+      final stored = box.get(_gridViewKey);
+      if (!mounted || stored == null) return;
+      setState(() => _isGridView = stored != 'false');
+    } catch (_) {
+      // Keep the default when UI preferences are unavailable.
+    }
+  }
+
+  void _toggleViewMode() {
+    final next = !_isGridView;
+    setState(() => _isGridView = next);
+    unawaited(_saveViewMode(next));
+  }
+
+  Future<void> _saveViewMode(bool isGridView) async {
+    try {
+      final box = await Hive.openBox<String>(_uiSettingsBoxName);
+      await box.put(_gridViewKey, isGridView.toString());
+    } catch (_) {
+      // The in-memory choice still applies for this session.
+    }
   }
 
   void _clearSearch() {
     setState(() {
       _isSearching = false;
-      _searchQuery = '';
       _searchController.clear();
     });
     FocusScope.of(context).unfocus();
   }
 
-  Widget _buildNotesList(List<Note> notes) {
-    final query = _searchQuery.trim().toLowerCase();
+  Widget _buildNotesList(List<Note> notes, String searchQuery) {
+    _pruneArchivedOptimism(notes);
+    final query = searchQuery.trim().toLowerCase();
+    final visibleNotes = notes
+        .where((note) => !_optimisticallyArchivedNoteIds.contains(note.uuid))
+        .toList();
     final filtered = query.isEmpty
-        ? notes
-        : notes.where((note) {
+        ? visibleNotes
+        : visibleNotes.where((note) {
             return note.title.toLowerCase().contains(query) ||
                 note.markdownContent.toLowerCase().contains(query) ||
                 note.tags.any((tag) => tag.toLowerCase().contains(query)) ||
@@ -201,37 +255,57 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           }).toList();
 
     if (filtered.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.note_outlined,
-              size: 64,
-              color: Theme.of(context).colorScheme.outline,
+      return SingleChildScrollView(
+        key: const ValueKey('notes_results_scroll'),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 96),
+        child: SizedBox(
+          height: math.max(
+            0,
+            MediaQuery.sizeOf(context).height -
+                kToolbarHeight -
+                MediaQuery.paddingOf(context).top -
+                112,
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.note_outlined,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  query.isNotEmpty
+                      ? 'No matching notes'
+                      : 'No notes yet.\nTap + to create one.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              query.isNotEmpty
-                  ? 'No matching notes'
-                  : 'No notes yet.\nTap + to create one.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
+          ),
         ),
       );
     }
 
     // Separate pinned and unpinned notes
-    final pinnedNotes = filtered.where((n) => n.isPinned).toList();
-    final unpinnedNotes = filtered.where((n) => !n.isPinned).toList();
+    final pinnedNotes = _applyOptimisticOrder(
+      filtered.where((note) => note.isPinned).toList(),
+      isPinned: true,
+    );
+    final unpinnedNotes = _applyOptimisticOrder(
+      filtered.where((note) => !note.isPinned).toList(),
+      isPinned: false,
+    );
 
     if (_isGridView) {
       return SingleChildScrollView(
+        key: const ValueKey('notes_results_scroll'),
         padding: const EdgeInsets.fromLTRB(8, 8, 8, 96),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -270,8 +344,40 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         ),
       );
     } else {
-      return _buildReorderableListView(pinnedNotes, unpinnedNotes);
+      return _buildReorderableListView(
+        pinnedNotes,
+        unpinnedNotes,
+        allowReorder: query.isEmpty,
+      );
     }
+  }
+
+  void _pruneArchivedOptimism(List<Note> notes) {
+    if (_optimisticallyArchivedNoteIds.isEmpty) return;
+    final activeNoteIds = notes.map((note) => note.uuid).toSet();
+    final staleIds = _optimisticallyArchivedNoteIds
+        .where((uuid) => !activeNoteIds.contains(uuid))
+        .toList();
+    if (staleIds.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _optimisticallyArchivedNoteIds.removeAll(staleIds));
+    });
+  }
+
+  List<Note> _applyOptimisticOrder(
+    List<Note> notes, {
+    required bool isPinned,
+  }) {
+    final order = isPinned ? _optimisticPinnedOrder : _optimisticUnpinnedOrder;
+    if (order == null) return notes;
+
+    final notesByUuid = {for (final note in notes) note.uuid: note};
+    return [
+      for (final uuid in order)
+        if (notesByUuid.remove(uuid) case final note?) note,
+      ...notes.where((note) => notesByUuid.containsKey(note.uuid)),
+    ];
   }
 
   Widget _buildMasonryGrid(List<Note> notes) {
@@ -282,6 +388,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         final isMobileApp = !kIsWeb &&
             (defaultTargetPlatform == TargetPlatform.android ||
                 defaultTargetPlatform == TargetPlatform.iOS);
+        final allowPinSwipe = isMobileApp;
         final crossAxisCount = isMobileApp
             ? 1
             : width >= 1200
@@ -306,6 +413,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               onTap: () => _navigateToEditor(note),
               onArchive: () => _archiveNote(note),
               onTogglePin: () => _togglePin(note),
+              allowPinSwipe: allowPinSwipe,
             );
           },
         );
@@ -315,9 +423,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
   Widget _buildReorderableListView(
     List<Note> pinnedNotes,
-    List<Note> unpinnedNotes,
-  ) {
+    List<Note> unpinnedNotes, {
+    required bool allowReorder,
+  }) {
     return SingleChildScrollView(
+      key: const ValueKey('notes_results_scroll'),
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 96),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -334,7 +444,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 ),
               ),
             ),
-            _buildReorderableSection(pinnedNotes, isPinned: true),
+            _buildReorderableSection(
+              pinnedNotes,
+              isPinned: true,
+              allowReorder: allowReorder,
+            ),
             if (unpinnedNotes.isNotEmpty) const SizedBox(height: 8),
           ],
           if (unpinnedNotes.isNotEmpty) ...[
@@ -350,56 +464,152 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                   ),
                 ),
               ),
-            _buildReorderableSection(unpinnedNotes, isPinned: false),
+            _buildReorderableSection(
+              unpinnedNotes,
+              isPinned: false,
+              allowReorder: allowReorder,
+            ),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildReorderableSection(List<Note> notes, {required bool isPinned}) {
-    return ReorderableListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      buildDefaultDragHandles: false,
-      itemCount: notes.length,
-      onReorder: (oldIndex, newIndex) {
-        _onReorderSection(oldIndex, newIndex, notes);
-      },
-      itemBuilder: (context, index) {
-        final note = notes[index];
-        return _NoteListTile(
-          key: ValueKey('reorder_${note.uuid}'),
-          note: note,
-          onTap: () => _navigateToEditor(note),
-          onArchive: () => _archiveNote(note),
-          onTogglePin: () => _togglePin(note),
-          dragHandleIndex: index,
-        );
-      },
+  Widget _buildReorderableSection(
+    List<Note> notes, {
+    required bool isPinned,
+    required bool allowReorder,
+  }) {
+    final allowPinSwipe = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS);
+    return ExcludeSemantics(
+      excluding: _isPointerReordering,
+      child: ReorderableListView.builder(
+        key: ValueKey(isPinned ? 'pinned-notes' : 'unpinned-notes'),
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        buildDefaultDragHandles: false,
+        onReorderStart: _handlePointerReorderStart,
+        onReorderEnd: _handlePointerReorderEnd,
+        proxyDecorator: (child, _, __) => ExcludeSemantics(
+          child: Material(
+            elevation: 6,
+            color: Colors.transparent,
+            child: child,
+          ),
+        ),
+        itemCount: notes.length,
+        onReorder: (oldIndex, newIndex) {
+          _onReorderSection(oldIndex, newIndex, notes);
+        },
+        itemBuilder: (context, index) {
+          final note = notes[index];
+          return _NoteListTile(
+            key: ValueKey('reorder_${note.uuid}'),
+            note: note,
+            onTap: () => _navigateToEditor(note),
+            onArchive: () => _archiveNote(note),
+            onTogglePin: () => _togglePin(note),
+            allowPinSwipe: allowPinSwipe,
+            dragHandleIndex: allowReorder ? index : null,
+            onDragCanceled: _handlePointerReorderCanceled,
+          );
+        },
+      ),
     );
   }
 
-  Future<void> _onReorderSection(
+  void _handlePointerReorderStart(int _) {
+    _pointerReorderGeneration++;
+    setState(() => _isPointerReordering = true);
+  }
+
+  void _handlePointerReorderEnd(int _) {
+    _schedulePointerReorderSemanticsRestore();
+  }
+
+  void _handlePointerReorderCanceled() {
+    _schedulePointerReorderSemanticsRestore();
+  }
+
+  void _schedulePointerReorderSemanticsRestore() {
+    final generation = _pointerReorderGeneration;
+    unawaited(_restorePointerReorderSemantics(generation));
+  }
+
+  Future<void> _restorePointerReorderSemantics(int generation) async {
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _pointerReorderGeneration) return;
+    setState(() => _isPointerReordering = false);
+  }
+
+  void _onReorderSection(
     int oldIndex,
     int newIndex,
     List<Note> sectionNotes,
-  ) async {
+  ) {
+    if (_isSavingReorder) return;
     if (newIndex > oldIndex) newIndex--;
     if (oldIndex == newIndex) return;
 
     final reordered = List<Note>.from(sectionNotes);
     final note = reordered.removeAt(oldIndex);
     reordered.insert(newIndex, note);
+    final orderedUuids = reordered.map((note) => note.uuid).toList();
 
-    final repo = ref.read(notesRepositoryProvider);
-    await repo.initialize();
-    await repo.reorderNotes(reordered.map((n) => n.uuid).toList());
-    ref.invalidate(notesProvider);
-    ForegroundSyncService.scheduleSync(
-      reason: 'notes reordered',
-      debounce: const Duration(seconds: 2),
+    setState(() {
+      _isSavingReorder = true;
+      if (note.isPinned) {
+        _optimisticPinnedOrder = orderedUuids;
+      } else {
+        _optimisticUnpinnedOrder = orderedUuids;
+      }
+    });
+
+    unawaited(
+      _persistReorderedSection(
+        orderedUuids,
+        isPinned: note.isPinned,
+      ),
     );
+  }
+
+  Future<void> _persistReorderedSection(
+    List<String> orderedUuids, {
+    required bool isPinned,
+  }) async {
+    try {
+      final repo = ref.read(notesRepositoryProvider);
+      await repo.initialize();
+      await repo.reorderNotes(orderedUuids);
+      ForegroundSyncService.scheduleSync(
+        reason: 'notes reordered',
+        debounce: const Duration(seconds: 2),
+      );
+
+      // ReorderableListView removes its drag overlay immediately after
+      // onReorder returns. Refreshing the provider in that same frame can
+      // leave Flutter Web's accessibility tree pointing at detached nodes.
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) {
+        final _ = await ref.refresh(notesProvider.future);
+      }
+    } catch (error) {
+      _showError('Could not reorder notes', error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSavingReorder = false;
+          if (isPinned) {
+            _optimisticPinnedOrder = null;
+          } else {
+            _optimisticUnpinnedOrder = null;
+          }
+        });
+      }
+    }
   }
 
   Future<void> _createNote() async {
@@ -562,37 +772,54 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     }
   }
 
-  Future<void> _archiveNote(Note note) async {
-    final repo = ref.read(notesRepositoryProvider);
-    await repo.initialize();
-    final updated = note.copyWith(isArchived: true);
-    await repo.updateNote(updated);
-    ref.invalidate(notesProvider);
-    ref.invalidate(archivedNotesProvider);
-    ForegroundSyncService.scheduleSync(
-      reason: 'note archived',
-      debounce: const Duration(seconds: 2),
-    );
+  void _archiveNote(Note note) {
+    setState(() => _optimisticallyArchivedNoteIds.add(note.uuid));
+    unawaited(_persistArchiveNote(note));
+  }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Note archived'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () async {
-              final undone = updated.copyWith(isArchived: false);
-              await repo.updateNote(undone);
-              ref.invalidate(notesProvider);
-              ref.invalidate(archivedNotesProvider);
-              ForegroundSyncService.scheduleSync(
-                reason: 'note archive undone',
-                debounce: const Duration(seconds: 2),
-              );
-            },
-          ),
-        ),
+  Future<void> _persistArchiveNote(Note note) async {
+    final repo = ref.read(notesRepositoryProvider);
+    try {
+      await repo.initialize();
+      final updated = note.copyWith(isArchived: true);
+      await repo.updateNote(updated);
+      ref.invalidate(notesProvider);
+      ref.invalidate(archivedNotesProvider);
+      ForegroundSyncService.scheduleSync(
+        reason: 'note archived',
+        debounce: const Duration(seconds: 2),
       );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Note archived'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                final undone = updated.copyWith(isArchived: false);
+                await repo.updateNote(undone);
+                if (mounted) {
+                  setState(
+                    () => _optimisticallyArchivedNoteIds.remove(note.uuid),
+                  );
+                }
+                ref.invalidate(notesProvider);
+                ref.invalidate(archivedNotesProvider);
+                ForegroundSyncService.scheduleSync(
+                  reason: 'note archive undone',
+                  debounce: const Duration(seconds: 2),
+                );
+              },
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _optimisticallyArchivedNoteIds.remove(note.uuid));
+        _showError('Could not archive note', error);
+      }
     }
   }
 
@@ -865,12 +1092,14 @@ class _NoteCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onArchive;
   final VoidCallback onTogglePin;
+  final bool allowPinSwipe;
 
   const _NoteCard({
     required this.note,
     required this.onTap,
     required this.onArchive,
     required this.onTogglePin,
+    required this.allowPinSwipe,
   });
 
   @override
@@ -890,12 +1119,19 @@ class _NoteCard extends StatelessWidget {
 
     return Semantics(
       container: true,
+      excludeSemantics: true,
       button: true,
       label: _noteSemanticLabel(note),
+      onTap: onTap,
       child: Dismissible(
         key: ValueKey('note_${note.uuid}'),
-        direction: DismissDirection.horizontal,
+        direction: allowPinSwipe
+            ? DismissDirection.horizontal
+            : DismissDirection.endToStart,
         confirmDismiss: (direction) async {
+          if (!allowPinSwipe && direction == DismissDirection.startToEnd) {
+            return false;
+          }
           if (direction == DismissDirection.startToEnd) {
             // Swipe right to pin/unpin
             onTogglePin();
@@ -937,6 +1173,7 @@ class _NoteCard extends StatelessWidget {
             side: BorderSide(color: borderColor, width: 0.5),
           ),
           child: InkWell(
+            excludeFromSemantics: true,
             onTap: onTap,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
@@ -1104,7 +1341,9 @@ class _NoteListTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onArchive;
   final VoidCallback onTogglePin;
+  final bool allowPinSwipe;
   final int? dragHandleIndex;
+  final VoidCallback? onDragCanceled;
 
   const _NoteListTile({
     super.key,
@@ -1112,7 +1351,9 @@ class _NoteListTile extends StatelessWidget {
     required this.onTap,
     required this.onArchive,
     required this.onTogglePin,
+    required this.allowPinSwipe,
     this.dragHandleIndex,
+    this.onDragCanceled,
   });
 
   @override
@@ -1128,70 +1369,75 @@ class _NoteListTile extends StatelessWidget {
         ? preview.text
         : '${preview.taskSummary} - ${preview.text}';
 
-    return Semantics(
-      container: true,
-      button: true,
-      label: _noteSemanticLabel(note),
-      child: Dismissible(
-        key: ValueKey('note_list_${note.uuid}'),
-        direction: DismissDirection.horizontal,
-        confirmDismiss: (direction) async {
-          if (direction == DismissDirection.startToEnd) {
-            // Swipe right to pin/unpin
-            onTogglePin();
-            return false; // Don't actually dismiss
-          } else {
-            // Swipe left to archive
-            return true; // Allow dismiss for archive
-          }
-        },
-        background: Container(
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.only(left: 16),
-          color: note.isPinned
-              ? Colors.grey.withValues(alpha: 0.3)
-              : Colors.blue.withValues(alpha: 0.3),
-          child: Icon(
-            note.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
-            color: note.isPinned ? Colors.grey : Colors.blue,
+    return Dismissible(
+      key: ValueKey('note_list_${note.uuid}'),
+      direction: allowPinSwipe
+          ? DismissDirection.horizontal
+          : DismissDirection.endToStart,
+      confirmDismiss: (direction) async {
+        if (!allowPinSwipe && direction == DismissDirection.startToEnd) {
+          return false;
+        }
+        if (direction == DismissDirection.startToEnd) {
+          // Swipe right to pin/unpin
+          onTogglePin();
+          return false; // Don't actually dismiss
+        } else {
+          // Swipe left to archive
+          return true; // Allow dismiss for archive
+        }
+      },
+      background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 16),
+        color: note.isPinned
+            ? Colors.grey.withValues(alpha: 0.3)
+            : Colors.blue.withValues(alpha: 0.3),
+        child: Icon(
+          note.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+          color: note.isPinned ? Colors.grey : Colors.blue,
+        ),
+      ),
+      secondaryBackground: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 16),
+        color: Colors.orange.withValues(alpha: 0.3),
+        child: const Icon(Icons.archive, color: Colors.orange),
+      ),
+      onDismissed: (_) => onArchive(),
+      child: Card(
+        color: backgroundColor,
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ListTile(
+          leading: note.isPinned
+              ? Icon(Icons.push_pin, color: iconColor)
+              : preview.taskCount > 0
+                  ? Icon(Icons.checklist, color: iconColor)
+                  : null,
+          title: Text(
+            displayTitle.isEmpty ? 'Untitled' : displayTitle,
+            style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-        ),
-        secondaryBackground: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 16),
-          color: Colors.orange.withValues(alpha: 0.3),
-          child: const Icon(Icons.archive, color: Colors.orange),
-        ),
-        onDismissed: (_) => onArchive(),
-        child: Card(
-          color: backgroundColor,
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: note.isPinned
-                ? Icon(Icons.push_pin, color: iconColor)
-                : preview.taskCount > 0
-                    ? Icon(Icons.checklist, color: iconColor)
-                    : null,
-            title: Text(
-              displayTitle.isEmpty ? 'Untitled' : displayTitle,
-              style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: subtitle.isNotEmpty
-                ? Text(
-                    subtitle,
-                    style: TextStyle(color: textColor),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  )
-                : null,
-            trailing: dragHandleIndex != null
-                ? ReorderableDragStartListener(
+          subtitle: subtitle.isNotEmpty
+              ? Text(
+                  subtitle,
+                  style: TextStyle(color: textColor),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                )
+              : null,
+          trailing: dragHandleIndex != null
+              ? Listener(
+                  onPointerCancel: (_) => onDragCanceled?.call(),
+                  child: ReorderableDragStartListener(
                     index: dragHandleIndex!,
                     child: Semantics(
+                      container: true,
                       label: 'Reorder note',
                       button: true,
+                      excludeSemantics: true,
                       child: SizedBox(
                         width: 48,
                         height: 48,
@@ -1200,10 +1446,10 @@ class _NoteListTile extends StatelessWidget {
                         ),
                       ),
                     ),
-                  )
-                : null,
-            onTap: onTap,
-          ),
+                  ),
+                )
+              : null,
+          onTap: onTap,
         ),
       ),
     );

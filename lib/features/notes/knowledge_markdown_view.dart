@@ -58,7 +58,7 @@ class KnowledgeMarkdownView extends StatelessWidget {
 
     return MarkdownBody(
       data: data,
-      selectable: true,
+      selectable: false,
       styleSheet: styleSheet,
       extensionSet: md.ExtensionSet.gitHubFlavored,
       inlineSyntaxes: knowledgeInlineSyntaxes(),
@@ -78,11 +78,15 @@ class KnowledgeMarkdownView extends StatelessWidget {
       },
       imageBuilder: (uri, title, alt) => Tooltip(
         message: uri.toString(),
+        excludeFromSemantics: true,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.image_not_supported_outlined,
-                size: 16, color: textColor,),
+            Icon(
+              Icons.image_not_supported_outlined,
+              size: 16,
+              color: textColor,
+            ),
             const SizedBox(width: 6),
             Text(
               alt ?? 'Remote image blocked',
@@ -117,6 +121,7 @@ class _WikiLinkBuilder extends MarkdownElementBuilder {
         headingValue == null || headingValue.isEmpty ? null : headingValue;
     return Tooltip(
       message: heading == null ? target : '$target#$heading',
+      excludeFromSemantics: true,
       child: InkWell(
         onTap: () => unawaited(onTap(target, heading)),
         borderRadius: BorderRadius.circular(4),
@@ -164,6 +169,7 @@ class _BlockReferenceBuilder extends MarkdownElementBuilder {
             : 'Ambiguous block: $id';
     return Tooltip(
       message: '^$id',
+      excludeFromSemantics: true,
       child: InkWell(
         onTap: () => unawaited(onTap(id)),
         borderRadius: BorderRadius.circular(4),
@@ -209,6 +215,7 @@ class _BlockAnchorBuilder extends MarkdownElementBuilder {
     final id = element.attributes['id']!;
     return Tooltip(
       message: 'Block anchor ^$id',
+      excludeFromSemantics: true,
       child: Padding(
         padding: const EdgeInsets.only(left: 4),
         child: Icon(

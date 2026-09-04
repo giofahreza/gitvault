@@ -51,7 +51,18 @@ final githubCredentialsSignalProvider = StateProvider<int>((ref) => 0);
 /// Storage-backed signal emitted whenever GitHub credentials change.
 final githubCredentialsRevisionProvider =
     ChangeNotifierProvider<ValueNotifier<int>>((ref) {
-  return KeyStorage.githubCredentialsRevision;
+  final revision =
+      ValueNotifier<int>(KeyStorage.githubCredentialsRevision.value);
+
+  void forwardRevision() {
+    revision.value = KeyStorage.githubCredentialsRevision.value;
+  }
+
+  KeyStorage.githubCredentialsRevision.addListener(forwardRevision);
+  ref.onDispose(
+    () => KeyStorage.githubCredentialsRevision.removeListener(forwardRevision),
+  );
+  return revision;
 });
 
 /// Provider for checking if GitHub Sync credentials are configured.

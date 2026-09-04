@@ -295,7 +295,7 @@ class NotesRepository {
   /// Get reusable encrypted note templates.
   Future<List<Note>> getTemplates() async {
     final templates = (await getAllStoredNotes())
-        .where((note) => note.isTemplate && !note.isArchived)
+        .where((note) => note.isTemplate)
         .toList();
     templates.sort((left, right) => left.title.compareTo(right.title));
     return templates;

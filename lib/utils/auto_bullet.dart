@@ -4,6 +4,10 @@ class AutoBullet {
   /// Supported: -, *, 1., 2., a., b., A., B., i., ii., I., II. etc.
   /// Returns the full prefix including trailing space, or null if none found.
   static String? detectBulletPrefix(String line) {
+    // GitHub-style task list items must be continued as task list items.
+    final taskMatch = RegExp(r'^(\s*[-*]\s+\[[ xX]\]\s)').firstMatch(line);
+    if (taskMatch != null) return taskMatch.group(1);
+
     // Check dash/asterisk bullets: "- " or "* "
     final dashMatch = RegExp(r'^(\s*[-*]\s)').firstMatch(line);
     if (dashMatch != null) return dashMatch.group(1);
@@ -24,7 +28,8 @@ class AutoBullet {
     final romanLowerMatch = RegExp(r'^(\s*[ivxlcdm]+\.\s)').firstMatch(line);
     if (romanLowerMatch != null) {
       final candidate = romanLowerMatch.group(1)!;
-      final romanPart = candidate.trim().replaceAll('. ', '').replaceAll('.', '');
+      final romanPart =
+          candidate.trim().replaceAll('. ', '').replaceAll('.', '');
       if (_parseRomanNumeral(romanPart.toUpperCase()) != null) {
         return candidate;
       }
@@ -34,7 +39,8 @@ class AutoBullet {
     final romanUpperMatch = RegExp(r'^(\s*[IVXLCDM]+\.\s)').firstMatch(line);
     if (romanUpperMatch != null) {
       final candidate = romanUpperMatch.group(1)!;
-      final romanPart = candidate.trim().replaceAll('. ', '').replaceAll('.', '');
+      final romanPart =
+          candidate.trim().replaceAll('. ', '').replaceAll('.', '');
       if (_parseRomanNumeral(romanPart) != null) {
         return candidate;
       }
@@ -47,7 +53,13 @@ class AutoBullet {
   /// For "- ", returns "- ". For "1. ", returns "2. ". For "a. ", returns "b. ".
   static String getNextBullet(String prefix) {
     final trimmed = prefix.trimLeft();
-    final leadingWhitespace = prefix.substring(0, prefix.length - prefix.trimLeft().length);
+    final leadingWhitespace =
+        prefix.substring(0, prefix.length - prefix.trimLeft().length);
+
+    final taskMatch = RegExp(r'^([-*])\s+\[[ xX]\]\s$').firstMatch(trimmed);
+    if (taskMatch != null) {
+      return '$leadingWhitespace${taskMatch.group(1)} [ ] ';
+    }
 
     // Dash/asterisk: same prefix
     if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
@@ -122,8 +134,13 @@ class AutoBullet {
     if (s.isEmpty) return null;
 
     final values = <String, int>{
-      'I': 1, 'V': 5, 'X': 10, 'L': 50,
-      'C': 100, 'D': 500, 'M': 1000,
+      'I': 1,
+      'V': 5,
+      'X': 10,
+      'L': 50,
+      'C': 100,
+      'D': 500,
+      'M': 1000,
     };
 
     int result = 0;
@@ -155,9 +172,19 @@ class AutoBullet {
     if (num <= 0 || num > 3999) return null;
 
     final pairs = [
-      (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
-      (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
-      (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I'),
+      (1000, 'M'),
+      (900, 'CM'),
+      (500, 'D'),
+      (400, 'CD'),
+      (100, 'C'),
+      (90, 'XC'),
+      (50, 'L'),
+      (40, 'XL'),
+      (10, 'X'),
+      (9, 'IX'),
+      (5, 'V'),
+      (4, 'IV'),
+      (1, 'I'),
     ];
 
     final buffer = StringBuffer();

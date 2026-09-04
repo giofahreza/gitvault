@@ -297,7 +297,7 @@ class _SshPersistentTerminalScreenState
                     onKeyEvent: _handleTerminalKeyEvent,
                     textStyle: TerminalStyle(
                       fontSize: _fontSize,
-                      fontFamily: 'JetBrainsMonoNerd',
+                      fontFamily: 'monospace',
                     ),
                   ),
                 ),

@@ -317,7 +317,7 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
                   onKeyEvent: _handleTerminalKeyEvent,
                   textStyle: const TerminalStyle(
                     fontSize: 11,
-                    fontFamily: 'JetBrainsMonoNerd',
+                    fontFamily: 'monospace',
                   ),
                 ),
               ),

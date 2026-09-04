@@ -89,13 +89,18 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
 
   @override
   void dispose() {
-    _pinController.clear();
-    _confirmController.clear();
+    _finishPinInput();
     _pinController.dispose();
     _confirmController.dispose();
     _pinFocus.dispose();
     _confirmFocus.dispose();
     super.dispose();
+  }
+
+  void _finishPinInput() {
+    _pinController.clear();
+    _confirmController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
   }
 
   Future<void> _save() async {
@@ -126,7 +131,10 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
       await ref.read(pinAuthProvider).setupPin(pin);
       ref.invalidate(pinEnabledProvider);
 
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) {
+        _finishPinInput();
+        Navigator.of(context).pop(true);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -162,6 +170,10 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               maxLength: 6,
               obscureText: true,
+              autofillHints: null,
+              autocorrect: false,
+              enableSuggestions: false,
+              enableIMEPersonalizedLearning: false,
               enabled: !_saving,
               textInputAction: TextInputAction.next,
               onChanged: (_) {
@@ -186,6 +198,10 @@ class _PinSetupDialogState extends ConsumerState<_PinSetupDialog> {
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               maxLength: 6,
               obscureText: true,
+              autofillHints: null,
+              autocorrect: false,
+              enableSuggestions: false,
+              enableIMEPersonalizedLearning: false,
               enabled: !_saving,
               textInputAction: TextInputAction.done,
               onChanged: (_) {
@@ -230,10 +246,15 @@ class _PinVerifyDialogState extends ConsumerState<_PinVerifyDialog> {
 
   @override
   void dispose() {
-    _pinController.clear();
+    _finishPinInput();
     _pinController.dispose();
     _pinFocus.dispose();
     super.dispose();
+  }
+
+  void _finishPinInput() {
+    _pinController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
   }
 
   Future<void> _verify() async {
@@ -251,8 +272,10 @@ class _PinVerifyDialogState extends ConsumerState<_PinVerifyDialog> {
     final valid = await pinAuth.verifyPin(pin);
 
     if (valid) {
-      _pinController.clear();
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) {
+        _finishPinInput();
+        Navigator.pop(context, true);
+      }
     } else {
       setState(() {
         _verifying = false;
@@ -278,6 +301,10 @@ class _PinVerifyDialogState extends ConsumerState<_PinVerifyDialog> {
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               maxLength: 6,
               obscureText: true,
+              autofillHints: null,
+              autocorrect: false,
+              enableSuggestions: false,
+              enableIMEPersonalizedLearning: false,
               autofocus: true,
               decoration: InputDecoration(
                 labelText: 'PIN',
@@ -285,6 +312,9 @@ class _PinVerifyDialogState extends ConsumerState<_PinVerifyDialog> {
                 counterText: '',
                 errorText: _error,
               ),
+              onChanged: (_) {
+                if (_error != null) setState(() => _error = null);
+              },
               onSubmitted: (_) => _verify(),
             ),
           ),

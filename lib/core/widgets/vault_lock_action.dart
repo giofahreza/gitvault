@@ -28,8 +28,47 @@ class VaultLockAction extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    void lock() {
+    Future<void> lock() async {
       FocusManager.instance.primaryFocus?.unfocus();
+
+      var hasPin = false;
+      try {
+        hasPin = await ref.read(pinAuthProvider).isPinSetup();
+      } catch (_) {
+        // Treat unavailable PIN storage as no configured unlock method.
+      }
+
+      var hasBiometric = false;
+      if (!hasPin && ref.read(biometricEnabledProvider)) {
+        try {
+          final biometricAuth = ref.read(biometricAuthProvider);
+          hasBiometric = await biometricAuth.isSupported() &&
+              await biometricAuth.isDeviceEnrolled();
+        } catch (_) {
+          // Unsupported or unavailable biometric APIs cannot unlock the vault.
+        }
+      }
+
+      if (!context.mounted) return;
+      if (!hasPin && !hasBiometric) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Cannot lock vault'),
+            content: const Text(
+              'Set up a PIN or biometric authentication before locking the vault.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
       ref.read(appLockSignalProvider.notifier).state++;
     }
 

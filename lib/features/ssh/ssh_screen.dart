@@ -102,9 +102,12 @@ class _SshScreenState extends ConsumerState<SshScreen> {
       floatingActionButton: Semantics(
         label: 'Add SSH credential',
         button: true,
+        excludeSemantics: true,
+        onTap: _showAddCredentialDialog,
         child: FloatingActionButton(
+          heroTag: 'ssh-add-credential',
           tooltip: 'Add SSH credential',
-          onPressed: () => _showAddCredentialDialog(),
+          onPressed: _showAddCredentialDialog,
           child: const Icon(Icons.add),
         ),
       ),
@@ -379,11 +382,13 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
 
     return Semantics(
       container: true,
+      explicitChildNodes: true,
       button: true,
       label:
           'SSH credential ${widget.credential.label}, ${widget.credential.username} at ${widget.credential.host} port ${widget.credential.port}',
       onTap: widget.onTap,
       child: ListTile(
+        internalAddSemanticForOnTap: false,
         leading: CircleAvatar(
           backgroundColor: colorScheme.primaryContainer,
           child: _pinging
@@ -545,6 +550,7 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
     _passwordController.clear();
     _privateKeyController.clear();
     _passphraseController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     _labelController.dispose();
     _hostController.dispose();
     _portController.dispose();
@@ -576,26 +582,29 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.credential != null;
+    final compactDialog = MediaQuery.sizeOf(context).width < 360;
 
     return AlertDialog(
       title: Text(isEditing ? 'Edit SSH Credential' : 'Add SSH Credential'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               SegmentedButton<SshAuthType>(
-                segments: const [
+                showSelectedIcon: !compactDialog,
+                segments: [
                   ButtonSegment(
                     value: SshAuthType.password,
-                    label: Text('Password'),
-                    icon: Icon(Icons.password),
+                    label: const Text('Password', maxLines: 1),
+                    icon: compactDialog ? null : const Icon(Icons.password),
                   ),
                   ButtonSegment(
                     value: SshAuthType.publicKey,
-                    label: Text('Key'),
-                    icon: Icon(Icons.vpn_key),
+                    label: const Text('Key', maxLines: 1),
+                    icon: compactDialog ? null : const Icon(Icons.vpn_key),
                   ),
                 ],
                 selected: {_authType},
@@ -697,6 +706,7 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
                 PointerFocus(
                   focusNode: _passwordFocus,
                   child: TextFormField(
+                    key: const ValueKey('ssh-password-field'),
                     controller: _passwordController,
                     focusNode: _passwordFocus,
                     decoration: const InputDecoration(
@@ -714,32 +724,12 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
                   ),
                 )
               else ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _privateKeyController.text.isEmpty
-                            ? 'No private key loaded'
-                            : 'Private key loaded (${_privateKeyController.text.length} chars)',
-                        style: TextStyle(
-                          color: _privateKeyController.text.isEmpty
-                              ? Theme.of(context).colorScheme.onSurfaceVariant
-                              : Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton.tonalIcon(
-                      onPressed: _saving ? null : _pickKeyFile,
-                      icon: const Icon(Icons.file_open, size: 18),
-                      label: const Text('Pick File'),
-                    ),
-                  ],
-                ),
+                _buildPrivateKeyPicker(context, compactDialog),
                 const SizedBox(height: 8),
                 PointerFocus(
                   focusNode: _privateKeyFocus,
                   child: TextFormField(
+                    key: const ValueKey('ssh-private-key-field'),
                     controller: _privateKeyController,
                     focusNode: _privateKeyFocus,
                     decoration: const InputDecoration(
@@ -762,10 +752,12 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
                 PointerFocus(
                   focusNode: _passphraseFocus,
                   child: TextFormField(
+                    key: const ValueKey('ssh-passphrase-field'),
                     controller: _passphraseController,
                     focusNode: _passphraseFocus,
                     decoration: const InputDecoration(
-                      labelText: 'Passphrase (optional)',
+                      labelText: 'Passphrase',
+                      hintText: 'Optional',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.lock),
                     ),
@@ -794,6 +786,43 @@ class _SshCredentialDialogState extends ConsumerState<_SshCredentialDialog> {
                   child: CircularProgressIndicator(strokeWidth: 2))
               : Text(isEditing ? 'Save' : 'Add'),
         ),
+      ],
+    );
+  }
+
+  Widget _buildPrivateKeyPicker(BuildContext context, bool compact) {
+    final status = Text(
+      _privateKeyController.text.isEmpty
+          ? 'No private key loaded'
+          : 'Private key loaded (${_privateKeyController.text.length} chars)',
+      style: TextStyle(
+        color: _privateKeyController.text.isEmpty
+            ? Theme.of(context).colorScheme.onSurfaceVariant
+            : Theme.of(context).colorScheme.primary,
+      ),
+    );
+    final picker = FilledButton.tonalIcon(
+      onPressed: _saving ? null : _pickKeyFile,
+      icon: const Icon(Icons.file_open, size: 18),
+      label: const Text('Pick File'),
+    );
+
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          status,
+          const SizedBox(height: 8),
+          Align(alignment: Alignment.centerRight, child: picker),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: status),
+        const SizedBox(width: 8),
+        picker,
       ],
     );
   }

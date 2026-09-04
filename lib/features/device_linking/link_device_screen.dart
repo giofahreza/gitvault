@@ -1054,6 +1054,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
               // and forces fresh instances so newly synced Hive data is read.
               ref.invalidate(vaultRepositoryProvider);
               ref.invalidate(notesRepositoryProvider);
+              ref.invalidate(noteTemplatesProvider);
               ref.invalidate(sshRepositoryProvider);
               ref.invalidate(archivedNotesProvider);
 

@@ -217,6 +217,7 @@ class _ForegroundSyncScopeState extends ConsumerState<ForegroundSyncScope>
     ref.invalidate(sshRepositoryProvider);
     ref.invalidate(sshCredentialsProvider);
     ref.invalidate(archivedNotesProvider);
+    ref.invalidate(noteTemplatesProvider);
   }
 
   void _handleTrustChanged() {
@@ -297,8 +298,11 @@ class _BiometricGateState extends ConsumerState<BiometricGate>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    ref.read(vaultSessionProvider.notifier).markStarting();
-    _attemptBiometric();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(vaultSessionProvider.notifier).markStarting();
+      unawaited(_attemptBiometric());
+    });
   }
 
   @override
@@ -740,8 +744,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   @override
   void dispose() {
     _throttleTimer?.cancel();
-    _pin = '';
-    _clearWebPinInput();
+    _finishPinInput();
     _webPinInputController.dispose();
     _webPinInputFocus.dispose();
     _focusNode.dispose();
@@ -778,6 +781,12 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     } finally {
       _syncingWebPinInput = false;
     }
+  }
+
+  void _finishPinInput() {
+    _pin = '';
+    _clearWebPinInput();
+    TextInput.finishAutofillContext(shouldSave: false);
   }
 
   Future<void> _loadPinLength() async {
@@ -946,8 +955,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
             .read(vaultSessionProvider.notifier)
             .activateDuress(reason: 'Duress PIN entered');
         ref.invalidate(isVaultSetupProvider);
-        _pin = '';
-        _clearWebPinInput();
+        _finishPinInput();
         if (mounted) {
           setState(() => _verifying = false);
         }
@@ -959,8 +967,7 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
     if (!mounted) return;
 
     if (valid) {
-      _pin = '';
-      _clearWebPinInput();
+      _finishPinInput();
       widget.onSuccess();
       return;
     }
@@ -1148,47 +1155,46 @@ class _PinEntryScreenState extends ConsumerState<_PinEntryScreen> {
   }
 
   Widget _buildWebPinInput(ColorScheme colorScheme, String? errorText) {
-    return Semantics(
-      textField: true,
-      label: 'GitVault PIN input',
-      value: '${_pin.length} of ${_pinLength ?? _maxPinLength} digits entered',
-      child: SizedBox(
-        width: 220,
-        child: PointerFocus(
+    return SizedBox(
+      width: 220,
+      child: PointerFocus(
+        focusNode: _webPinInputFocus,
+        child: TextField(
+          controller: _webPinInputController,
           focusNode: _webPinInputFocus,
-          child: TextField(
-            controller: _webPinInputController,
-            focusNode: _webPinInputFocus,
-            autofocus: true,
-            obscureText: true,
-            keyboardType: TextInputType.number,
-            textInputAction: TextInputAction.done,
-            maxLength: _maxPinLength,
-            readOnly: _isThrottled,
-            textAlign: TextAlign.center,
-            enableInteractiveSelection: false,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(_maxPinLength),
-            ],
-            decoration: InputDecoration(
-              labelText: 'GitVault PIN',
-              counterText: '',
-              errorText: errorText,
-              errorMaxLines: 2,
-              border: const OutlineInputBorder(),
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: colorScheme.primary),
-              ),
+          autofocus: true,
+          obscureText: true,
+          autofillHints: null,
+          autocorrect: false,
+          enableSuggestions: false,
+          enableIMEPersonalizedLearning: false,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          maxLength: _maxPinLength,
+          readOnly: _isThrottled,
+          textAlign: TextAlign.center,
+          enableInteractiveSelection: false,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(_maxPinLength),
+          ],
+          decoration: InputDecoration(
+            labelText: 'GitVault PIN',
+            counterText: '',
+            errorText: errorText,
+            errorMaxLines: 2,
+            border: const OutlineInputBorder(),
+            enabledBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: colorScheme.primary),
             ),
-            style: const TextStyle(
-              fontSize: 24,
-              letterSpacing: 8,
-            ),
-            onTap: _requestKeyboardFocus,
-            onChanged: _onWebPinInputChanged,
-            onSubmitted: (_) => _submitPin(),
           ),
+          style: const TextStyle(
+            fontSize: 24,
+            letterSpacing: 8,
+          ),
+          onTap: _requestKeyboardFocus,
+          onChanged: _onWebPinInputChanged,
+          onSubmitted: (_) => _submitPin(),
         ),
       ),
     );
@@ -1284,6 +1290,7 @@ class MainScreen extends ConsumerStatefulWidget {
 class _MainScreenState extends ConsumerState<MainScreen> {
   static const double _railBreakpoint = 720;
   static const double _extendedRailBreakpoint = 1100;
+  static const double _compactNavigationLabelsBreakpoint = 400;
   static const double _mobileNavigationBarHeight = 80;
   static const String _uiSettingsBoxName = 'ui_settings';
   static const String _lastTabKey = 'last_tab_index';
@@ -1350,6 +1357,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             ),
             bottomNavigationBar: NavigationBar(
               height: _mobileNavigationBarHeight,
+              labelBehavior:
+                  constraints.maxWidth < _compactNavigationLabelsBreakpoint
+                      ? NavigationDestinationLabelBehavior.onlyShowSelected
+                      : NavigationDestinationLabelBehavior.alwaysShow,
               selectedIndex: _currentIndex,
               onDestinationSelected: _selectDestination,
               destinations: [

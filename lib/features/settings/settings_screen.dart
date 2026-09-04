@@ -27,6 +27,27 @@ import '../ai_apps/ai_apps_screen.dart';
 import '../../mcp/mcp_platform.dart';
 import 'background_sync_settings.dart';
 
+Future<T?> _showDialogAndWait<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+  VoidCallback? onPopped,
+}) async {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final route = DialogRoute<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    themes: InheritedTheme.capture(from: context, to: navigator.context),
+    builder: builder,
+  );
+  final result = await navigator.push(route);
+  onPopped?.call();
+  FocusManager.instance.primaryFocus?.unfocus();
+  await route.completed;
+  TextInput.finishAutofillContext(shouldSave: false);
+  return result;
+}
+
 /// Settings and security controls screen
 class SettingsScreen extends ConsumerStatefulWidget {
   final bool isActive;
@@ -214,10 +235,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               Semantics(
                 container: true,
+                excludeSemantics: true,
                 label: 'Biometric Authentication',
                 value: biometricEnabled ? 'Enabled' : 'Disabled',
                 button: true,
                 toggled: biometricEnabled,
+                onTap: _biometricBusy
+                    ? null
+                    : () => _toggleBiometric(!biometricEnabled),
                 child: ListTile(
                   leading: const Icon(Icons.fingerprint),
                   title: const Text('Biometric Authentication'),
@@ -391,7 +416,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.storage),
                 title: const Text('Storage'),
-                subtitle: const Text('GitHub (End-to-End Encrypted)'),
+                subtitle: const Text('Local vault (End-to-End Encrypted)'),
               ),
               const Divider(),
               const _SectionHeader(title: 'Danger Zone'),
@@ -512,6 +537,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ref.invalidate(pinEnabledProvider);
 
         if (!dialogContext.mounted) return;
+        pinController.clear();
+        confirmController.clear();
+        TextInput.finishAutofillContext(shouldSave: false);
         Navigator.of(dialogContext).pop();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -528,9 +556,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     }
 
-    await showDialog(
+    await _showDialogAndWait<void>(
       context: context,
       barrierDismissible: false,
+      onPopped: () {
+        pinController.clear();
+        confirmController.clear();
+      },
       builder: (ctx) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Set Up PIN'),
@@ -552,8 +584,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   maxLength: 6,
                   obscureText: true,
+                  autofillHints: null,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
                   enabled: !saving,
                   textInputAction: TextInputAction.next,
+                  onChanged: (_) {
+                    if (error != null) setDialogState(() => error = null);
+                  },
                   onSubmitted: (_) => confirmFocus.requestFocus(),
                 ),
               ),
@@ -572,8 +611,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   maxLength: 6,
                   obscureText: true,
+                  autofillHints: null,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
                   enabled: !saving,
                   textInputAction: TextInputAction.done,
+                  onChanged: (_) {
+                    if (error != null) setDialogState(() => error = null);
+                  },
                   onSubmitted: (_) => savePin(dialogContext, setDialogState),
                 ),
               ),
@@ -613,6 +659,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     pinController.clear();
     confirmController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     pinController.dispose();
     confirmController.dispose();
     pinFocus.dispose();
@@ -664,6 +711,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         }
 
         ref.invalidate(pinEnabledProvider);
+        oldPinController.clear();
+        newPinController.clear();
+        TextInput.finishAutofillContext(shouldSave: false);
         Navigator.of(dialogContext).pop();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -680,9 +730,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     }
 
-    await showDialog(
+    await _showDialogAndWait<void>(
       context: context,
       barrierDismissible: false,
+      onPopped: () {
+        oldPinController.clear();
+        newPinController.clear();
+      },
       builder: (ctx) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Change PIN'),
@@ -704,8 +758,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   maxLength: 6,
                   obscureText: true,
+                  autofillHints: null,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
                   enabled: !saving,
                   textInputAction: TextInputAction.next,
+                  onChanged: (_) {
+                    if (error != null) setDialogState(() => error = null);
+                  },
                   onSubmitted: (_) => newPinFocus.requestFocus(),
                 ),
               ),
@@ -724,8 +785,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   maxLength: 6,
                   obscureText: true,
+                  autofillHints: null,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
                   enabled: !saving,
                   textInputAction: TextInputAction.done,
+                  onChanged: (_) {
+                    if (error != null) setDialogState(() => error = null);
+                  },
                   onSubmitted: (_) => changePin(dialogContext, setDialogState),
                 ),
               ),
@@ -766,6 +834,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     oldPinController.clear();
     newPinController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     oldPinController.dispose();
     newPinController.dispose();
     oldPinFocus.dispose();
@@ -777,6 +846,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final pinFocus = FocusNode();
     var removing = false;
     String? error;
+
+    void clearPinInput({BuildContext? dialogContext, bool refocus = false}) {
+      pinController.clear();
+      pinFocus.unfocus();
+      FocusManager.instance.primaryFocus?.unfocus();
+      TextInput.finishAutofillContext(shouldSave: false);
+      if (!refocus) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (dialogContext?.mounted == true && pinFocus.canRequestFocus) {
+          pinFocus.requestFocus();
+        }
+      });
+    }
 
     Future<void> removePin(
       BuildContext dialogContext,
@@ -803,13 +885,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           setDialogState(() {
             removing = false;
             error = 'Incorrect PIN';
-            pinController.clear();
           });
+          clearPinInput(dialogContext: dialogContext, refocus: true);
           return;
         }
 
         await pinAuth.removePin();
         ref.invalidate(pinEnabledProvider);
+        clearPinInput();
+        if (!dialogContext.mounted) return;
         Navigator.of(dialogContext).pop();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -826,9 +910,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     }
 
-    await showDialog(
+    await _showDialogAndWait<void>(
       context: context,
       barrierDismissible: false,
+      onPopped: () => clearPinInput(),
       builder: (ctx) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Remove PIN'),
@@ -852,8 +937,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   maxLength: 6,
                   obscureText: true,
+                  autofillHints: null,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
                   enabled: !removing,
                   textInputAction: TextInputAction.done,
+                  onChanged: (_) {
+                    if (error != null) setDialogState(() => error = null);
+                  },
                   onSubmitted: (_) => removePin(dialogContext, setDialogState),
                 ),
               ),
@@ -893,7 +985,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
-    pinController.clear();
+    clearPinInput();
     pinController.dispose();
     pinFocus.dispose();
   }
@@ -1066,6 +1158,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final duressManager = ref.read(duressManagerProvider);
         await duressManager.setupDuressMode(pin: pin);
         pinController.clear();
+        TextInput.finishAutofillContext(shouldSave: false);
 
         if (!dialogContext.mounted) return;
         Navigator.pop(dialogContext);
@@ -1088,9 +1181,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     }
 
-    await showDialog(
+    await _showDialogAndWait<void>(
       context: context,
       barrierDismissible: true,
+      onPopped: pinController.clear,
       builder: (ctx) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           insetPadding:
@@ -1121,6 +1215,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     maxLength: 6,
                     obscureText: true,
+                    autofillHints: null,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    enableIMEPersonalizedLearning: false,
                     enabled: !saving,
                     textInputAction: TextInputAction.done,
                     onChanged: (_) {
@@ -1156,6 +1254,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     pinController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     pinController.dispose();
     pinFocus.dispose();
   }
@@ -1410,13 +1509,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showWipeConfirmation(BuildContext context, WidgetRef ref) {
+  Future<void> _showWipeConfirmation(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final confirmController = TextEditingController();
     final confirmFocus = FocusNode();
     var confirmText = '';
 
-    showDialog(
+    await _showDialogAndWait<void>(
       context: context,
+      onPopped: confirmController.clear,
       builder: (ctx) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Wipe All Data'),
@@ -1467,10 +1570,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ],
         ),
       ),
-    ).whenComplete(() {
-      confirmController.dispose();
-      confirmFocus.dispose();
-    });
+    );
+    confirmController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
+    confirmController.dispose();
+    confirmFocus.dispose();
   }
 
   Future<void> _wipeAllData(
@@ -2254,6 +2358,7 @@ Future<void> showGitHubSetupDialog(
                                 ref.invalidate(vaultEntriesProvider);
                                 ref.invalidate(notesRepositoryProvider);
                                 ref.invalidate(notesProvider);
+                                ref.invalidate(noteTemplatesProvider);
                                 ref.invalidate(sshRepositoryProvider);
                                 ref.invalidate(sshCredentialsProvider);
                                 ref.invalidate(archivedNotesProvider);
@@ -3053,6 +3158,7 @@ Future<void> _finishRecoveredVault(
     ref.invalidate(vaultEntriesProvider);
     ref.invalidate(notesRepositoryProvider);
     ref.invalidate(notesProvider);
+    ref.invalidate(noteTemplatesProvider);
     ref.invalidate(sshRepositoryProvider);
     ref.invalidate(sshCredentialsProvider);
     ref.invalidate(archivedNotesProvider);

@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart'
-    show KeyDownEvent, KeyEvent, KeyEventResult, LogicalKeyboardKey;
+    show KeyDownEvent, KeyEvent, LogicalKeyboardKey, TextInput;
 
 import '../../core/providers/providers.dart';
 import '../device_linking/link_device_screen.dart';
@@ -26,7 +26,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Uint8List? _generatedRootKey;
   String? _generatedMnemonic; // NEW: Store the 24-word mnemonic
   bool _recoveryKeyCopied = false;
+  bool _recoveryPhraseConfirmed = false;
   bool _useExistingKey = false; // Toggle between new/existing key
+  String? _recoveryPhraseError;
 
   final _recoveryKeyController =
       TextEditingController(); // For inputting existing mnemonic
@@ -44,6 +46,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   void dispose() {
     _recoveryKeyController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     _recoveryKeyController.dispose();
     _recoveryKeyFocus.dispose();
     _screenFocus.dispose();
@@ -103,6 +106,28 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   Future<void> _handleContinue() async {
     if (_completing) return;
+
+    if (_currentStep == 1) {
+      if (!_useExistingKey && !_recoveryPhraseConfirmed) return;
+
+      if (_useExistingKey) {
+        final mnemonic =
+            MnemonicHelper.normalizeMnemonic(_recoveryKeyController.text);
+        final error = mnemonic.isEmpty
+            ? 'Please enter your 24-word recovery phrase'
+            : !MnemonicHelper.isValidMnemonic(mnemonic)
+                ? 'Invalid recovery phrase. Please check your words and try again.'
+                : null;
+        if (error != null) {
+          setState(() => _recoveryPhraseError = error);
+          _recoveryKeyFocus.requestFocus();
+          return;
+        }
+        if (_recoveryPhraseError != null) {
+          setState(() => _recoveryPhraseError = null);
+        }
+      }
+    }
 
     if (_currentStep < 2) {
       _moveToStep(_currentStep + 1);
@@ -206,29 +231,26 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     controlsBuilder: (context, details) {
                       final isLastStep = _currentStep == 2;
                       final narrow = MediaQuery.sizeOf(context).width < 520;
-                      final continueButton = Semantics(
-                        button: true,
-                        label: isLastStep ? 'Get Started' : 'Continue',
-                        child: FilledButton(
-                          onPressed:
-                              _completing ? null : details.onStepContinue,
-                          child: _completing
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.white),
-                                )
-                              : Text(isLastStep ? 'Get Started' : 'Continue'),
-                        ),
+                      final canContinue = !_completing &&
+                          (_currentStep != 1 ||
+                              _useExistingKey ||
+                              _recoveryPhraseConfirmed);
+                      final continueButton = FilledButton(
+                        onPressed: canContinue ? details.onStepContinue : null,
+                        child: _completing
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(isLastStep ? 'Get Started' : 'Continue'),
                       );
-                      final backButton = Semantics(
-                        button: true,
-                        label: 'Back',
-                        child: TextButton(
-                          onPressed: details.onStepCancel,
-                          child: const Text('Back'),
-                        ),
+                      final backButton = TextButton(
+                        onPressed: details.onStepCancel,
+                        child: const Text('Back'),
                       );
 
                       if (narrow) {
@@ -266,6 +288,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         title: const Text('Welcome'),
                         content: Builder(
                           builder: (context) {
+                            if (_currentStep != 0) {
+                              return const SizedBox.shrink();
+                            }
                             final colorScheme = Theme.of(context).colorScheme;
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -325,17 +350,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 16),
-                                Semantics(
-                                  button: true,
-                                  label: 'Link from trusted device',
-                                  child: FilledButton.tonalIcon(
-                                    onPressed: _completing
-                                        ? null
-                                        : _linkFromTrustedDevice,
-                                    icon: const Icon(Icons.phonelink_setup),
-                                    label: const Text(
-                                      'Link from Trusted Device',
-                                    ),
+                                FilledButton.tonalIcon(
+                                  onPressed: _completing
+                                      ? null
+                                      : _linkFromTrustedDevice,
+                                  icon: const Icon(Icons.phonelink_setup),
+                                  label: const Text(
+                                    'Link from Trusted Device',
                                   ),
                                 ),
                                 const SizedBox(height: 8),
@@ -357,6 +378,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         title: const Text('Recovery Kit'),
                         content: Builder(
                           builder: (context) {
+                            if (_currentStep != 1) {
+                              return const SizedBox.shrink();
+                            }
                             // Generate mnemonic when this step is displayed (only if creating new)
                             if (_currentStep >= 1 &&
                                 _generatedMnemonic == null &&
@@ -403,12 +427,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                             (Set<bool> selected) {
                                           setState(() {
                                             _useExistingKey = selected.first;
+                                            _recoveryPhraseError = null;
                                             if (!_useExistingKey) {
                                               _recoveryKeyController.clear();
+                                              _recoveryPhraseConfirmed = false;
                                             } else {
                                               _generatedRootKey = null;
                                               _generatedMnemonic = null;
                                               _recoveryKeyCopied = false;
+                                              _recoveryPhraseConfirmed = false;
                                             }
                                           });
                                         },
@@ -494,6 +521,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                       'Write down these 24 words in order and store them safely.',
                                       style: TextStyle(
                                           color: colorScheme.onSurfaceVariant)),
+                                  CheckboxListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    controlAffinity:
+                                        ListTileControlAffinity.leading,
+                                    value: _recoveryPhraseConfirmed,
+                                    onChanged: _generatedMnemonic == null
+                                        ? null
+                                        : (value) => setState(() {
+                                              _recoveryPhraseConfirmed =
+                                                  value ?? false;
+                                            }),
+                                    title: const Text(
+                                      'I saved this recovery phrase',
+                                    ),
+                                  ),
                                 ] else ...[
                                   const Text(
                                     'Restore from Recovery Phrase',
@@ -510,17 +552,26 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                     child: TextField(
                                       controller: _recoveryKeyController,
                                       focusNode: _recoveryKeyFocus,
-                                      decoration: const InputDecoration(
+                                      decoration: InputDecoration(
                                         labelText: 'Recovery Phrase',
                                         hintText: 'word1 word2 word3 ...',
-                                        border: OutlineInputBorder(),
+                                        border: const OutlineInputBorder(),
                                         helperText:
                                             'Enter or paste your 24 words separated by spaces',
+                                        errorText: _recoveryPhraseError,
+                                        errorMaxLines: 2,
                                       ),
                                       maxLines: 4,
                                       style: const TextStyle(
                                           fontFamily: 'monospace',
                                           fontSize: 12),
+                                      onChanged: (_) {
+                                        if (_recoveryPhraseError != null) {
+                                          setState(
+                                            () => _recoveryPhraseError = null,
+                                          );
+                                        }
+                                      },
                                     ),
                                   ),
                                   const SizedBox(height: 8),
@@ -542,6 +593,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         title: const Text('All Set'),
                         content: Builder(
                           builder: (context) {
+                            if (_currentStep != 2) {
+                              return const SizedBox.shrink();
+                            }
                             final colorScheme = Theme.of(context).colorScheme;
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,

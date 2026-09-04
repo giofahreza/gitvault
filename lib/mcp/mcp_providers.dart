@@ -27,6 +27,7 @@ final notesMcpServiceProvider = Provider<NotesMcpService>((ref) {
     onMutation: () {
       ref.invalidate(notesProvider);
       ref.invalidate(archivedNotesProvider);
+      ref.invalidate(noteTemplatesProvider);
     },
   );
 });

@@ -1,6 +1,6 @@
 name: gitvault
 description: A sovereign, device-centric password manager using GitHub.
-version: 1.0.131+1000131
+version: 1.0.132+1000132
 publish_to: 'none'
 
 environment:
@@ -101,11 +101,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon/gitvault_launcher.png
-  fonts:
-    - family: JetBrainsMonoNerd
-      fonts:
-        - asset: assets/fonts/JetBrainsMonoNerdFont-Regular.ttf
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

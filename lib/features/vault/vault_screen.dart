@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,7 +37,6 @@ class VaultScreen extends ConsumerStatefulWidget {
 class _VaultScreenState extends ConsumerState<VaultScreen> {
   final _searchController = TextEditingController();
   late final FocusNode _searchFocusNode;
-  String _searchQuery = '';
   bool _isSearching = false;
   final Set<String> _collapsedGroups = {};
   String? _copiedPasswordUuid;
@@ -72,20 +73,23 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        excludeHeaderSemantics: _isSearching,
         title: !_isSearching
             ? const Text('Passwords')
             : PointerFocus(
                 focusNode: _searchFocusNode,
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    hintText: 'Search passwords...',
-                    border: InputBorder.none,
+                child: Semantics(
+                  label: 'Search passwords',
+                  child: TextField(
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search passwords...',
+                      border: InputBorder.none,
+                    ),
+                    style: const TextStyle(fontSize: 18),
                   ),
-                  style: const TextStyle(fontSize: 18),
-                  onChanged: (value) => setState(() => _searchQuery = value),
                 ),
               ),
         actions: [
@@ -105,16 +109,22 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
         ],
       ),
       body: entriesAsync.when(
-        data: (entries) => _buildVaultList(entries),
+        data: (entries) => ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _searchController,
+          builder: (context, value, _) => _buildVaultList(entries, value.text),
+        ),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => Center(child: Text('Error: $err')),
       ),
       floatingActionButton: Semantics(
         label: 'Add password',
         button: true,
+        excludeSemantics: true,
+        onTap: _showAddEntryDialog,
         child: FloatingActionButton(
+          heroTag: 'passwords-add-entry',
           tooltip: 'Add password',
-          onPressed: () => _showAddEntryDialog(),
+          onPressed: _showAddEntryDialog,
           child: const Icon(Icons.add),
         ),
       ),
@@ -124,18 +134,21 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
   void _startSearch() {
     setState(() {
       _isSearching = true;
-      _searchQuery = '';
       _searchController.clear();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _searchFocusNode.requestFocus();
+      _requestSearchFocus();
     });
+  }
+
+  void _requestSearchFocus() {
+    if (!mounted || !_isSearching) return;
+    FocusScope.of(context).requestFocus(_searchFocusNode);
   }
 
   void _clearSearch() {
     setState(() {
       _isSearching = false;
-      _searchQuery = '';
       _searchController.clear();
     });
     FocusScope.of(context).unfocus();
@@ -148,39 +161,61 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     return 'Ungrouped';
   }
 
-  Widget _buildVaultList(List<VaultEntry> entries) {
+  Widget _buildVaultList(List<VaultEntry> entries, String searchQuery) {
     // Filter out 2FA-only entries (entries with empty passwords)
     final passwordEntries =
         entries.where((e) => e.password.isNotEmpty).toList();
 
-    final trimmedQuery = _searchQuery.trim().toLowerCase();
+    final trimmedQuery = searchQuery.trim().toLowerCase();
     final filtered = trimmedQuery.isEmpty
         ? passwordEntries
         : passwordEntries.where((e) {
             return e.title.toLowerCase().contains(trimmedQuery) ||
                 e.username.toLowerCase().contains(trimmedQuery) ||
                 (e.url?.toLowerCase().contains(trimmedQuery) ?? false) ||
+                (e.notes?.toLowerCase().contains(trimmedQuery) ?? false) ||
                 e.tags.any((t) => t.toLowerCase().contains(trimmedQuery));
           }).toList();
 
     if (filtered.isEmpty) {
       final colorScheme = Theme.of(context).colorScheme;
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_outline, size: 64, color: colorScheme.outline),
-            const SizedBox(height: 16),
-            Text(
-              _searchQuery.isNotEmpty
-                  ? 'No matching entries'
-                  : 'No entries yet.\nTap + to add one.',
-              textAlign: TextAlign.center,
-              style:
-                  TextStyle(fontSize: 16, color: colorScheme.onSurfaceVariant),
+      return ListView(
+        key: const ValueKey('password_entries_list'),
+        padding: const EdgeInsets.only(bottom: 96),
+        children: [
+          SizedBox(
+            height: math.max(
+              0,
+              MediaQuery.sizeOf(context).height -
+                  kToolbarHeight -
+                  MediaQuery.paddingOf(context).top -
+                  96,
             ),
-          ],
-        ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 64,
+                    color: colorScheme.outline,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    searchQuery.isNotEmpty
+                        ? 'No matching entries'
+                        : 'No entries yet.\nTap + to add one.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       );
     }
 
@@ -202,6 +237,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     // If only one group and it's "Ungrouped", show flat list
     if (sortedGroups.length == 1 && sortedGroups.first == 'Ungrouped') {
       return ListView.builder(
+        key: const ValueKey('password_entries_list'),
         padding: const EdgeInsets.only(bottom: 96),
         itemCount: filtered.length,
         itemBuilder: (context, index) {
@@ -219,6 +255,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     }
 
     return ListView.builder(
+      key: const ValueKey('password_entries_list'),
       padding: const EdgeInsets.only(bottom: 96),
       itemCount: sortedGroups.length,
       itemBuilder: (context, index) {
@@ -564,9 +601,13 @@ class _VaultEntryTile extends StatelessWidget {
 
     return Semantics(
       container: true,
+      explicitChildNodes: true,
       label: semanticLabel,
       button: true,
+      onTap: onTap,
+      onLongPress: onLongPress,
       child: ListTile(
+        internalAddSemanticForOnTap: false,
         leading: CircleAvatar(
           backgroundColor: colorScheme.primaryContainer,
           child: Text(
@@ -933,6 +974,7 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
     _urlController.clear();
     _notesController.clear();
     _groupController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     _titleController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
@@ -988,6 +1030,7 @@ class _AddEntryDialogState extends ConsumerState<AddEntryDialog> {
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: FocusTraversalGroup(
             policy: OrderedTraversalPolicy(),
             child: Column(
@@ -1394,6 +1437,7 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
     _urlController.clear();
     _notesController.clear();
     _groupController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     _titleController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
@@ -1468,6 +1512,7 @@ class _EditEntryDialogState extends ConsumerState<EditEntryDialog> {
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: FocusTraversalGroup(
             policy: OrderedTraversalPolicy(),
             child: Column(

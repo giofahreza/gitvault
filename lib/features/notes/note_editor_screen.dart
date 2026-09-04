@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
@@ -26,6 +27,25 @@ enum _EditorAction {
   exportMarkdown,
   archive,
   delete,
+}
+
+Future<T?> _showDialogAndWait<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) async {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final route = DialogRoute<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    themes: InheritedTheme.capture(from: context, to: navigator.context),
+    builder: builder,
+  );
+  final result = await navigator.push(route);
+  await route.completed;
+  FocusManager.instance.primaryFocus?.unfocus();
+  TextInput.finishAutofillContext(shouldSave: false);
+  return result;
 }
 
 class NoteEditorDialog extends ConsumerStatefulWidget {
@@ -144,9 +164,14 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
     WidgetsBinding.instance.removeObserver(this);
     _autoSaveTimer?.cancel();
     _isDisposed = true;
+    _titleController.removeListener(_markChanged);
+    _contentController.removeListener(_onContentChanged);
     if (_hasChanges && !_discardPendingChanges) {
       unawaited(_queueLatestSave(showError: false, updateUi: false));
     }
+    _titleController.clear();
+    _contentController.clear();
+    TextInput.finishAutofillContext(shouldSave: false);
     _saveStatusRevision.dispose();
     _titleFocus.dispose();
     _contentFocus.dispose();
@@ -358,19 +383,44 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
                     children: [
                       PointerFocus(
                         focusNode: _titleFocus,
-                        child: TextField(
-                          controller: _titleController,
-                          focusNode: _titleFocus,
-                          decoration: InputDecoration(
-                            hintText: _isTemplate ? 'Template name' : 'Title',
-                            hintStyle: TextStyle(color: hintColor),
-                            border: InputBorder.none,
-                          ),
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: textColor,
-                          ),
+                        child: Stack(
+                          alignment: Alignment.centerLeft,
+                          children: [
+                            ValueListenableBuilder<TextEditingValue>(
+                              valueListenable: _titleController,
+                              builder: (context, value, _) => value.text.isEmpty
+                                  ? ExcludeSemantics(
+                                      child: IgnorePointer(
+                                        child: Text(
+                                          _isTemplate
+                                              ? 'Template name'
+                                              : 'Title',
+                                          style: TextStyle(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.bold,
+                                            color: hintColor,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                            Semantics(
+                              label: _isTemplate ? 'Template name' : 'Title',
+                              child: TextField(
+                                controller: _titleController,
+                                focusNode: _titleFocus,
+                                decoration: const InputDecoration(
+                                  border: InputBorder.none,
+                                ),
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                  color: textColor,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       if (_tags.isNotEmpty || _aliases.isNotEmpty)
@@ -506,24 +556,51 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
         Expanded(
           child: PointerFocus(
             focusNode: _contentFocus,
-            child: TextField(
-              controller: _contentController,
-              focusNode: _contentFocus,
-              decoration: InputDecoration(
-                hintText: 'Write Markdown...',
-                hintStyle: TextStyle(color: hintColor),
-                border: InputBorder.none,
-              ),
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.45,
-                color: textColor,
-                fontFamily: 'JetBrainsMonoNerd',
-              ),
-              keyboardType: TextInputType.multiline,
-              maxLines: null,
-              expands: true,
-              textAlignVertical: TextAlignVertical.top,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _contentController,
+                    builder: (context, value, _) => value.text.isEmpty
+                        ? ExcludeSemantics(
+                            child: IgnorePointer(
+                              child: Text(
+                                'Write Markdown...',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  height: 1.45,
+                                  color: hintColor,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+                Positioned.fill(
+                  child: Semantics(
+                    label: 'Write Markdown',
+                    child: TextField(
+                      controller: _contentController,
+                      focusNode: _contentFocus,
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                      ),
+                      style: TextStyle(
+                        fontSize: 15,
+                        height: 1.45,
+                        color: textColor,
+                        fontFamily: 'monospace',
+                      ),
+                      keyboardType: TextInputType.multiline,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -669,7 +746,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
       ..sort((left, right) => left.title.compareTo(right.title));
     if (!mounted) return;
     final controller = TextEditingController();
-    final selected = await showDialog<String>(
+    final selected = await _showDialogAndWait<String>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
@@ -755,7 +832,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
     final controller = TextEditingController(
       text: const Uuid().v4().replaceAll('-', '').substring(0, 12),
     );
-    final id = await showDialog<String>(
+    final id = await _showDialogAndWait<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Add block anchor'),
@@ -1087,7 +1164,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
   Future<void> _editAliases() async {
     final working = List<String>.from(_aliases);
     final controller = TextEditingController();
-    final result = await showDialog<List<String>>(
+    final result = await _showDialogAndWait<List<String>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
@@ -1167,7 +1244,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
   Future<void> _addTag() async {
     final controller = TextEditingController();
     String? error;
-    final tag = await showDialog<String>(
+    final tag = await _showDialogAndWait<String>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -1237,7 +1314,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
           ? 'New template'
           : '${_titleController.text.trim()} template',
     );
-    final name = await showDialog<String>(
+    final name = await _showDialogAndWait<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Save as template'),
@@ -1559,6 +1636,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
 
     _pendingSaveCount++;
     if (updateUi) _notifySaveStatus();
+    var createdNote = false;
     final operation = _saveQueue.then((_) async {
       await _repository.initialize();
       final current = _persistedNote;
@@ -1574,6 +1652,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
           journalDate: draft.journalDate,
           isTemplate: draft.isTemplate,
         );
+        createdNote = true;
       } else {
         _persistedNote = await _repository.updateNote(
           current.copyWith(
@@ -1603,6 +1682,9 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
       _hasChanges = _changeRevision > _savedRevision;
       _lastSaveError = null;
       _invalidateNoteProviders();
+      if (createdNote && updateUi && mounted) {
+        setState(() {});
+      }
       return true;
     } catch (error) {
       _lastSaveError = error;
