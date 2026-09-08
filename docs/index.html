@@ -5,330 +5,223 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="GitVault is an open source password manager that encrypts your vault on device and stores only ciphertext in your own private GitHub repository."
+      content="GitVault is an open-source password manager that encrypts your vault on your device and stores only ciphertext in your private GitHub repository."
     >
-    <title>GitVault</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@500;650;750;850;900&family=Space+Grotesk:wght@700&display=swap"
-      rel="stylesheet"
-    >
+    <title>GitVault — your vault, your repository</title>
+    <meta name="theme-color" content="#15121a">
     <link rel="icon" type="image/jpeg" href="assets/icon/gitvault_new.jpeg">
-    <link rel="stylesheet" href="styles.css?v=docs-page-20260729d">
+    <link rel="preload" href="assets/fonts/ibm-plex-sans-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="styles.css?v=landing-20260906-dark">
   </head>
   <body>
-    <a class="skip-link" href="#vault">Skip to content</a>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
     <header class="site-header">
-      <a class="brand" href="/" aria-label="GitVault">
-        <img src="assets/icon/gitvault_new.jpeg" alt="" width="32" height="32">
+      <a class="brand" href="/" aria-label="GitVault home">
+        <img src="assets/icon/gitvault_new.jpeg" alt="" width="36" height="36">
         <span>GitVault</span>
       </a>
-      <nav aria-label="Primary">
-        <a href="#vault" aria-label="Vault">
-          <span class="nav-label-full" aria-hidden="true">Vault</span>
-          <span class="nav-label-short" aria-hidden="true">Vault</span>
-        </a>
-        <a href="#sync" aria-label="Sync">
-          <span class="nav-label-full" aria-hidden="true">Sync</span>
-          <span class="nav-label-short" aria-hidden="true">Sync</span>
-        </a>
-        <a href="#security" aria-label="Security">
-          <span class="nav-label-full" aria-hidden="true">Security</span>
-          <span class="nav-label-short" aria-hidden="true">Safe</span>
-        </a>
-        <a href="#setup" aria-label="Setup">
-          <span class="nav-label-full" aria-hidden="true">Setup</span>
-          <span class="nav-label-short" aria-hidden="true">Setup</span>
-        </a>
-        <a href="/docs/" aria-label="Docs">
-          <span class="nav-label-full" aria-hidden="true">Docs</span>
-          <span class="nav-label-short" aria-hidden="true">Docs</span>
-        </a>
-        <a class="nav-action" href="/app/" aria-label="Get Started">
-          <span class="nav-label-full" aria-hidden="true">Get Started</span>
-          <span class="nav-label-short" aria-hidden="true">Start</span>
-        </a>
+      <nav aria-label="Primary navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#inside">What’s inside</a>
+        <a href="#security">Security</a>
+        <a href="/docs/">Docs</a>
+        <a class="nav-action" href="/app/">Open app <span aria-hidden="true">↗</span></a>
       </nav>
     </header>
 
-    <main>
-      <section class="hero" aria-label="GitVault landing">
-        <canvas id="vault-globe" class="hero-canvas" aria-hidden="true"></canvas>
-
-        <div class="hero-telemetry panel-alpha" aria-hidden="true">
-          <span>vault packet</span>
-          <strong>sealed locally</strong>
-          <small>key never leaves device</small>
-        </div>
-        <div class="hero-telemetry panel-beta" aria-hidden="true">
-          <span>sync stream</span>
-          <strong>private repository</strong>
-          <small>ciphertext only</small>
-        </div>
-        <div class="hero-telemetry panel-gamma" aria-hidden="true">
-          <span>cipher mode</span>
-          <strong>XChaCha20</strong>
-          <small>authenticated encryption</small>
-        </div>
-
-        <div class="hero-content">
-          <p class="eyebrow">GitVault / open source encrypted vault</p>
-          <h1>
-            <span>Encrypted secrets</span>
-            <span>that move</span>
-            <span>with you.</span>
-          </h1>
-        </div>
-
-        <div class="hero-lower">
-          <p class="hero-copy">
-            Passwords, notes, 2FA codes, and SSH credentials stay encrypted on
-            device while GitHub only carries unreadable vault data.
+    <main id="main-content">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span aria-hidden="true"></span> Local-first password manager</p>
+          <h1 id="hero-title">Keep the vault.<br>Lose the middleman.</h1>
+          <p class="hero-summary">
+            GitVault encrypts passwords, notes, 2FA codes, and SSH credentials on
+            your device. Your private GitHub repository stores ciphertext—not a
+            copy of your secrets.
           </p>
           <div class="hero-actions">
-            <a class="button primary" href="/app/">Open Web App</a>
-            <a class="button secondary" href="/docs/">Read Docs</a>
-            <a class="button secondary" href="https://github.com/giofahreza/gitvault/releases/latest">Download APK</a>
+            <a class="button button-primary" href="/app/">Open web app <span aria-hidden="true">→</span></a>
+            <a class="button button-text" href="/docs/quick-start/">Read the setup guide</a>
           </div>
+          <p class="hero-footnote">Open source · MIT licensed · No GitVault account required</p>
         </div>
+
+        <figure class="hero-product reveal" aria-label="GitVault password vault in dark theme">
+          <div class="product-bar">
+            <span class="product-status"><i></i> Vault unlocked</span>
+            <span>gitvault / private</span>
+          </div>
+          <img src="screenshots/passwords-list.png" alt="GitVault password list with sample vault data in dark theme">
+          <figcaption>One vault for passwords, notes, codes, and connections.</figcaption>
+        </figure>
       </section>
 
-      <section id="vault" class="showcase section">
-        <div class="section-heading">
-          <p class="eyebrow">Vault workspace</p>
-          <h2>One quiet control room for your private data.</h2>
+      <section id="how-it-works" class="path-section section reveal" aria-labelledby="path-title">
+        <div class="section-intro">
+          <p class="eyebrow"><span aria-hidden="true"></span> The path of your data</p>
+          <h2 id="path-title">Plain language. Exact boundaries.</h2>
         </div>
-
-        <div class="device-stage">
-          <img class="device-shot primary-shot" src="screenshots/passwords-list.png?v=real-20260729" alt="GitVault password list with sample vault data in dark theme">
-          <img class="device-shot secondary-shot" src="screenshots/notes-grid-pinned.png?v=real-20260729" alt="GitVault notes grid with sample notes in dark theme">
-          <img class="device-shot tertiary-shot" src="screenshots/2fa-codes.png?v=real-20260729" alt="GitVault 2FA codes with sample accounts in dark theme">
-          <div class="command-strip" aria-hidden="true">
-            <span>vault.pull()</span>
-            <span>decrypt.local()</span>
-            <span>sync.push()</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="feature-radar section" aria-label="GitVault features">
-        <article>
-          <span>01</span>
-          <h3>Passwords</h3>
-          <p>Grouped entries, usernames, URLs, notes, copy actions, and optional TOTP secrets.</p>
-        </article>
-        <article>
-          <span>02</span>
-          <h3>Notes</h3>
-          <p>Pinned notes, checklists, tags, colors, archive, search, and mobile-friendly layouts.</p>
-        </article>
-        <article>
-          <span>03</span>
-          <h3>2FA Codes</h3>
-          <p>Authenticator-style live TOTP codes with countdown timing and one-tap copy.</p>
-        </article>
-        <article>
-          <span>04</span>
-          <h3>SSH</h3>
-          <p>Save SSH credentials and open terminal sessions from the Android experience.</p>
-        </article>
-      </section>
-
-      <section id="sync" class="sync-section section">
-        <div class="sync-copy">
-          <p class="eyebrow">Sovereign sync</p>
-          <h2>Your GitHub repository becomes encrypted storage.</h2>
-          <p>
-            GitVault encrypts the vault before anything leaves the device. GitHub
-            stores opaque files only, while the keys and recovery phrase stay
-            with you.
-          </p>
-        </div>
-
-        <div class="sync-terminal" aria-label="Encrypted sync flow">
-          <div class="terminal-bar">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-          <pre><code>gitvault vault seal
-  status: encrypted
-  cipher: XChaCha20-Poly1305
-  target: private GitHub repo
-
-gitvault sync push
-  uploaded: vault_index.enc
-  uploaded: devices.enc
-  readable secrets: 0</code></pre>
-        </div>
-      </section>
-
-      <section class="gallery-slider section" aria-label="GitVault screenshots" data-gallery-slider>
-        <div class="slider-heading">
-          <div>
-            <p class="eyebrow">Product tour</p>
-            <h2>Inspect the vault from every angle.</h2>
-          </div>
-          <div class="slider-controls" aria-label="Screenshot controls">
-            <button class="slider-button prev" type="button" aria-label="Previous screenshot" data-slider-prev></button>
-            <button class="slider-button next" type="button" aria-label="Next screenshot" data-slider-next></button>
-          </div>
-        </div>
-
-        <div class="slider-shell">
-          <div class="slider-viewport" tabindex="0" aria-label="Screenshot slider" data-slider-viewport>
-            <div class="slider-track" data-slider-track>
-              <figure class="slide" aria-label="Private notes editor">
-                <img src="screenshots/notes-editor.png?v=real-20260729" alt="GitVault note editor with sample checklist in dark theme">
-                <figcaption>
-                  <span>Notes</span>
-                  <strong>Private writing, checklists, colors, tags, and pinned context.</strong>
-                </figcaption>
-              </figure>
-              <figure class="slide" aria-label="Password detail with 2FA">
-                <img src="screenshots/passwords-detail-totp.png?v=real-20260729" alt="GitVault password detail with sample TOTP in dark theme">
-                <figcaption>
-                  <span>Passwords</span>
-                  <strong>Credentials and live TOTP codes stay inside the same encrypted record.</strong>
-                </figcaption>
-              </figure>
-              <figure class="slide" aria-label="Settings and connected devices">
-                <img src="screenshots/settings-autofill-devices.png?v=real-20260729" alt="GitVault settings and sample connected devices in dark theme">
-                <figcaption>
-                  <span>Devices</span>
-                  <strong>Review sync, autofill, biometric, and linked-device status from settings.</strong>
-                </figcaption>
-              </figure>
-              <figure class="slide" aria-label="SSH terminal">
-                <img src="screenshots/ssh-terminal.png?v=real-20260729" alt="GitVault SSH terminal with sample session in dark theme">
-                <figcaption>
-                  <span>SSH</span>
-                  <strong>Keep terminal credentials close to the same vault workflow.</strong>
-                </figcaption>
-              </figure>
+        <ol class="data-path">
+          <li>
+            <span class="step-number">01</span>
+            <div>
+              <h3>Write locally</h3>
+              <p>Create or update a record on the device in front of you.</p>
             </div>
-          </div>
-
-          <div class="slider-dots" aria-label="Choose screenshot">
-            <button type="button" aria-label="Show notes screenshot" aria-current="true" data-slider-dot="0"></button>
-            <button type="button" aria-label="Show password screenshot" data-slider-dot="1"></button>
-            <button type="button" aria-label="Show device screenshot" data-slider-dot="2"></button>
-            <button type="button" aria-label="Show SSH screenshot" data-slider-dot="3"></button>
-          </div>
-        </div>
-      </section>
-
-      <section id="security" class="security-section section">
-        <div>
-          <p class="eyebrow">Security model</p>
-          <h2>Built around local control, not cloud trust.</h2>
-        </div>
-        <div class="security-grid">
-          <article>
-            <h3>On-device encryption</h3>
-            <p>XChaCha20-Poly1305 authenticated encryption protects vault data before sync.</p>
-          </article>
-          <article>
-            <h3>Private repository storage</h3>
-            <p>GitHub receives encrypted vault files, not readable passwords or recovery data.</p>
-          </article>
-          <article>
-            <h3>PIN and biometric unlock</h3>
-            <p>Use browser biometric unlock on web and device biometric unlock on Android.</p>
-          </article>
-          <article>
-            <h3>Device awareness</h3>
-            <p>Review connected devices from web and mobile after they sync or link.</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="setup" class="setup-section section">
-        <div class="setup-copy">
-          <p class="eyebrow">Start fast</p>
-          <h2>No business verification. No hosted backend.</h2>
-        </div>
-        <ol class="setup-steps">
-          <li>
-            <span>Create repo</span>
-            <p>Create an empty private repository in your normal GitHub account.</p>
           </li>
           <li>
-            <span>Add token</span>
-            <p>Create a fine-grained token with metadata read and contents read/write access.</p>
+            <span class="step-number">02</span>
+            <div>
+              <h3>Seal before sync</h3>
+              <p>GitVault encrypts the vault with authenticated XChaCha20-Poly1305 encryption.</p>
+            </div>
           </li>
           <li>
-            <span>Open GitVault</span>
-            <p>Save the recovery kit, connect GitHub Sync, and keep using the same vault across devices.</p>
+            <span class="step-number">03</span>
+            <div>
+              <h3>Store ciphertext</h3>
+              <p>Your private GitHub repository receives encrypted files and sync history—not readable entries.</p>
+            </div>
           </li>
         </ol>
       </section>
 
-      <section class="manual-section section" aria-label="GitVault documentation">
-        <div class="manual-overview">
-          <p class="eyebrow">Documentation</p>
-          <h2>Read the docs before you put secrets inside.</h2>
-          <p>
-            The docs cover setup, unlocking, GitHub sync, passwords, notes,
-            2FA codes, SSH entries, connected devices, recovery, and common
-            troubleshooting steps.
-          </p>
+      <section id="inside" class="inventory-section section" aria-labelledby="inventory-title">
+        <div class="section-intro reveal">
+          <p class="eyebrow"><span aria-hidden="true"></span> Inside the vault</p>
+          <h2 id="inventory-title">The things you reach for every day.</h2>
+          <p class="section-summary">A focused workspace for the private information that should not be scattered across apps.</p>
         </div>
 
-        <div class="manual-links">
-          <a href="/docs/quick-start/">
+        <div class="inventory-list">
+          <article class="reveal">
             <span>01</span>
-            <strong>First setup</strong>
-            <p>Create a vault, save the recovery phrase, set a PIN, and connect sync.</p>
-          </a>
-          <a href="/docs/passwords/">
+            <div>
+              <h3>Passwords</h3>
+              <p>Credentials, URLs, groups, notes, quick copy actions, and optional TOTP secrets in one record.</p>
+            </div>
+            <small>vault entry</small>
+          </article>
+          <article class="reveal">
             <span>02</span>
-            <strong>Daily use</strong>
-            <p>Add passwords, notes, 2FA codes, SSH credentials, and search quickly.</p>
-          </a>
-          <a href="/docs/devices/">
+            <div>
+              <h3>Private notes</h3>
+              <p>Markdown, tags, checklists, pinned notes, daily notes, templates, and links between ideas.</p>
+            </div>
+            <small>encrypted note</small>
+          </article>
+          <article class="reveal">
             <span>03</span>
-            <strong>Devices and sync</strong>
-            <p>Keep web and Android devices aligned with encrypted GitHub storage.</p>
-          </a>
-          <a href="/docs/troubleshooting/">
+            <div>
+              <h3>2FA codes</h3>
+              <p>Time-based one-time passwords with a live countdown and one-tap copy when you need them.</p>
+            </div>
+            <small>local generator</small>
+          </article>
+          <article class="reveal">
             <span>04</span>
-            <strong>Fix common issues</strong>
-            <p>Recover from sync, unlock, token, and device-linking problems.</p>
-          </a>
-          <a href="/docs/faq/">
-            <span>05</span>
-            <strong>FAQ</strong>
-            <p>Read answers for setup, sync, recovery, autofill, and release questions.</p>
-          </a>
-          <a href="/docs/release-verification/">
-            <span>06</span>
-            <strong>Verify releases</strong>
-            <p>Check APK checksums, release assets, and deployed web app versions.</p>
-          </a>
+            <div>
+              <h3>SSH access</h3>
+              <p>Keep connection details close to your vault and open terminal sessions from Android.</p>
+            </div>
+            <small>Android</small>
+          </article>
         </div>
       </section>
 
-      <section class="final-cta">
-        <p class="eyebrow">GitVault</p>
-          <h2>Take the vault online without giving the cloud your secrets.</h2>
+      <section class="workspace-section section" aria-labelledby="workspace-title">
+        <div class="workspace-copy reveal">
+          <p class="eyebrow"><span aria-hidden="true"></span> A working vault</p>
+          <h2 id="workspace-title">Useful without becoming noisy.</h2>
+          <p>
+            Search, groups, pinned context, device awareness, and an encrypted sync flow
+            are all there when you need them. The interface stays out of the way when you do not.
+          </p>
+          <a class="text-link" href="/docs/">Browse the documentation <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="workspace-screens reveal">
+          <figure class="screen-card screen-card-main">
+            <img src="screenshots/notes-editor.png" loading="lazy" alt="GitVault note editor with a sample checklist in dark theme">
+            <figcaption><span>Notes</span> Keep working context beside your credentials.</figcaption>
+          </figure>
+          <figure class="screen-card screen-card-secondary">
+            <img src="screenshots/2fa-codes.png" loading="lazy" alt="GitVault 2FA code list with sample accounts in dark theme">
+            <figcaption><span>2FA</span> Generate codes where the account lives.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="security" class="security-section section" aria-labelledby="security-title">
+        <div class="section-intro reveal">
+          <p class="eyebrow"><span aria-hidden="true"></span> Security model</p>
+          <h2 id="security-title">A repository is storage, not trust.</h2>
+        </div>
+
+        <div class="security-ledger reveal">
+          <div class="ledger-heading" aria-hidden="true">
+            <span>Boundary</span>
+            <span>What happens</span>
+          </div>
+          <dl>
+            <div>
+              <dt>Your device</dt>
+              <dd>Creates the vault key, encrypts records, and holds your recovery phrase.</dd>
+            </div>
+            <div>
+              <dt>GitHub</dt>
+              <dd>Stores encrypted vault files in a repository you control.</dd>
+            </div>
+            <div>
+              <dt>GitVault</dt>
+              <dd>Has no hosted vault service, account database, or readable copy of your secrets.</dd>
+            </div>
+            <div>
+              <dt>You</dt>
+              <dd>Choose the repository, approve devices, and retain responsibility for your recovery phrase.</dd>
+            </div>
+          </dl>
+          <p class="ledger-note">Read the complete <a href="/docs/security/">security model</a> before putting secrets in any password manager.</p>
+        </div>
+      </section>
+
+      <section class="setup-section section" aria-labelledby="setup-title">
+        <div class="setup-heading reveal">
+          <p class="eyebrow"><span aria-hidden="true"></span> First setup</p>
+          <h2 id="setup-title">Bring your own repository.</h2>
+          <p>There is no hosted GitVault account to create. Start with your own GitHub account and a private repository.</p>
+        </div>
+        <ol class="setup-list reveal">
+          <li>
+            <span>1</span>
+            <div><strong>Create a private repository</strong><p>An empty repository in your normal GitHub account is enough.</p></div>
+          </li>
+          <li>
+            <span>2</span>
+            <div><strong>Open GitVault and save recovery</strong><p>Create the vault key, record the recovery phrase, and set your unlock method.</p></div>
+          </li>
+          <li>
+            <span>3</span>
+            <div><strong>Connect encrypted sync</strong><p>Add a fine-grained GitHub token and approve additional devices when you are ready.</p></div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="final-section reveal" aria-labelledby="final-title">
+        <p class="eyebrow"><span aria-hidden="true"></span> GitVault is ready when you are</p>
+        <h2 id="final-title">Your secrets. Your key.<br>Your repository.</h2>
         <div class="hero-actions">
-          <a class="button primary" href="/app/">Open Web App</a>
-          <a class="button secondary" href="/docs/">Read Docs</a>
-          <a class="button secondary" href="https://github.com/giofahreza/gitvault">View Source</a>
+          <a class="button button-primary" href="/app/">Open web app <span aria-hidden="true">→</span></a>
+          <a class="button button-text" href="https://github.com/giofahreza/gitvault">View source</a>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
       <span>GitVault is open source under the MIT License.</span>
-      <span class="footer-links">
-        <a href="/docs/">Docs</a>
-        <a href="https://github.com/giofahreza/gitvault">GitHub</a>
-      </span>
+      <span><a href="/docs/">Docs</a><a href="https://github.com/giofahreza/gitvault">GitHub</a></span>
     </footer>
 
-    <script type="module" src="landing.js?v=docs-page-20260729d"></script>
+    <script src="landing.js?v=landing-20260906" defer></script>
   </body>
 </html>
