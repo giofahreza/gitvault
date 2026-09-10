@@ -323,6 +323,11 @@ jobs:
   deploy-web:
     name: Build + Deploy Web to GitHub Pages
     runs-on: ubuntu-latest
+    # Share the production deployment lock with pages.yml. This prevents the
+    # master push and its release tag from publishing competing artifacts.
+    concurrency:
+      group: github-pages-production
+      cancel-in-progress: false
     permissions:
       contents: read
       pages: write
