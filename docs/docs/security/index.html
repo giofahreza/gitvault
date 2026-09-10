@@ -3,60 +3,79 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="dark">
+    <meta name="color-scheme" content="light dark">
     <meta name="description" content="How local encryption, unlock, biometric, duress mode, clipboard clearing, storage, and trust work.">
+    <meta name="theme-color" content="#f7efea">
     <title>Security model - GitVault Docs</title>
     <link rel="icon" type="image/jpeg" href="/assets/icon/gitvault_new.jpeg">
     <link rel="canonical" href="https://gitvault.giofahreza.com/docs/security/">
-    <link rel="stylesheet" href="/docs.css?v=20260729d">
+    <link rel="preload" href="/assets/fonts/ibm-plex-sans-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
+    <script src="/landing.js?v=landing-20260909-orbit"></script>
+    <link rel="stylesheet" href="/docs.css?v=20260910-red">
   </head>
-  <body>
+  <body class="landing-page docs-page">
     <a class="skip-link" href="#docs-content">Skip to docs content</a>
 
     <header class="site-header">
-      <div class="site-header-inner">
+      <div class="nav-shell">
         <a class="brand" href="/" aria-label="GitVault home">
-          <img src="/assets/icon/gitvault_new.jpeg" alt="" width="30" height="30">
+          <span class="brand-mark" aria-hidden="true"><img src="/assets/icon/gitvault_new.jpeg" alt="" width="30" height="30"></span>
           <span>GitVault</span>
         </a>
-        <nav aria-label="Primary">
-          <a href="/#vault" aria-label="Vault">
-            <span class="nav-label-full" aria-hidden="true">Vault</span>
-            <span class="nav-label-short" aria-hidden="true">Vault</span>
-          </a>
-          <a href="/#sync" aria-label="Sync">
-            <span class="nav-label-full" aria-hidden="true">Sync</span>
-            <span class="nav-label-short" aria-hidden="true">Sync</span>
-          </a>
-          <a href="/#security" aria-label="Security">
-            <span class="nav-label-full" aria-hidden="true">Security</span>
-            <span class="nav-label-short" aria-hidden="true">Safe</span>
-          </a>
-          <a href="/#setup" aria-label="Setup">
-            <span class="nav-label-full" aria-hidden="true">Setup</span>
-            <span class="nav-label-short" aria-hidden="true">Setup</span>
-          </a>
-          <a href="/docs/" aria-label="Docs" aria-current="page">
-            <span class="nav-label-full" aria-hidden="true">Docs</span>
-            <span class="nav-label-short" aria-hidden="true">Docs</span>
-          </a>
-          <a class="nav-action" href="/app/" aria-label="Get Started">
-            <span class="nav-label-full" aria-hidden="true">Get Started</span>
-            <span class="nav-label-short" aria-hidden="true">Start</span>
-          </a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="/#product">Product</a>
+          <a href="/#security">Security</a>
+          <a href="/#setup">Start here</a>
+          <a href="/docs/" aria-current="page">Docs</a>
         </nav>
+
+        <div class="header-controls">
+          <a class="github-link" href="https://github.com/giofahreza/gitvault" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+          <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false" title="Toggle color theme">
+            <span class="theme-toggle-icon" aria-hidden="true">
+              <svg class="theme-icon-moon" viewBox="0 0 16 16" focusable="false"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a5.9 5.9 0 1 0 7.7 7.7Z"></path></svg>
+              <svg class="theme-icon-sun" viewBox="0 0 16 16" focusable="false"><circle cx="8" cy="8" r="3"></circle><path d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"></path></svg>
+            </span>
+          </button>
+          <a class="button button-small nav-cta" href="/app/">Open app <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <details class="mobile-menu">
+          <summary aria-label="Open navigation menu"><span></span><span></span></summary>
+          <nav aria-label="Mobile navigation">
+            <a href="/#product">Product</a>
+            <a href="/#security">Security</a>
+            <a href="/#setup">Start here</a>
+            <a href="/docs/" aria-current="page">Documentation</a>
+            <a href="https://github.com/giofahreza/gitvault/releases/latest" target="_blank" rel="noreferrer">Latest releases <span aria-hidden="true">↗</span></a>
+            <a href="https://github.com/giofahreza/gitvault" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+            <a class="button" href="/app/">Open web app <span aria-hidden="true">↗</span></a>
+          </nav>
+        </details>
       </div>
     </header>
 
     <main class="docs-page-shell">
       <div class="docs-layout">
-        <aside class="docs-toc" aria-label="Docs pages">
+        <aside id="docs-directory" class="docs-directory docs-toc" aria-label="Documentation navigation" tabindex="-1">
+          <div class="docs-directory-heading">
+            <div>
+              <p class="docs-directory-kicker">Vault field guide</p>
+              <p class="docs-directory-title">Documentation</p>
+            </div>
+            <button class="docs-directory-close" type="button" data-docs-drawer-dismiss>
+              <span>Close</span><span aria-hidden="true">×</span>
+            </button>
+          </div>
+
           <label class="docs-search" for="docs-search">
-            <span>Search docs</span>
-            <input id="docs-search" type="search" autocomplete="off" placeholder="Search docs">
+            <span>Find a guide</span>
+            <input id="docs-search" type="search" autocomplete="off" placeholder="Search documentation">
           </label>
           <div id="docs-search-results" class="docs-search-results" aria-live="polite"></div>
-          <a class="docs-home-link" href="/docs/">Docs home</a>
+
+          <nav class="docs-directory-nav" aria-label="Documentation pages">
+            <a class="docs-home-link" href="/docs/">Overview</a>
 
             <div class="docs-nav-group">
               <p class="docs-toc-label">Tutorials</p>
@@ -177,18 +196,22 @@
               </a>
             </div>
 
-          <div class="docs-nav-group docs-nav-group-compact">
-            <p class="docs-toc-label">Browse topics</p>
-            <a href="/docs/category/security/" data-title="Security" data-category="Topic" data-summary="Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust." data-keywords="security"><span>Security</span><small>Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust.</small></a>
+            <div class="docs-nav-group docs-nav-group-compact">
+              <p class="docs-toc-label">Browse by topic</p>
+              <a href="/docs/category/security/" data-title="Security" data-category="Topic" data-summary="Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust." data-keywords="security"><span>Security</span><small>Encryption, PIN, biometric unlock, duress mode, clipboard handling, and device trust.</small></a>
 <a href="/docs/category/sync/" data-title="Sync" data-category="Topic" data-summary="GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics." data-keywords="sync"><span>Sync</span><small>GitHub repository setup, sync behavior, conflicts, device registry sync, and diagnostics.</small></a>
 <a href="/docs/category/devices/" data-title="Devices" data-category="Topic" data-summary="Trusted devices, Link New Device, recovery requests, alerts, and removal behavior." data-keywords="devices"><span>Devices</span><small>Trusted devices, Link New Device, recovery requests, alerts, and removal behavior.</small></a>
 <a href="/docs/category/android/" data-title="Android" data-category="Topic" data-summary="APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support." data-keywords="android"><span>Android</span><small>APK install, autofill, GitVault Keyboard, biometric unlock, recent-app privacy, and mobile support.</small></a>
 <a href="/docs/category/web/" data-title="Web" data-category="Topic" data-summary="Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment." data-keywords="web"><span>Web</span><small>Web app setup, keyboard PIN entry, browser biometric support, lock button, and GitHub Pages deployment.</small></a>
 <a href="/docs/category/desktop/" data-title="Desktop" data-category="Topic" data-summary="Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases." data-keywords="desktop"><span>Desktop</span><small>Windows, macOS, and Linux app support, AI Apps, local MCP access, tray behavior, and desktop releases.</small></a>
-          </div>
+            </div>
+          </nav>
         </aside>
 
         <article id="docs-content" class="docs-content docs-article" data-page-slug="security">
+          <button class="docs-drawer-trigger" type="button" data-docs-drawer-toggle aria-controls="docs-directory" aria-expanded="false">
+            <span>Browse docs</span><span aria-hidden="true">☰</span>
+          </button>
           <div class="docs-heading">
             <p class="eyebrow">Reference</p>
             <h1>Security model</h1>
@@ -253,16 +276,31 @@
         </article>
 
         <aside class="docs-on-page" aria-label="On this page">
-          <p class="docs-toc-label">On this page</p>
-          <nav id="on-this-page"></nav>
+          <div class="docs-on-page-inner">
+            <p class="docs-toc-label">On this page</p>
+            <nav id="on-this-page"></nav>
+          </div>
         </aside>
       </div>
     </main>
+    <button class="docs-drawer-scrim" type="button" data-docs-drawer-dismiss aria-label="Close documentation menu" hidden></button>
 
     <footer class="site-footer">
-      <span>GitVault Docs</span>
-      <span><a href="https://github.com/giofahreza/gitvault">github.com/giofahreza/gitvault</a></span>
+      <div class="footer-shell">
+        <div class="footer-brand">
+          <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true"><img src="/assets/icon/gitvault_new.jpeg" width="30" height="30" alt=""></span>
+            <span>GitVault</span>
+          </a>
+          <p>Open source under the MIT License.</p>
+        </div>
+        <nav aria-label="Footer navigation">
+          <a href="/">Home</a>
+          <a href="https://github.com/giofahreza/gitvault/releases/latest" target="_blank" rel="noreferrer">Releases</a>
+          <a href="https://github.com/giofahreza/gitvault" target="_blank" rel="noreferrer">Repository</a>
+        </nav>
+      </div>
     </footer>
-    <script src="/docs.js?v=20260729d" defer></script>
+    <script src="/docs.js?v=20260910-red" defer></script>
   </body>
 </html>

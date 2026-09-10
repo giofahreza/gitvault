@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const DOCS_ROOT = join(ROOT, "docs", "docs");
-const VERSION = "20260729d";
+const VERSION = "20260910-red";
 const SCREENSHOT_VERSION = "real-20260729";
 const UPDATED = "July 29, 2026";
 
@@ -1285,20 +1285,33 @@ function docsNav(currentPath) {
 
   const topics = topicGroups.map((topic) => topicLink(topic, currentPath)).join("\n");
 
-  return `<aside class="docs-toc" aria-label="Docs pages">
+  return `<aside id="docs-directory" class="docs-directory docs-toc" aria-label="Documentation navigation" tabindex="-1">
+          <div class="docs-directory-heading">
+            <div>
+              <p class="docs-directory-kicker">Vault field guide</p>
+              <p class="docs-directory-title">Documentation</p>
+            </div>
+            <button class="docs-directory-close" type="button" data-docs-drawer-dismiss>
+              <span>Close</span><span aria-hidden="true">×</span>
+            </button>
+          </div>
+
           <label class="docs-search" for="docs-search">
-            <span>Search docs</span>
-            <input id="docs-search" type="search" autocomplete="off" placeholder="Search docs">
+            <span>Find a guide</span>
+            <input id="docs-search" type="search" autocomplete="off" placeholder="Search documentation">
           </label>
           <div id="docs-search-results" class="docs-search-results" aria-live="polite"></div>
-          <a class="docs-home-link${homeActive} href="/docs/">Docs home</a>
+
+          <nav class="docs-directory-nav" aria-label="Documentation pages">
+            <a class="docs-home-link${homeActive} href="/docs/">Overview</a>
 
             ${groups}
 
-          <div class="docs-nav-group docs-nav-group-compact">
-            <p class="docs-toc-label">Browse topics</p>
-            ${topics}
-          </div>
+            <div class="docs-nav-group docs-nav-group-compact">
+              <p class="docs-toc-label">Browse by topic</p>
+              ${topics}
+            </div>
+          </nav>
         </aside>`;
 }
 
@@ -1338,48 +1351,55 @@ function layout({ title, description, canonical, currentPath, articleClass = "",
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="dark">
+    <meta name="color-scheme" content="light dark">
     <meta name="description" content="${escapeAttr(description)}">
+    <meta name="theme-color" content="#f7efea">
     <title>${title} - GitVault Docs</title>
     <link rel="icon" type="image/jpeg" href="/assets/icon/gitvault_new.jpeg">
     <link rel="canonical" href="${canonical}">
+    <link rel="preload" href="/assets/fonts/ibm-plex-sans-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
+    <script src="/landing.js?v=landing-20260909-orbit"></script>
     <link rel="stylesheet" href="/docs.css?v=${VERSION}">
   </head>
-  <body>
+  <body class="landing-page docs-page">
     <a class="skip-link" href="#docs-content">Skip to docs content</a>
 
     <header class="site-header">
-      <div class="site-header-inner">
+      <div class="nav-shell">
         <a class="brand" href="/" aria-label="GitVault home">
-          <img src="/assets/icon/gitvault_new.jpeg" alt="" width="30" height="30">
+          <span class="brand-mark" aria-hidden="true"><img src="/assets/icon/gitvault_new.jpeg" alt="" width="30" height="30"></span>
           <span>GitVault</span>
         </a>
-        <nav aria-label="Primary">
-          <a href="/#vault" aria-label="Vault">
-            <span class="nav-label-full" aria-hidden="true">Vault</span>
-            <span class="nav-label-short" aria-hidden="true">Vault</span>
-          </a>
-          <a href="/#sync" aria-label="Sync">
-            <span class="nav-label-full" aria-hidden="true">Sync</span>
-            <span class="nav-label-short" aria-hidden="true">Sync</span>
-          </a>
-          <a href="/#security" aria-label="Security">
-            <span class="nav-label-full" aria-hidden="true">Security</span>
-            <span class="nav-label-short" aria-hidden="true">Safe</span>
-          </a>
-          <a href="/#setup" aria-label="Setup">
-            <span class="nav-label-full" aria-hidden="true">Setup</span>
-            <span class="nav-label-short" aria-hidden="true">Setup</span>
-          </a>
-          <a href="/docs/" aria-label="Docs" aria-current="page">
-            <span class="nav-label-full" aria-hidden="true">Docs</span>
-            <span class="nav-label-short" aria-hidden="true">Docs</span>
-          </a>
-          <a class="nav-action" href="/app/" aria-label="Get Started">
-            <span class="nav-label-full" aria-hidden="true">Get Started</span>
-            <span class="nav-label-short" aria-hidden="true">Start</span>
-          </a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="/#product">Product</a>
+          <a href="/#security">Security</a>
+          <a href="/#setup">Start here</a>
+          <a href="/docs/" aria-current="page">Docs</a>
         </nav>
+
+        <div class="header-controls">
+          <a class="github-link" href="https://github.com/giofahreza/gitvault" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+          <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false" title="Toggle color theme">
+            <span class="theme-toggle-icon" aria-hidden="true">
+              <svg class="theme-icon-moon" viewBox="0 0 16 16" focusable="false"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a5.9 5.9 0 1 0 7.7 7.7Z"></path></svg>
+              <svg class="theme-icon-sun" viewBox="0 0 16 16" focusable="false"><circle cx="8" cy="8" r="3"></circle><path d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"></path></svg>
+            </span>
+          </button>
+          <a class="button button-small nav-cta" href="/app/">Open app <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <details class="mobile-menu">
+          <summary aria-label="Open navigation menu"><span></span><span></span></summary>
+          <nav aria-label="Mobile navigation">
+            <a href="/#product">Product</a>
+            <a href="/#security">Security</a>
+            <a href="/#setup">Start here</a>
+            <a href="/docs/" aria-current="page">Documentation</a>
+            <a href="https://github.com/giofahreza/gitvault/releases/latest" target="_blank" rel="noreferrer">Latest releases <span aria-hidden="true">↗</span></a>
+            <a href="https://github.com/giofahreza/gitvault" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+            <a class="button" href="/app/">Open web app <span aria-hidden="true">↗</span></a>
+          </nav>
+        </details>
       </div>
     </header>
 
@@ -1388,6 +1408,9 @@ function layout({ title, description, canonical, currentPath, articleClass = "",
         ${docsNav(currentPath)}
 
         <article id="docs-content" class="docs-content docs-article${articleClass ? ` ${articleClass}` : ""}" data-page-slug="${slug}">
+          <button class="docs-drawer-trigger" type="button" data-docs-drawer-toggle aria-controls="docs-directory" aria-expanded="false">
+            <span>Browse docs</span><span aria-hidden="true">☰</span>
+          </button>
           <div class="docs-heading">
             <p class="eyebrow">${headingCategory}</p>
             <h1>${title}</h1>
@@ -1398,15 +1421,30 @@ function layout({ title, description, canonical, currentPath, articleClass = "",
         </article>
 
         <aside class="docs-on-page" aria-label="On this page">
-          <p class="docs-toc-label">On this page</p>
-          <nav id="on-this-page"></nav>
+          <div class="docs-on-page-inner">
+            <p class="docs-toc-label">On this page</p>
+            <nav id="on-this-page"></nav>
+          </div>
         </aside>
       </div>
     </main>
+    <button class="docs-drawer-scrim" type="button" data-docs-drawer-dismiss aria-label="Close documentation menu" hidden></button>
 
     <footer class="site-footer">
-      <span>GitVault Docs</span>
-      <span><a href="https://github.com/giofahreza/gitvault">github.com/giofahreza/gitvault</a></span>
+      <div class="footer-shell">
+        <div class="footer-brand">
+          <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true"><img src="/assets/icon/gitvault_new.jpeg" width="30" height="30" alt=""></span>
+            <span>GitVault</span>
+          </a>
+          <p>Open source under the MIT License.</p>
+        </div>
+        <nav aria-label="Footer navigation">
+          <a href="/">Home</a>
+          <a href="https://github.com/giofahreza/gitvault/releases/latest" target="_blank" rel="noreferrer">Releases</a>
+          <a href="https://github.com/giofahreza/gitvault" target="_blank" rel="noreferrer">Repository</a>
+        </nav>
+      </div>
     </footer>
     <script src="/docs.js?v=${VERSION}" defer></script>
   </body>
@@ -1443,6 +1481,19 @@ function docsHomeBody() {
           <p class="docs-lead">
             GitVault is an open source password manager for end users who want encrypted storage without a hosted backend. Your vault is encrypted on the device, then synced as ciphertext to your own private GitHub repository.
           </p>
+
+          <section class="docs-start-panel" aria-labelledby="start-with-confidence">
+            <div>
+              <p class="eyebrow">Start with confidence</p>
+              <h2 id="start-with-confidence">Make the first vault boring—in a good way.</h2>
+              <p>Begin with recovery and unlock, then add encrypted sync only when you need another device.</p>
+            </div>
+            <ol class="docs-start-list">
+              <li><a href="/docs/quick-start/"><span>01</span><strong>Quick start</strong><small>Create the vault and save recovery.</small></a></li>
+              <li><a href="/docs/github-sync/"><span>02</span><strong>Set up sync</strong><small>Connect private encrypted storage.</small></a></li>
+              <li><a href="/docs/devices/"><span>03</span><strong>Add a device</strong><small>Use a trusted-device link.</small></a></li>
+            </ol>
+          </section>
 
           <section aria-labelledby="what-is-gitvault">
             <h2 id="what-is-gitvault">What is GitVault</h2>

@@ -20,6 +20,9 @@ const article = document.querySelector(".docs-article");
 const outline = document.getElementById("on-this-page");
 const searchInput = document.getElementById("docs-search");
 const searchResults = document.getElementById("docs-search-results");
+const docsDirectory = document.getElementById("docs-directory");
+const docsDrawerToggle = document.querySelector("[data-docs-drawer-toggle]");
+const docsDrawerScrim = document.querySelector(".docs-drawer-scrim");
 
 const categoryAnchors = {
   Tutorials: "/docs/category/tutorials/",
@@ -81,7 +84,7 @@ function normalizePath(pathname) {
 function installActivePageState() {
   const currentPath = normalizePath(window.location.pathname);
 
-  document.querySelectorAll(".docs-toc a[href]").forEach((link) => {
+  document.querySelectorAll(".docs-directory a[href]").forEach((link) => {
     const linkPath = normalizePath(new URL(link.href, window.location.origin).pathname);
     const isActive = linkPath === currentPath;
     link.classList.toggle("is-active", isActive);
@@ -168,7 +171,12 @@ function installBreadcrumbs() {
   current.setAttribute("aria-current", "page");
   current.textContent = slug ? title : "Documentation";
   breadcrumbs.append(divider(), current);
-  article.prepend(breadcrumbs);
+  const heading = article.querySelector(".docs-heading");
+  if (heading) {
+    heading.prepend(breadcrumbs);
+  } else {
+    article.prepend(breadcrumbs);
+  }
 }
 
 function divider() {
@@ -190,8 +198,6 @@ function installMobileOutline() {
 
   const details = document.createElement("details");
   details.className = "docs-mobile-outline";
-  details.open = true;
-
   const summary = document.createElement("summary");
   summary.textContent = "Contents";
 
@@ -220,7 +226,7 @@ function installCategories() {
     return;
   }
 
-  const currentPageLink = document.querySelector('.docs-toc a[aria-current="page"]');
+  const currentPageLink = document.querySelector('.docs-directory a[aria-current="page"]');
   const baseCategory = currentPageLink?.dataset.category || article.querySelector(".eyebrow")?.textContent.trim();
   const labels = [...new Set([baseCategory, ...(extraCategoriesBySlug[slug] || [])].filter(Boolean))];
 
@@ -382,7 +388,7 @@ function installSearch() {
 }
 
 function buildFallbackSearchPages() {
-  return [...document.querySelectorAll(".docs-toc a[data-title]")].map((link) => ({
+  return [...document.querySelectorAll(".docs-directory a[data-title]")].map((link) => ({
     title: link.dataset.title || link.textContent.trim(),
     category: link.dataset.category || "",
     summary: link.dataset.summary || "",
@@ -393,6 +399,58 @@ function buildFallbackSearchPages() {
   }));
 }
 
+function installDocsDrawer() {
+  if (!docsDirectory || !docsDrawerToggle) {
+    return;
+  }
+
+  const compactViewport = window.matchMedia("(max-width: 820px)");
+
+  const setDrawerOpen = (open, { restoreFocus = false } = {}) => {
+    docsDirectory.classList.toggle("is-open", open);
+    document.body.classList.toggle("docs-drawer-open", open);
+    docsDrawerToggle.setAttribute("aria-expanded", String(open));
+
+    if (docsDrawerScrim) {
+      docsDrawerScrim.hidden = !open;
+    }
+
+    if (open) {
+      docsDirectory.focus({ preventScroll: true });
+    } else if (restoreFocus) {
+      docsDrawerToggle.focus({ preventScroll: true });
+    }
+  };
+
+  docsDrawerToggle.addEventListener("click", () => {
+    setDrawerOpen(!docsDirectory.classList.contains("is-open"));
+  });
+
+  document.querySelectorAll("[data-docs-drawer-dismiss]").forEach((control) => {
+    control.addEventListener("click", () => setDrawerOpen(false, { restoreFocus: control === docsDrawerScrim }));
+  });
+
+  docsDirectory.querySelectorAll("a[href]").forEach((link) => {
+    link.addEventListener("click", () => {
+      if (compactViewport.matches) {
+        setDrawerOpen(false);
+      }
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && docsDirectory.classList.contains("is-open")) {
+      setDrawerOpen(false, { restoreFocus: true });
+    }
+  });
+
+  compactViewport.addEventListener?.("change", (event) => {
+    if (!event.matches) {
+      setDrawerOpen(false);
+    }
+  });
+}
+
 redirectLegacyHashRoute();
 installActivePageState();
 installBreadcrumbs();
@@ -401,3 +459,4 @@ installMobileOutline();
 installHeadingSpy();
 installCategories();
 installSearch();
+installDocsDrawer();

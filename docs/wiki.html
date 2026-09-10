@@ -3,19 +3,23 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f7efea">
     <meta name="robots" content="noindex">
     <meta http-equiv="refresh" content="0; url=/docs/">
     <title>Redirecting to GitVault Docs</title>
     <link rel="canonical" href="https://gitvault.giofahreza.com/docs/">
-    <link rel="stylesheet" href="/docs.css?v=20260729c">
+    <link rel="preload" href="/assets/fonts/ibm-plex-sans-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
+    <script src="/landing.js?v=landing-20260909-orbit"></script>
+    <link rel="stylesheet" href="/docs.css?v=20260910-red">
     <script>
       const hash = window.location.hash || "";
       window.location.replace(`/docs/${hash}`);
     </script>
   </head>
-  <body>
+  <body class="landing-page docs-page">
     <main class="docs-page-shell">
-      <article class="docs-content docs-article" style="width:min(720px,calc(100% - 32px));margin:0 auto;padding:64px 0;">
+      <article class="docs-content docs-article docs-redirect">
         <div class="docs-heading">
           <p class="eyebrow">GitVault Docs</p>
           <h1>Redirecting</h1>
