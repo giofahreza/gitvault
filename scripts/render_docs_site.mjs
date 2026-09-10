@@ -6,9 +6,6 @@ const DOCS_ROOT = join(ROOT, "docs", "docs");
 const VERSION = "20260910-red";
 const SCREENSHOT_VERSION = "real-20260729";
 const UPDATED = "July 29, 2026";
-// The staging landing service intentionally serves only landing and docs assets.
-// Keep app CTAs pointed to the production Flutter web deployment.
-const WEB_APP_URL = "https://gitvault.giofahreza.com/app/";
 
 const primaryGroups = [
   {
@@ -107,7 +104,7 @@ const pages = [
 
       <h2>Create your first vault</h2>
       <ol class="docs-steps">
-        <li><span>1</span><div><strong>Open GitVault.</strong><p>Use <a class="docs-inline-link" href="${WEB_APP_URL}">the web app</a> on desktop, or install the Android APK from <a class="docs-inline-link" href="https://github.com/giofahreza/gitvault/releases/latest">GitHub Releases</a>.</p></div></li>
+        <li><span>1</span><div><strong>Open GitVault.</strong><p>Use <a class="docs-inline-link" href="/app/">the web app</a> on desktop, or install the Android APK from <a class="docs-inline-link" href="https://github.com/giofahreza/gitvault/releases/latest">GitHub Releases</a>.</p></div></li>
         <li><span>2</span><div><strong>Choose the new-vault path.</strong><p>Use fresh setup when this is your first GitVault device.</p></div></li>
         <li><span>3</span><div><strong>Save the recovery phrase.</strong><p>Write it down or store the recovery kit outside GitVault. Do not keep the only copy inside the vault.</p></div></li>
         <li><span>4</span><div><strong>Create a PIN.</strong><p>Use a 4-6 digit PIN you can enter accurately. On web, type the PIN with the physical keyboard.</p></div></li>
@@ -961,7 +958,7 @@ GitVault</code></pre>
 
       <h2>Web app</h2>
       <ol class="docs-steps">
-        <li><span>1</span><div><strong>Open the app.</strong><p>Go to <a class="docs-inline-link" href="${WEB_APP_URL}">gitvault.giofahreza.com/app/</a>.</p></div></li>
+        <li><span>1</span><div><strong>Open the app.</strong><p>Go to <a class="docs-inline-link" href="/app/">gitvault.giofahreza.com/app/</a>.</p></div></li>
         <li><span>2</span><div><strong>Unlock or onboard.</strong><p>Existing browsers unlock locally. New browsers must create, link, or restore a vault.</p></div></li>
         <li><span>3</span><div><strong>Check Settings.</strong><p>The web version should match the latest deployed release tag after GitHub Pages updates.</p></div></li>
       </ol>
@@ -1059,7 +1056,7 @@ shasum -a 256 -c SHA256SUMS-macos.txt</code></pre>
 
       <h2>Verify the web app</h2>
       <ol class="docs-steps compact">
-        <li><span>1</span><div><strong>Open <a class="docs-inline-link" href="${WEB_APP_URL}">the web app</a>.</strong><p>Use the deployed web app URL, not a stale local build.</p></div></li>
+        <li><span>1</span><div><strong>Open <a class="docs-inline-link" href="/app/">/app/</a>.</strong><p>Use the deployed web app URL, not a stale local build.</p></div></li>
         <li><span>2</span><div><strong>Open Settings, then About.</strong><p>The version should match the latest release tag after GitHub Pages finishes deploying.</p></div></li>
         <li><span>3</span><div><strong>Reload if needed.</strong><p>If the old version remains, wait for Pages deployment and reload the browser tab.</p></div></li>
       </ol>
@@ -1388,7 +1385,7 @@ function layout({ title, description, canonical, currentPath, articleClass = "",
               <svg class="theme-icon-sun" viewBox="0 0 16 16" focusable="false"><circle cx="8" cy="8" r="3"></circle><path d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"></path></svg>
             </span>
           </button>
-          <a class="button button-small nav-cta" href="${WEB_APP_URL}">Open app <span aria-hidden="true">↗</span></a>
+          <a class="button button-small nav-cta" href="/app/">Open app <span aria-hidden="true">↗</span></a>
         </div>
 
         <details class="mobile-menu">
@@ -1400,7 +1397,7 @@ function layout({ title, description, canonical, currentPath, articleClass = "",
             <a href="/docs/" aria-current="page">Documentation</a>
             <a href="https://github.com/giofahreza/gitvault/releases/latest" target="_blank" rel="noreferrer">Latest releases <span aria-hidden="true">↗</span></a>
             <a href="https://github.com/giofahreza/gitvault" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
-            <a class="button" href="${WEB_APP_URL}">Open web app <span aria-hidden="true">↗</span></a>
+            <a class="button" href="/app/">Open web app <span aria-hidden="true">↗</span></a>
           </nav>
         </details>
       </div>
@@ -1548,7 +1545,7 @@ function docsHomeBody() {
 
           <section aria-labelledby="release-status">
             <h2 id="release-status">Release and status</h2>
-            <p>Use <a class="docs-inline-link" href="https://github.com/giofahreza/gitvault/releases/latest">GitHub Releases</a> for Android and Desktop downloads and <a class="docs-inline-link" href="${WEB_APP_URL}">the web app</a> for browser access. Static docs deploy from the same repository through GitHub Pages.</p>
+            <p>Use <a class="docs-inline-link" href="https://github.com/giofahreza/gitvault/releases/latest">GitHub Releases</a> for Android and Desktop downloads and <a class="docs-inline-link" href="/app/">/app/</a> for the web app. Static docs deploy from the same repository through GitHub Pages.</p>
           </section>
   `;
 }
