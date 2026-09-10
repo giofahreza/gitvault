@@ -13,6 +13,7 @@ on:
       - "pubspec.yaml"
       - "screenshots/**"
       - "scripts/render_docs_site.mjs"
+      - "scripts/version_web_entry_assets.mjs"
       - "web/**"
   workflow_dispatch:
 
@@ -68,6 +69,7 @@ jobs:
           BUILD_NUMBER="$(echo "$VERSION" | awk -F. '{ print ($1 * 1000000) + ($2 * 1000) + $3 }')"
           echo "GITVAULT_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "GITVAULT_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "GITVAULT_WEB_CACHE_REVISION=$GITHUB_SHA" >> "$GITHUB_ENV"
 
       - name: Build Flutter web
         run: |
@@ -75,6 +77,9 @@ jobs:
             --pwa-strategy=none \
             --dart-define "GITVAULT_VERSION=$GITVAULT_VERSION" \
             --dart-define "GITVAULT_BUILD_NUMBER=$GITVAULT_BUILD_NUMBER"
+
+      - name: Version web entry assets
+        run: node scripts/version_web_entry_assets.mjs build/web "$GITVAULT_WEB_CACHE_REVISION"
 
       - name: Render docs site
         run: node scripts/render_docs_site.mjs
@@ -139,6 +144,8 @@ jobs:
           test -f pages-dist/app/index.html
           grep -q '<base href="/app/">' pages-dist/app/index.html
           grep -q '<base href="/app/">' pages-dist/app/404.html
+          grep -q "flutter_bootstrap.js?rev=$GITVAULT_WEB_CACHE_REVISION" pages-dist/app/index.html
+          grep -q "main.dart.js?rev=$GITVAULT_WEB_CACHE_REVISION" pages-dist/app/flutter_bootstrap.js
           grep -q "\"version\":\"$GITVAULT_VERSION\"" pages-dist/app/version.json
 
       - name: Setup Pages
