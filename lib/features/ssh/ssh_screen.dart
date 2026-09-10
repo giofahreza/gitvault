@@ -47,6 +47,7 @@ class _SshScreenState extends ConsumerState<SshScreen> {
   Widget build(BuildContext context) {
     final credentialsAsync = ref.watch(sshCredentialsProvider);
     final sshService = PersistentSshService();
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -70,8 +71,8 @@ class _SshScreenState extends ConsumerState<SshScreen> {
                   top: 8,
                   child: Container(
                     padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary,
                       shape: BoxShape.circle,
                     ),
                     constraints: const BoxConstraints(
@@ -80,8 +81,8 @@ class _SshScreenState extends ConsumerState<SshScreen> {
                     ),
                     child: Text(
                       '${sshService.activeSessionCount}',
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: colorScheme.onPrimary,
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
                       ),
@@ -241,7 +242,9 @@ class _SshScreenState extends ConsumerState<SshScreen> {
               child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete'),
           ),
@@ -338,21 +341,27 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
       socket.destroy();
 
       if (mounted) {
+        final colorScheme = Theme.of(context).colorScheme;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                '${widget.credential.host}:${widget.credential.port} reachable (${stopwatch.elapsedMilliseconds}ms)'),
-            backgroundColor: Colors.green,
+              '${widget.credential.host}:${widget.credential.port} reachable (${stopwatch.elapsedMilliseconds}ms)',
+              style: TextStyle(color: colorScheme.onPrimary),
+            ),
+            backgroundColor: colorScheme.primary,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
+        final colorScheme = Theme.of(context).colorScheme;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                '${widget.credential.host}:${widget.credential.port} unreachable'),
-            backgroundColor: Colors.red,
+              '${widget.credential.host}:${widget.credential.port} unreachable',
+              style: TextStyle(color: colorScheme.onError),
+            ),
+            backgroundColor: colorScheme.error,
           ),
         );
       }
@@ -467,11 +476,14 @@ class _SshCredentialTileState extends State<_SshCredentialTile> {
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'delete',
                   child: ListTile(
-                    leading: Icon(Icons.delete, color: Colors.red),
-                    title: Text('Delete', style: TextStyle(color: Colors.red)),
+                    leading: Icon(Icons.delete, color: colorScheme.error),
+                    title: Text(
+                      'Delete',
+                      style: TextStyle(color: colorScheme.error),
+                    ),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),

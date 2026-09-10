@@ -163,22 +163,26 @@ class _BackgroundSyncSettingsState
     }
 
     setState(() => _isSyncing = true);
+    final colorScheme = Theme.of(context).colorScheme;
 
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Row(
           children: [
             SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white)),
-            SizedBox(width: 12),
-            Text('Syncing with GitHub...'),
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: colorScheme.onInverseSurface,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text('Syncing with GitHub...'),
           ],
         ),
-        duration: Duration(minutes: 2),
+        duration: const Duration(minutes: 2),
       ),
     );
 
@@ -208,8 +212,10 @@ class _BackgroundSyncSettingsState
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Sync complete — pushed: ${result.pushed}, pulled: ${result.pulled}${result.conflicts > 0 ? ", conflicts: ${result.conflicts}" : ""}'),
-            backgroundColor: Colors.green,
+              'Sync complete — pushed: ${result.pushed}, pulled: ${result.pulled}${result.conflicts > 0 ? ", conflicts: ${result.conflicts}" : ""}',
+              style: TextStyle(color: colorScheme.onPrimary),
+            ),
+            backgroundColor: colorScheme.primary,
             duration: const Duration(seconds: 4),
           ),
         );
@@ -220,8 +226,11 @@ class _BackgroundSyncSettingsState
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Sync failed: $e'),
-            backgroundColor: Colors.red,
+            content: Text(
+              'Sync failed: $e',
+              style: TextStyle(color: colorScheme.onError),
+            ),
+            backgroundColor: colorScheme.error,
             duration: const Duration(seconds: 6),
           ),
         );
@@ -371,21 +380,22 @@ class _BackgroundSyncSettingsState
     }
 
     final status = _batteryStatus!;
+    final colorScheme = Theme.of(context).colorScheme;
     IconData icon;
     Color? iconColor;
 
     if (status.isCharging) {
       icon = Icons.battery_charging_full;
-      iconColor = Colors.green;
+      iconColor = colorScheme.primary;
     } else if (status.isCritical) {
       icon = Icons.battery_alert;
-      iconColor = Colors.red;
+      iconColor = colorScheme.error;
     } else if (status.batteryLevel < 20) {
       icon = Icons.battery_2_bar;
-      iconColor = Colors.orange;
+      iconColor = colorScheme.tertiary;
     } else {
       icon = Icons.battery_full;
-      iconColor = Colors.green;
+      iconColor = colorScheme.primary;
     }
 
     return Card(
@@ -412,25 +422,26 @@ class _BackgroundSyncSettingsState
     }
 
     final status = _connectivityStatus!;
+    final colorScheme = Theme.of(context).colorScheme;
     IconData icon;
     Color? iconColor;
     String subtitle;
 
     if (!status.isConnected) {
       icon = Icons.wifi_off;
-      iconColor = Colors.red;
+      iconColor = colorScheme.error;
       subtitle = 'No internet connection';
     } else if (status.isWifi) {
       icon = Icons.wifi;
-      iconColor = Colors.green;
+      iconColor = colorScheme.primary;
       subtitle = 'Connected to WiFi';
     } else if (status.isCellular) {
       icon = Icons.signal_cellular_4_bar;
-      iconColor = Colors.orange;
+      iconColor = colorScheme.tertiary;
       subtitle = 'Connected to cellular (metered)';
     } else {
       icon = Icons.network_check;
-      iconColor = Colors.blue;
+      iconColor = colorScheme.secondary;
       subtitle = 'Connected to ${status.connectionType.name}';
     }
 

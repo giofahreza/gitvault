@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../core/services/ssh_connection_manager.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/models/ssh_credential.dart';
 import '../../utils/clipboard_feedback.dart';
 import 'terminal_clipboard_shortcuts.dart';
@@ -262,9 +263,13 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
                   ),
                 )
               else if (_isConnected)
-                const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.circle, color: Colors.green, size: 10),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    Icons.circle,
+                    color: colorScheme.primary,
+                    size: 10,
+                  ),
                 )
               else
                 IconButton(
@@ -303,7 +308,9 @@ class _SshTerminalScreenState extends State<SshTerminalScreen> {
             ],
           ),
         ),
-        backgroundColor: Colors.black,
+        // The terminal viewport keeps its own terminal contrast; this frame
+        // belongs to the same dark oxblood system as the rest of the app.
+        backgroundColor: GitVaultPalette.darkPage,
         body: Column(
           children: [
             // Terminal view (takes full remaining space)

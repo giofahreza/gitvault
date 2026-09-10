@@ -110,6 +110,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
   @override
   Widget build(BuildContext context) {
     final entriesAsync = ref.watch(vaultEntriesProvider);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -367,7 +368,7 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              Icon(Icons.error_outline, size: 48, color: colorScheme.error),
               const SizedBox(height: 16),
               Text('Error: $err'),
             ],
@@ -478,7 +479,9 @@ class _TotpCodesPageState extends ConsumerState<TotpCodesPage> {
               child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete'),
           ),
@@ -977,7 +980,8 @@ class _TotpCodeCardState extends State<_TotpCodeCard> {
 
     // Color changes to warning when < 5 seconds remaining
     final isExpiring = widget.secondsRemaining <= 5;
-    final progressColor = isExpiring ? Colors.orange : colorScheme.primary;
+    final progressColor =
+        isExpiring ? colorScheme.tertiary : colorScheme.primary;
     final semanticLabel = [
       '2FA code',
       widget.entry.title,
@@ -1063,7 +1067,8 @@ class _TotpCodeCardState extends State<_TotpCodeCard> {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: isExpiring ? Colors.orange : colorScheme.onSurface,
+                color:
+                    isExpiring ? colorScheme.tertiary : colorScheme.onSurface,
               ),
             ),
           ],

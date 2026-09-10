@@ -98,6 +98,7 @@ class _SshSessionsScreenState extends State<SshSessionsScreen> {
       initialData: session.isConnected ? SshSessionState.connected : SshSessionState.disconnected,
       builder: (context, snapshot) {
         final state = snapshot.data ?? SshSessionState.disconnected;
+        final colorScheme = Theme.of(context).colorScheme;
 
         IconData statusIcon;
         Color statusColor;
@@ -105,19 +106,19 @@ class _SshSessionsScreenState extends State<SshSessionsScreen> {
         switch (state) {
           case SshSessionState.connecting:
             statusIcon = Icons.sync;
-            statusColor = Colors.orange;
+            statusColor = colorScheme.tertiary;
             break;
           case SshSessionState.connected:
             statusIcon = Icons.check_circle;
-            statusColor = Colors.green;
+            statusColor = colorScheme.primary;
             break;
           case SshSessionState.disconnected:
             statusIcon = Icons.cancel;
-            statusColor = Colors.red;
+            statusColor = colorScheme.error;
             break;
           case SshSessionState.error:
             statusIcon = Icons.error;
-            statusColor = Colors.red;
+            statusColor = colorScheme.error;
             break;
         }
 
@@ -178,11 +179,14 @@ class _SshSessionsScreenState extends State<SshSessionsScreen> {
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'disconnect',
                   child: ListTile(
-                    leading: Icon(Icons.close, color: Colors.red),
-                    title: Text('Disconnect', style: TextStyle(color: Colors.red)),
+                    leading: Icon(Icons.close, color: colorScheme.error),
+                    title: Text(
+                      'Disconnect',
+                      style: TextStyle(color: colorScheme.error),
+                    ),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
@@ -231,6 +235,7 @@ class _SshSessionsScreenState extends State<SshSessionsScreen> {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Close'),
@@ -259,6 +264,7 @@ class _SshSessionsScreenState extends State<SshSessionsScreen> {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Close All'),

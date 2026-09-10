@@ -61,27 +61,27 @@ enum NoteColor {
   int get colorValue {
     switch (this) {
       case NoteColor.white:
-        return 0xFFFFFFFF;
+        return 0xFFFFFAF7;
       case NoteColor.red:
-        return 0xFFF28B82;
+        return 0xFFED735A;
       case NoteColor.orange:
-        return 0xFFFBBC04;
+        return 0xFFD15845;
       case NoteColor.yellow:
-        return 0xFFFFF475;
+        return 0xFFB94736;
       case NoteColor.green:
-        return 0xFFCCFF90;
+        return 0xFFBD4032;
       case NoteColor.teal:
-        return 0xFFA7FFEB;
+        return 0xFF6D221F;
       case NoteColor.blue:
-        return 0xFFCBF0F8;
+        return 0xFFF2E3DC;
       case NoteColor.purple:
-        return 0xFFAECBFA;
+        return 0xFF321112;
       case NoteColor.pink:
-        return 0xFFFDCFE8;
+        return 0xFFED735A;
       case NoteColor.brown:
-        return 0xFFE6C9A8;
+        return 0xFF5F4543;
       case NoteColor.gray:
-        return 0xFFE8EAED;
+        return 0xFFECD8CF;
     }
   }
 

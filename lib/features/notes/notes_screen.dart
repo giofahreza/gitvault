@@ -1105,6 +1105,7 @@ class _NoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final colorScheme = Theme.of(context).colorScheme;
     final backgroundColor = note.getBackgroundColor(brightness);
     final textColor = note.getTextColor(brightness);
     final borderColor = note.getBorderColor(brightness);
@@ -1146,23 +1147,23 @@ class _NoteCard extends StatelessWidget {
           padding: const EdgeInsets.only(left: 16),
           decoration: BoxDecoration(
             color: note.isPinned
-                ? Colors.grey.withValues(alpha: 0.3)
-                : Colors.blue.withValues(alpha: 0.3),
+                ? colorScheme.outline.withValues(alpha: 0.3)
+                : colorScheme.primary.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
             note.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
-            color: note.isPinned ? Colors.grey : Colors.blue,
+            color: note.isPinned ? colorScheme.outline : colorScheme.primary,
           ),
         ),
         secondaryBackground: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 16),
           decoration: BoxDecoration(
-            color: Colors.orange.withValues(alpha: 0.3),
+            color: colorScheme.tertiary.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: const Icon(Icons.archive, color: Colors.orange),
+          child: Icon(Icons.archive, color: colorScheme.tertiary),
         ),
         onDismissed: (_) => onArchive(),
         child: Card(
@@ -1359,6 +1360,7 @@ class _NoteListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
+    final colorScheme = Theme.of(context).colorScheme;
     final backgroundColor = note.getBackgroundColor(brightness);
     final textColor = note.getTextColor(brightness);
     final iconColor = NoteColorPalette.getIconColor(brightness);
@@ -1391,18 +1393,18 @@ class _NoteListTile extends StatelessWidget {
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.only(left: 16),
         color: note.isPinned
-            ? Colors.grey.withValues(alpha: 0.3)
-            : Colors.blue.withValues(alpha: 0.3),
+            ? colorScheme.outline.withValues(alpha: 0.3)
+            : colorScheme.primary.withValues(alpha: 0.3),
         child: Icon(
           note.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
-          color: note.isPinned ? Colors.grey : Colors.blue,
+          color: note.isPinned ? colorScheme.outline : colorScheme.primary,
         ),
       ),
       secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 16),
-        color: Colors.orange.withValues(alpha: 0.3),
-        child: const Icon(Icons.archive, color: Colors.orange),
+        color: colorScheme.tertiary.withValues(alpha: 0.3),
+        child: Icon(Icons.archive, color: colorScheme.tertiary),
       ),
       onDismissed: (_) => onArchive(),
       child: Card(

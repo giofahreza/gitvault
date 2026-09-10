@@ -378,7 +378,9 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
                     child: const Text('Cancel')),
                 FilledButton(
                   style: FilledButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.error),
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError,
+                  ),
                   onPressed: () => Navigator.pop(ctx, true),
                   child: const Text('Delete'),
                 ),
@@ -438,6 +440,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete'),
@@ -676,6 +679,7 @@ class _EntryDetailsSheet extends ConsumerWidget {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Remove'),
@@ -1339,7 +1343,9 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
                   CircularProgressIndicator(
                     value: _secondsRemaining / 30,
                     strokeWidth: 2,
-                    color: isExpiring ? Colors.orange : colorScheme.primary,
+                    color: isExpiring
+                        ? colorScheme.tertiary
+                        : colorScheme.primary,
                     backgroundColor: colorScheme.outlineVariant,
                   ),
                   Text(
@@ -1347,7 +1353,9 @@ class _TotpCodeRowState extends State<_TotpCodeRow> {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: isExpiring ? Colors.orange : colorScheme.onSurface,
+                      color: isExpiring
+                          ? colorScheme.tertiary
+                          : colorScheme.onSurface,
                     ),
                   ),
                 ],

@@ -762,19 +762,20 @@ class _ServerStatusTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final (label, color) = switch (state.status) {
       McpDesktopServerStatus.ready => (
           'Ready · ${state.activeSessions} active sessions',
-          Colors.green
+          colorScheme.primary
         ),
-      McpDesktopServerStatus.locked => ('Locked', Colors.orange),
-      McpDesktopServerStatus.starting => ('Starting...', Colors.orange),
+      McpDesktopServerStatus.locked => ('Locked', colorScheme.tertiary),
+      McpDesktopServerStatus.starting => ('Starting...', colorScheme.tertiary),
       McpDesktopServerStatus.error => (
           state.error ?? 'Server error',
-          Theme.of(context).colorScheme.error
+          colorScheme.error
         ),
-      McpDesktopServerStatus.unsupported => ('Unsupported', Colors.grey),
-      McpDesktopServerStatus.stopped => ('Stopped', Colors.grey),
+      McpDesktopServerStatus.unsupported => ('Unsupported', colorScheme.outline),
+      McpDesktopServerStatus.stopped => ('Stopped', colorScheme.outline),
     };
     return ListTile(
       leading: Icon(Icons.circle, size: 12, color: color),

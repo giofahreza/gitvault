@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="launch_background">#180D0E</color>
+    <color name="system_bar">#180D0E</color>
+    <color name="ime_surface">#180D0E</color>
+    <color name="ime_text">#FFFFFF</color>
+    <color name="ime_muted">#FFFFFF</color>
+    <color name="ime_divider">#442825</color>
+    <color name="ime_oxblood">#7C2923</color>
+    <color name="ime_accent">#ED735A</color>
+    <color name="ime_tab_inactive">#FFFFFF</color>
+    <color name="ime_on_oxblood">#FFFFFF</color>
+</resources>

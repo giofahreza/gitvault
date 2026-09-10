@@ -4,7 +4,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
+
 import '../../core/services/persistent_ssh_service.dart';
+import '../../core/theme/app_theme.dart';
 import '../../utils/clipboard_feedback.dart';
 import 'terminal_clipboard_shortcuts.dart';
 
@@ -275,8 +277,12 @@ class _SshPersistentTerminalScreenState
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      // The terminal viewport keeps its own terminal contrast; this frame
+      // belongs to the same dark oxblood system as the rest of the app.
+      backgroundColor: GitVaultPalette.darkPage,
       body: SafeArea(
         child: GestureDetector(
           onLongPress: _showContextMenu,
@@ -302,7 +308,7 @@ class _SshPersistentTerminalScreenState
                   ),
                 ),
               ),
-              _buildKeyboardToolbar(Theme.of(context).colorScheme),
+              _buildKeyboardToolbar(colorScheme),
             ],
           ),
         ),
@@ -342,10 +348,13 @@ class _SshPersistentTerminalScreenState
                             child: CircularProgressIndicator(strokeWidth: 2)),
                       );
                     } else if (state == SshSessionState.connected) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8),
-                        child:
-                            Icon(Icons.circle, color: Colors.green, size: 10),
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(
+                          Icons.circle,
+                          color: colorScheme.primary,
+                          size: 10,
+                        ),
                       );
                     } else {
                       return _buildIconKey(

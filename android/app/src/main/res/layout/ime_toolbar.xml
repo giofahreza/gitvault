@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@android:color/white">
+    android:background="@color/ime_surface">
 
     <!-- Single row: lock icon | title | divider | Passwords tab | 2FA tab | refresh button -->
     <LinearLayout
@@ -15,7 +15,7 @@
         android:gravity="center_vertical"
         android:paddingStart="12dp"
         android:paddingEnd="4dp"
-        android:background="@android:color/white">
+        android:background="@color/ime_surface">
 
         <ImageView
             android:id="@+id/ime_lock_icon"
@@ -23,7 +23,8 @@
             android:layout_height="18dp"
             android:layout_marginEnd="6dp"
             android:contentDescription="@string/ime_lock_icon"
-            android:src="@android:drawable/ic_lock_lock" />
+            android:src="@android:drawable/ic_lock_lock"
+            android:tint="@color/ime_accent" />
 
         <TextView
             android:id="@+id/ime_title"
@@ -33,14 +34,14 @@
             android:text="@string/app_name"
             android:textSize="13sp"
             android:textStyle="bold"
-            android:textColor="@android:color/black" />
+            android:textColor="@color/ime_text" />
 
         <View
             android:id="@+id/ime_title_divider"
             android:layout_width="1dp"
             android:layout_height="20dp"
             android:layout_marginEnd="4dp"
-            android:background="@android:color/darker_gray" />
+            android:background="@color/ime_divider" />
 
         <TextView
             android:id="@+id/tab_passwords"
@@ -53,8 +54,8 @@
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
-            android:textColor="@android:color/white"
-            android:background="#6750A4" />
+            android:textColor="@color/ime_on_oxblood"
+            android:background="@color/ime_oxblood" />
 
         <TextView
             android:id="@+id/tab_2fa"
@@ -67,8 +68,8 @@
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
-            android:textColor="#6750A4"
-            android:background="@android:color/white" />
+            android:textColor="@color/ime_tab_inactive"
+            android:background="@color/ime_surface" />
 
         <ImageButton
             android:id="@+id/ime_load_credentials"
@@ -77,7 +78,8 @@
             android:layout_marginStart="4dp"
             android:background="@android:color/transparent"
             android:contentDescription="Reload"
-            android:src="@android:drawable/ic_popup_sync" />
+            android:src="@android:drawable/ic_popup_sync"
+            android:tint="@color/ime_accent" />
 
     </LinearLayout>
 
@@ -86,7 +88,7 @@
         android:id="@+id/ime_divider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="@android:color/darker_gray" />
+        android:background="@color/ime_divider" />
 
     <!-- Message when no credentials available -->
     <TextView
@@ -96,8 +98,8 @@
         android:padding="16dp"
         android:text="@string/ime_empty_state"
         android:textAlignment="center"
-        android:textColor="@android:color/darker_gray"
-        android:background="@android:color/white"
+        android:textColor="@color/ime_muted"
+        android:background="@color/ime_surface"
         android:visibility="visible" />
 
     <!-- Credential list -->
@@ -105,7 +107,7 @@
         android:id="@+id/ime_credentials_scroll"
         android:layout_width="match_parent"
         android:layout_height="120dp"
-        android:background="@android:color/white"
+        android:background="@color/ime_surface"
         android:visibility="gone">
 
         <LinearLayout

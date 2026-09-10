@@ -1,40 +1,41 @@
 import 'package:flutter/material.dart';
 
+import 'app_theme.dart';
+
 /// Dual color palettes for Notes feature
-/// Provides brightness-aware colors for all 11 Google Keep-style note colors
-/// Critical for ensuring readability in both light and dark themes
+/// Provides brightness-aware warm note colors drawn from the GitVault palette.
 class NoteColorPalette {
   // Prevent instantiation
   NoteColorPalette._();
 
-  /// Light theme palette - Google Keep style pastel colors
+  /// Light theme palette - warm paper, oxblood, and ember variants.
   static const Map<int, Color> _lightPalette = {
-    0: Color(0xFFFFFFFF), // White
-    1: Color(0xFFF28B82), // Red
-    2: Color(0xFFFBBC04), // Orange
-    3: Color(0xFFFFF475), // Yellow
-    4: Color(0xFFCCFF90), // Green
-    5: Color(0xFFA7FFEB), // Teal
-    6: Color(0xFFCBF0F8), // Cyan
-    7: Color(0xFFAECBFA), // Blue
-    8: Color(0xFFD7AEFB), // Purple
-    9: Color(0xFFFDCFE8), // Pink
-    10: Color(0xFFE6C9A8), // Brown
+    0: GitVaultPalette.lightSurface,
+    1: GitVaultPalette.lightSignal,
+    2: GitVaultPalette.lightTerracotta,
+    3: GitVaultPalette.lightFocus,
+    4: GitVaultPalette.lightSignalDeep,
+    5: GitVaultPalette.lightOxblood,
+    6: GitVaultPalette.lightSurfaceWarm,
+    7: GitVaultPalette.lightSurfaceSoft,
+    8: GitVaultPalette.lightOxbloodDeep,
+    9: GitVaultPalette.lightSignal,
+    10: GitVaultPalette.lightInkSoft,
   };
 
-  /// Dark theme palette - Deep saturated variants for readability
+  /// Dark theme palette - deep oxblood surfaces with white type.
   static const Map<int, Color> _darkPalette = {
-    0: Color(0xFF202124), // Dark grey (instead of white)
-    1: Color(0xFF5C2B29), // Deep red
-    2: Color(0xFF614A19), // Deep orange
-    3: Color(0xFF635D19), // Deep yellow
-    4: Color(0xFF345920), // Deep green
-    5: Color(0xFF16504B), // Deep teal
-    6: Color(0xFF2D555E), // Deep cyan
-    7: Color(0xFF1E3A5F), // Deep blue
-    8: Color(0xFF42275E), // Deep purple
-    9: Color(0xFF5B2245), // Deep pink
-    10: Color(0xFF442F1E), // Deep brown
+    0: GitVaultPalette.darkSurface,
+    1: GitVaultPalette.darkOxblood,
+    2: GitVaultPalette.darkOxbloodDeep,
+    3: GitVaultPalette.darkSurfaceWarm,
+    4: GitVaultPalette.darkSurfaceSoft,
+    5: GitVaultPalette.darkOxblood,
+    6: GitVaultPalette.darkSurfaceWarm,
+    7: GitVaultPalette.darkSurfaceSoft,
+    8: GitVaultPalette.darkOxbloodDeep,
+    9: GitVaultPalette.darkOxblood,
+    10: GitVaultPalette.darkSurfaceSoft,
   };
 
   /// Get the appropriate color for the given color index and brightness
@@ -43,36 +44,36 @@ class NoteColorPalette {
     return palette[colorIndex] ?? palette[0]!;
   }
 
-  /// Get text color that contrasts with the note background
-  /// Light theme: dark text, Dark theme: light text
+  /// Get text color that contrasts with the note background.
   static Color getTextColor(int colorIndex, Brightness brightness) {
-    return brightness == Brightness.light
-        ? Colors.black87
-        : Colors.white.withOpacity(0.9);
+    final background = getColor(colorIndex, brightness);
+    return background.computeLuminance() > 0.18
+        ? GitVaultPalette.lightOxbloodDeep
+        : GitVaultPalette.white;
   }
 
   /// Get border color for note cards
   /// Subtle border that works in both themes
   static Color getBorderColor(int colorIndex, Brightness brightness) {
     return brightness == Brightness.light
-        ? Colors.black.withOpacity(0.12)
-        : Colors.white.withOpacity(0.12);
+        ? GitVaultPalette.lightInk.withOpacity(0.12)
+        : GitVaultPalette.white.withOpacity(0.12);
   }
 
   /// Get background color for tags/chips on notes
   /// Slightly darker/lighter than note background for contrast
   static Color getTagBackgroundColor(int colorIndex, Brightness brightness) {
     return brightness == Brightness.light
-        ? Colors.black.withOpacity(0.08)
-        : Colors.white.withOpacity(0.15);
+        ? GitVaultPalette.lightInk.withOpacity(0.08)
+        : GitVaultPalette.white.withOpacity(0.15);
   }
 
   /// Get icon color (pin, menu) on note cards
   /// Ensures icons are visible on all note backgrounds
   static Color getIconColor(Brightness brightness) {
     return brightness == Brightness.light
-        ? Colors.black.withOpacity(0.6)
-        : Colors.white.withOpacity(0.7);
+        ? GitVaultPalette.lightInk.withOpacity(0.6)
+        : GitVaultPalette.white.withOpacity(0.7);
   }
 
   /// Get hint text color for note editor

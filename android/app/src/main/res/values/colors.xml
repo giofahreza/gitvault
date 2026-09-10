@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#C32624</color>
+    <color name="ic_launcher_background">#6D221F</color>
+    <color name="launch_background">#FFFAF7</color>
+    <color name="system_bar">#F7EFEA</color>
+    <color name="ime_surface">#FFFAF7</color>
+    <color name="ime_text">#2C1718</color>
+    <color name="ime_muted">#5F4543</color>
+    <color name="ime_divider">#ECD8CF</color>
+    <color name="ime_oxblood">#6D221F</color>
+    <color name="ime_accent">#6D221F</color>
+    <color name="ime_tab_inactive">#6D221F</color>
+    <color name="ime_on_oxblood">#FFFFFF</color>
 </resources>

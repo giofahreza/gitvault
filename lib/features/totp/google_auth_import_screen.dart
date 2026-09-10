@@ -89,6 +89,7 @@ class _GoogleAuthImportScreenState
     if (kIsWeb) {
       return _buildWebMigrationPaste();
     }
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -103,7 +104,7 @@ class _GoogleAuthImportScreenState
                   _scanning = false;
                 });
               },
-              child: const Text('Done', style: TextStyle(color: Colors.white)),
+              child: const Text('Done'),
             ),
         ],
       ),
@@ -161,13 +162,13 @@ class _GoogleAuthImportScreenState
                     padding:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: Colors.green,
+                      color: colorScheme.primary,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       '✓ Scanned $_qrCodesScanned QR code${_qrCodesScanned == 1 ? '' : 's'} - ${_accounts.length} accounts',
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: colorScheme.onPrimary,
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),
@@ -307,6 +308,7 @@ class _GoogleAuthImportScreenState
   }
 
   Widget _buildBody() {
+    final colorScheme = Theme.of(context).colorScheme;
     if (_error != null) {
       return Center(
         child: Padding(
@@ -314,7 +316,7 @@ class _GoogleAuthImportScreenState
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              Icon(Icons.error_outline, size: 48, color: colorScheme.error),
               const SizedBox(height: 16),
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 24),
@@ -461,11 +463,11 @@ class _GoogleAuthImportScreenState
                   ? null
                   : _importSelected,
               icon: _importing
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                          strokeWidth: 2, color: colorScheme.onPrimary),
                     )
                   : const Icon(Icons.import_export),
               label: Text(
@@ -529,6 +531,7 @@ class _GoogleAuthImportScreenState
       }
 
       if (mounted) {
+        final colorScheme = Theme.of(context).colorScheme;
         String message =
             'Imported $imported account${imported == 1 ? '' : 's'} successfully';
         if (skipped > 0) {
@@ -536,8 +539,11 @@ class _GoogleAuthImportScreenState
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.green,
+            content: Text(
+              message,
+              style: TextStyle(color: colorScheme.onPrimary),
+            ),
+            backgroundColor: colorScheme.primary,
           ),
         );
         Navigator.pop(context);

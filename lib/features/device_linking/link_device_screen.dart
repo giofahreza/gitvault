@@ -818,11 +818,11 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
               child: FilledButton(
                 onPressed: _linking ? null : _verifyAndLink,
                 child: _linking
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
+                            strokeWidth: 2, color: colorScheme.onPrimary))
                     : const Text('Link Device'),
               ),
             ),
@@ -1050,6 +1050,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
             final result = await BackgroundSyncService.performSyncNow();
 
             if (mounted) {
+              final colorScheme = Theme.of(context).colorScheme;
               // Invalidate repository providers — cascades to all list providers
               // and forces fresh instances so newly synced Hive data is read.
               ref.invalidate(vaultRepositoryProvider);
@@ -1063,8 +1064,9 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
                   content: Text(
                     'Device linked! GitHub sync configured automatically. '
                     'Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
+                    style: TextStyle(color: colorScheme.onPrimary),
                   ),
-                  backgroundColor: Colors.green,
+                  backgroundColor: colorScheme.primary,
                   duration: const Duration(seconds: 5),
                 ),
               );
@@ -1072,13 +1074,15 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
           } catch (syncError) {
             // Sync failure is non-fatal — device is still linked and GitHub is configured
             if (mounted) {
+              final colorScheme = Theme.of(context).colorScheme;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
                     'Device linked! GitHub sync configured, but initial sync failed: $syncError\n'
                     'You can sync manually from Settings.',
+                    style: TextStyle(color: colorScheme.onTertiary),
                   ),
-                  backgroundColor: Colors.orange,
+                  backgroundColor: colorScheme.tertiary,
                   duration: const Duration(seconds: 6),
                 ),
               );

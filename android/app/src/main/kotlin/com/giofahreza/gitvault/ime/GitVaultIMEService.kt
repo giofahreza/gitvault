@@ -1,6 +1,7 @@
 package com.giofahreza.gitvault.ime
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.hardware.biometrics.BiometricPrompt
 import android.inputmethodservice.InputMethodService
@@ -13,6 +14,7 @@ import android.view.LayoutInflater
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -57,16 +59,15 @@ class GitVaultIMEService : InputMethodService() {
         }
     }
 
-    private fun bgColor(dark: Boolean)      = if (dark) 0xFF1C1B1F.toInt() else android.graphics.Color.WHITE
-    private fun surfaceColor(dark: Boolean) = if (dark) 0xFF2B2930.toInt() else 0xFFF5F0FF.toInt()
-    private fun textColor(dark: Boolean)    = if (dark) android.graphics.Color.WHITE else android.graphics.Color.BLACK
-    private fun subTextColor(dark: Boolean) = if (dark) 0xFFCAC4D0.toInt() else android.graphics.Color.DKGRAY
-    private fun dividerColor(dark: Boolean) = if (dark) 0xFF49454F.toInt() else 0xFFDDDDDD.toInt()
-    private fun tabSelectedBg(dark: Boolean)   = if (dark) 0xFF6650A4.toInt() else 0xFF6750A4.toInt()
-    private fun tabUnselectedBg(dark: Boolean) = if (dark) 0xFF2B2930.toInt() else android.graphics.Color.WHITE
-    private fun tabSelectedText()   = android.graphics.Color.WHITE
-    private fun tabUnselectedText(dark: Boolean) = if (dark) 0xFFD0BCFF.toInt() else 0xFF6750A4.toInt()
-    private fun accentColor(dark: Boolean)  = if (dark) 0xFFD0BCFF.toInt() else 0xFF6750A4.toInt()
+    private fun bgColor(dark: Boolean) = if (dark) 0xFF180D0E.toInt() else 0xFFFFFAF7.toInt()
+    private fun textColor(dark: Boolean) = if (dark) 0xFFFFFFFF.toInt() else 0xFF2C1718.toInt()
+    private fun subTextColor(dark: Boolean) = if (dark) 0xFFFFFFFF.toInt() else 0xFF5F4543.toInt()
+    private fun dividerColor(dark: Boolean) = if (dark) 0xFF442825.toInt() else 0xFFECD8CF.toInt()
+    private fun tabSelectedBg(dark: Boolean) = if (dark) 0xFF7C2923.toInt() else 0xFF6D221F.toInt()
+    private fun tabUnselectedBg(dark: Boolean) = bgColor(dark)
+    private fun tabSelectedText() = 0xFFFFFFFF.toInt()
+    private fun tabUnselectedText(dark: Boolean) = if (dark) 0xFFFFFFFF.toInt() else 0xFF6D221F.toInt()
+    private fun accentColor(dark: Boolean) = if (dark) 0xFFED735A.toInt() else 0xFF6D221F.toInt()
 
     // Credential waiting to be filled on next IME rebind to target field
     @Volatile
@@ -152,6 +153,10 @@ class GitVaultIMEService : InputMethodService() {
             msg?.setTextColor(subTextColor(dark))
             msg?.setBackgroundColor(bg)
         }
+        inputView?.findViewById<ImageView>(R.id.ime_lock_icon)
+            ?.imageTintList = ColorStateList.valueOf(accentColor(dark))
+        inputView?.findViewById<ImageButton>(R.id.ime_load_credentials)
+            ?.imageTintList = ColorStateList.valueOf(accentColor(dark))
         inputView?.findViewById<ScrollView>(R.id.ime_credentials_scroll)
             ?.setBackgroundColor(bg)
         inputView?.findViewById<LinearLayout>(R.id.ime_credentials_list)
@@ -379,6 +384,7 @@ class GitVaultIMEService : InputMethodService() {
                 val pad = (8 * density).toInt()
                 setPadding(pad, pad, pad, pad)
                 setImageResource(android.R.drawable.ic_dialog_info)
+                imageTintList = ColorStateList.valueOf(accentColor(dark))
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 isClickable = true
                 isFocusable = false
@@ -397,6 +403,7 @@ class GitVaultIMEService : InputMethodService() {
                 val pad = (8 * density).toInt()
                 setPadding(pad, pad, pad, pad)
                 setImageResource(android.R.drawable.ic_lock_lock)
+                imageTintList = ColorStateList.valueOf(accentColor(dark))
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 isClickable = true
                 isFocusable = false
@@ -509,6 +516,7 @@ class GitVaultIMEService : InputMethodService() {
                 val pad = (8 * density).toInt()
                 setPadding(pad, pad, pad, pad)
                 setImageResource(android.R.drawable.ic_menu_send)
+                imageTintList = ColorStateList.valueOf(accentColor(dark))
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 isClickable = true
                 isFocusable = false

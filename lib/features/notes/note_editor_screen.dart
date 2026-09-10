@@ -1527,6 +1527,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Delete'),

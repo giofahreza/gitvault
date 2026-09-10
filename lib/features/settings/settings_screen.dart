@@ -191,6 +191,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final clipboardSeconds = ref.watch(clipboardClearSecondsProvider);
     final themeMode = ref.watch(themeModeProvider);
     final pinEnabledAsync = ref.watch(pinEnabledProvider);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -421,9 +422,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Divider(),
               const _SectionHeader(title: 'Danger Zone'),
               ListTile(
-                leading: const Icon(Icons.delete_forever, color: Colors.red),
-                title: const Text('Wipe All Data',
-                    style: TextStyle(color: Colors.red)),
+                leading:
+                    Icon(Icons.delete_forever, color: colorScheme.error),
+                title: Text(
+                  'Wipe All Data',
+                  style: TextStyle(color: colorScheme.error),
+                ),
                 onTap: () => _showWipeConfirmation(context, ref),
               ),
             ],
@@ -476,7 +480,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const SizedBox(height: 8),
               OutlinedButton(
-                style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(ctx).colorScheme.error,
+                ),
                 onPressed: () {
                   Navigator.pop(ctx);
                   _removePinDialog(context, ref);
@@ -968,7 +974,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error,
+                foregroundColor: Theme.of(ctx).colorScheme.onError,
+              ),
               onPressed: removing
                   ? null
                   : () => removePin(dialogContext, setDialogState),
@@ -1561,7 +1570,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('Cancel')),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+              ),
               onPressed: confirmText == 'WIPE'
                   ? () => _wipeAllData(context, dialogContext, ref)
                   : null,
@@ -1653,12 +1665,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'IMPORTANT: Write down these 24 words in order and store them safely.',
                       style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange),
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(dialogContext).colorScheme.tertiary,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     const Text(
@@ -1831,8 +1844,9 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
       data: (connected) => ListTile(
         leading: Icon(
           Icons.cloud,
-          color:
-              connected ? Colors.green : Theme.of(context).colorScheme.outline,
+          color: connected
+              ? Theme.of(context).colorScheme.primary
+              : Theme.of(context).colorScheme.outline,
         ),
         title: const Text('GitHub Sync'),
         subtitle: Text(connected ? 'Connected' : 'Not configured'),
@@ -1862,13 +1876,21 @@ class _GitHubStatusTileState extends ConsumerState<_GitHubStatusTile> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
+              Row(
                 children: [
-                  Icon(Icons.check_circle, color: Colors.green, size: 20),
-                  SizedBox(width: 8),
-                  Text('Connected',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, color: Colors.green)),
+                  Icon(
+                    Icons.check_circle,
+                    color: Theme.of(ctx).colorScheme.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Connected',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(ctx).colorScheme.primary,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -2091,6 +2113,7 @@ Future<void> showGitHubSetupDialog(
     builder: (ctx) => StatefulBuilder(
       builder: (dialogContext, setState) {
         final size = MediaQuery.sizeOf(dialogContext);
+        final colorScheme = Theme.of(dialogContext).colorScheme;
         final mobileLayout = size.width < 600;
         final contentWidth = mobileLayout
             ? (size.width > 80 ? size.width - 48 : size.width)
@@ -2330,12 +2353,14 @@ Future<void> showGitHubSetupDialog(
                               SnackBar(
                                 content: Row(
                                   children: [
-                                    const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white)),
+                                    SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: colorScheme.onInverseSurface,
+                                      ),
+                                    ),
                                     const SizedBox(width: 12),
                                     Text(syncMessage),
                                   ],
@@ -2369,8 +2394,11 @@ Future<void> showGitHubSetupDialog(
                                   SnackBar(
                                     content: Text(
                                       'GitHub sync configured! Pulled ${result.pulled} and pushed ${result.pushed} item${result.pushed == 1 ? "" : "s"}.',
+                                      style: TextStyle(
+                                        color: colorScheme.onPrimary,
+                                      ),
                                     ),
-                                    backgroundColor: Colors.green,
+                                    backgroundColor: colorScheme.primary,
                                     duration: const Duration(seconds: 5),
                                   ),
                                 );
@@ -2382,8 +2410,12 @@ Future<void> showGitHubSetupDialog(
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                        'GitHub configured, but sync failed: $syncError'),
-                                    backgroundColor: Colors.orange,
+                                      'GitHub configured, but sync failed: $syncError',
+                                      style: TextStyle(
+                                        color: colorScheme.onTertiary,
+                                      ),
+                                    ),
+                                    backgroundColor: colorScheme.tertiary,
                                     duration: const Duration(seconds: 6),
                                   ),
                                 );
@@ -2391,10 +2423,14 @@ Future<void> showGitHubSetupDialog(
                             }
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content:
-                                    Text('GitHub sync configured successfully'),
-                                backgroundColor: Colors.green,
+                              SnackBar(
+                                content: Text(
+                                  'GitHub sync configured successfully',
+                                  style: TextStyle(
+                                    color: colorScheme.onPrimary,
+                                  ),
+                                ),
+                                backgroundColor: colorScheme.primary,
                               ),
                             );
                           }
@@ -2409,11 +2445,13 @@ Future<void> showGitHubSetupDialog(
                       }
                     },
               child: validating
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                        strokeWidth: 2,
+                        color: colorScheme.onPrimary,
+                      ),
                     )
                   : const Text('Save & Validate'),
             ),
@@ -2488,7 +2526,10 @@ void _showRecoveryCodeDialog(
           child: const Text('Restore with Recovery Phrase'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(ctx).colorScheme.tertiary,
+            foregroundColor: Theme.of(ctx).colorScheme.onTertiary,
+          ),
           onPressed: () {
             Navigator.pop(ctx);
             _showEraseRepoDialog(context, ref,
@@ -2656,11 +2697,13 @@ Future<void> _showEnterRecoveryCodeDialog(
                     }
                   },
             child: validating
-                ? const SizedBox(
+                ? SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
+                      strokeWidth: 2,
+                      color: Theme.of(context).colorScheme.onPrimary,
+                    ),
                   )
                 : const Text('Restore'),
           ),
@@ -3076,12 +3119,12 @@ Future<bool> _showNewTokenRecoveryDialog(
                     }
                   },
             child: validating
-                ? const SizedBox(
+                ? SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: Theme.of(dialogContext).colorScheme.onPrimary,
                     ),
                   )
                 : const Text('Verify New Token'),
@@ -3122,18 +3165,19 @@ Future<void> _finishRecoveredVault(
 
   if (!context.mounted) return;
 
+  final colorScheme = Theme.of(context).colorScheme;
   ref.invalidate(isVaultSetupProvider);
   ScaffoldMessenger.of(context).hideCurrentSnackBar();
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Row(
         children: [
-          const SizedBox(
+          SizedBox(
             width: 20,
             height: 20,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: Colors.white,
+              color: colorScheme.onInverseSurface,
             ),
           ),
           const SizedBox(width: 12),
@@ -3168,8 +3212,9 @@ Future<void> _finishRecoveredVault(
       SnackBar(
         content: Text(
           'Vault restored! Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from GitHub.',
+          style: TextStyle(color: colorScheme.onPrimary),
         ),
-        backgroundColor: Colors.green,
+        backgroundColor: colorScheme.primary,
         duration: const Duration(seconds: 5),
       ),
     );
@@ -3181,8 +3226,9 @@ Future<void> _finishRecoveredVault(
         content: Text(
           'Recovery completed, but sync failed: $syncError\n'
           'Try "Sync Now" in Settings > Background Sync.',
+          style: TextStyle(color: colorScheme.onTertiary),
         ),
-        backgroundColor: Colors.orange,
+        backgroundColor: colorScheme.tertiary,
         duration: const Duration(seconds: 6),
       ),
     );
@@ -3200,17 +3246,20 @@ void _showEraseRepoDialog(
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('Erase Repository Data?'),
-      content: const Column(
+      content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'WARNING: This will permanently delete all existing vault data in the repository.',
             style: TextStyle(
-                fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red),
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(ctx).colorScheme.error,
+            ),
           ),
-          SizedBox(height: 16),
-          Text(
+          const SizedBox(height: 16),
+          const Text(
             'This action cannot be undone. Only proceed if you are sure you want to start fresh.',
             style: TextStyle(fontSize: 14),
           ),
@@ -3222,7 +3271,10 @@ void _showEraseRepoDialog(
           child: const Text('Cancel'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(ctx).colorScheme.error,
+            foregroundColor: Theme.of(ctx).colorScheme.onError,
+          ),
           onPressed: () async {
             try {
               final github = GitHubService(
@@ -3279,10 +3331,14 @@ void _showEraseRepoDialog(
               if (context.mounted) {
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
+                  SnackBar(
                     content: Text(
-                        'Repository erased successfully. GitHub sync configured.'),
-                    backgroundColor: Colors.green,
+                      'Repository erased successfully. GitHub sync configured.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onPrimary,
+                      ),
+                    ),
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                   ),
                 );
               }
