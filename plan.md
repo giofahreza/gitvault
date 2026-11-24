@@ -2014,3 +2014,22 @@ passing execution counts. Five new defect categories are corrected and the
 defined local regression matrices pass. **Full feature acceptance is still not
 certified**: the remaining acceptance table and the hidden-Date browser clock
 limitation above are explicit limits of this local-only verification.
+
+## Release preparation — proposed v1.0.135
+
+Implementation, tests, CI coverage and this verification record are committed
+as `d07e553` (`fix: reconcile trusted devices and harden MCP access`). The
+proposed next release tag is **v1.0.135**, following origin's v1.0.134, with
+Flutter package version **1.0.135+1000135**. No release tag is created during
+this preparation step; tag creation is held for the user's next instruction.
+
+The production web configuration builds successfully with `/app/`, no PWA
+service worker, and `GITVAULT_VERSION=1.0.135` /
+`GITVAULT_BUILD_NUMBER=1000135`. Its version manifest and compiled version are
+verified. Evidence: `/tmp/gitvault-v1.0.135-pretag-web.log`. This is a versioned
+web build, not execution of the tag-triggered Android/desktop release pipeline.
+
+The existing workflow uses one `v*` tag to build Android APKs, Linux, Windows,
+macOS and web, publish release artifacts, and deploy Pages. A normal master
+push already runs desktop CI and the separate Pages deployment. All remaining
+acceptance limits in the preceding section still apply to this proposed release.
