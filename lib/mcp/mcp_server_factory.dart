@@ -69,7 +69,8 @@ class GitVaultMcpServerFactory {
 
       server.registerTool(
         'list_note_tags',
-        description: 'List tags from notes visible to this AI app.',
+        description:
+            'List up to 100 tags from visible notes, with total and truncated indicators.',
         inputSchema: JsonSchema.object(
           properties: const {},
           additionalProperties: false,
@@ -88,7 +89,7 @@ class GitVaultMcpServerFactory {
       server.registerTool(
         'resolve_note_link',
         description:
-            'Resolve a GitVault note title, alias, wiki-link target, or UUID without reading note bodies.',
+            'Resolve a note title, alias, wiki-link target, or UUID without reading bodies. Returns up to 100 matches with total and truncated indicators.',
         inputSchema: JsonSchema.object(
           properties: {
             'query': JsonSchema.string(maxLength: 500),
@@ -151,7 +152,7 @@ class GitVaultMcpServerFactory {
       server.registerTool(
         'get_note',
         description:
-            'Read one GitVault note. Use the returned modified_at value for later writes.',
+            'Read one GitVault note up to 262144 characters. Use modified_at for later writes. Oversized existing notes return invalid_input; clipped metadata is marked metadata_truncated.',
         inputSchema: _noteIdSchema(),
         annotations: const ToolAnnotations(
           readOnlyHint: true,
@@ -170,7 +171,7 @@ class GitVaultMcpServerFactory {
       server.registerTool(
         'get_note_outline',
         description:
-            'Return Markdown headings, block anchors, and task counts for one note.',
+            'Return up to 100 Markdown headings and 100 block anchors, each preview up to 500 characters, with full counts and a truncated indicator.',
         inputSchema: _noteIdSchema(),
         annotations: const ToolAnnotations(
           readOnlyHint: true,
@@ -189,7 +190,7 @@ class GitVaultMcpServerFactory {
       server.registerTool(
         'list_backlinks',
         description:
-            'List scoped notes that link to or mention the requested note.',
+            'List up to 100 scoped backlinks or mentions, with total and truncated indicators. Labels and heading previews are limited to 500 characters.',
         inputSchema: JsonSchema.object(
           properties: {
             'note_id': JsonSchema.string(maxLength: 100),
@@ -217,7 +218,7 @@ class GitVaultMcpServerFactory {
       server.registerTool(
         'resolve_block_reference',
         description:
-            'Resolve a scoped Markdown block anchor such as ^decision-1.',
+            'Resolve a scoped Markdown block anchor such as ^decision-1. Returns up to 100 matches with 500-character previews, total and truncated indicators.',
         inputSchema: JsonSchema.object(
           properties: {
             'block_id': JsonSchema.string(maxLength: 100),
@@ -511,7 +512,8 @@ class GitVaultMcpServerFactory {
         listCallback: null,
       ),
       (
-        description: 'Read one note visible to this AI app.',
+        description:
+            'Read one visible note up to 262144 characters; oversized notes return invalid_input. Clipped metadata is marked metadata_truncated.',
         mimeType: 'application/json'
       ),
       (uri, variables, extra) async {

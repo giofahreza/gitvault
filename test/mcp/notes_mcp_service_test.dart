@@ -396,8 +396,10 @@ void main() {
       query: 'System design',
     );
     expect(resolution['status'], 'resolved');
-    expect(((resolution['matches'] as List).single as Map)['uuid'],
-        'architecture',);
+    expect(
+      ((resolution['matches'] as List).single as Map)['uuid'],
+      'architecture',
+    );
 
     final backlinks = await service.listBacklinks(
       clientId: issued.client.id,
@@ -611,6 +613,7 @@ class _RacingDailyNotesRepository extends MemoryNotesRepository {
     List<String> tags = const ['journal'],
     List<String> aliases = const [],
     NoteColor color = NoteColor.white,
+    void Function()? beforeCommit,
   }) async {
     return JournalNoteResult(note: concurrentNote, created: false);
   }

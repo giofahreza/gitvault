@@ -17,6 +17,7 @@ class DesktopLifecycleService with WindowListener, TrayListener {
   final McpApprovalController _approvalController;
   final McpDesktopServer _server;
   final void Function() _onLock;
+  final void Function() _onQuit;
   bool _initialized = false;
   bool _trayVisible = false;
   bool _quitting = false;
@@ -27,10 +28,12 @@ class DesktopLifecycleService with WindowListener, TrayListener {
     required McpApprovalController approvalController,
     required McpDesktopServer server,
     required void Function() onLock,
+    required void Function() onQuit,
   })  : _registry = registry,
         _approvalController = approvalController,
         _server = server,
-        _onLock = onLock;
+        _onLock = onLock,
+        _onQuit = onQuit;
 
   bool get _supported =>
       Platform.isWindows || Platform.isMacOS || Platform.isLinux;
@@ -163,6 +166,9 @@ class DesktopLifecycleService with WindowListener, TrayListener {
   Future<void> requestQuit() async {
     if (_quitting || !_supported) return;
     _quitting = true;
+    // Revoke access before awaiting transport shutdown. Already approved
+    // operations may still be encrypting or reading when quit is requested.
+    _onQuit();
     await _server.stop();
     if (_trayVisible) {
       await trayManager.destroy();

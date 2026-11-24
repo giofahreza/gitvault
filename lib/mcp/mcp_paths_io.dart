@@ -61,22 +61,31 @@ class McpLocalPaths {
   }) async {
     if (Platform.isWindows) {
       final username = Platform.environment['USERNAME'];
-      if (username == null || username.isEmpty) return;
+      if (username == null || username.isEmpty) {
+        throw const FileSystemException(
+            'Cannot determine the credential owner.');
+      }
       try {
-        await Process.run(
+        final result = await Process.run(
           'icacls',
           [path, '/inheritance:r', '/grant:r', '$username:(F)'],
         );
-      } catch (_) {
-        // The per-user AppData directory remains the fallback boundary.
+        if (result.exitCode != 0) {
+          throw const FileSystemException('Cannot secure MCP credentials.');
+        }
+      } on ProcessException {
+        throw const FileSystemException('Cannot secure MCP credentials.');
       }
       return;
     }
     final mode = directory ? '700' : '600';
     try {
-      await Process.run('chmod', [mode, path]);
-    } catch (_) {
-      // The containing user profile remains the fallback access boundary.
+      final result = await Process.run('chmod', [mode, path]);
+      if (result.exitCode != 0) {
+        throw const FileSystemException('Cannot secure MCP credentials.');
+      }
+    } on ProcessException {
+      throw const FileSystemException('Cannot secure MCP credentials.');
     }
   }
 }

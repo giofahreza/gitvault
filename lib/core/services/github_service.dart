@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:github/github.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 
 import '../../utils/constants.dart';
 
@@ -17,26 +19,135 @@ class GitHubService {
     required String repoOwner,
     required String repoName,
     String branch = Constants.dataBranch,
-  })  : _github = GitHub(auth: Authentication.bearerToken(accessToken)),
+    http.Client? client,
+  })  : _github = GitHub(
+          auth: Authentication.bearerToken(accessToken),
+          client: client,
+        ),
         _repoOwner = repoOwner,
         _repoName = repoName,
         _branch = branch;
 
   RepositorySlug get _slug => RepositorySlug(_repoOwner, _repoName);
 
+  String get registryScope =>
+      '${'$_repoOwner/$_repoName'.toLowerCase()}@$_branch';
+
+  Future<http.Response> _snapshotRequest(
+    String method,
+    String path, {
+    String? body,
+  }) async {
+    try {
+      return await _github
+          .request(method, path, body: body)
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw GitHubException(
+        'GitHub request timed out. Please retry.',
+        kind: 'timeout',
+      );
+    } catch (_) {
+      throw GitHubException(
+        'GitHub is unavailable. Please retry.',
+        kind: 'network',
+      );
+    }
+  }
+
+  /// Reads content and its update precondition in the same response.
+  Future<RemoteFileSnapshot> readFileSnapshot(String path) async {
+    final response = await _snapshotRequest(
+      'GET',
+      '/repos/$_repoOwner/$_repoName/contents/$path?ref=${Uri.encodeQueryComponent(_branch)}',
+    );
+    if (response.statusCode == 404) {
+      final branch = await _snapshotRequest(
+        'GET',
+        '/repos/$_repoOwner/$_repoName/branches/${Uri.encodeComponent(_branch)}',
+      );
+      if (branch.statusCode == 404) {
+        throw GitHubException(
+          'Registry branch is unavailable',
+          statusCode: 404,
+          kind: 'missing_branch',
+        );
+      }
+      _checkResponse(branch, 'Check registry branch');
+      return const RemoteFileSnapshot.missing();
+    }
+    _checkResponse(response, 'Read file');
+    try {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final sha = json['sha'] as String;
+      final encoded = json['content'] as String;
+      if (sha.isEmpty || encoded.isEmpty || json['encoding'] != 'base64') {
+        throw const FormatException();
+      }
+      final date = response.headers['date'];
+      final serverTime = date == null
+          ? null
+          : DateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", 'en_US')
+              .parseUtc(date);
+      return RemoteFileSnapshot(
+        serverTime: serverTime,
+        bytes: base64Decode(encoded.replaceAll(RegExp(r'\s'), '')),
+        sha: sha,
+      );
+    } catch (_) {
+      throw GitHubException(
+        'Invalid remote file response',
+        kind: 'invalid_data',
+      );
+    }
+  }
+
+  /// A single compare-and-swap attempt. The caller must rebase on conflict.
+  Future<String> writeFileSnapshot({
+    required String path,
+    required Uint8List content,
+    required String? expectedSha,
+    required String commitMessage,
+  }) async {
+    final response = await _snapshotRequest(
+      'PUT',
+      '/repos/$_repoOwner/$_repoName/contents/$path',
+      body: jsonEncode({
+        'message': commitMessage,
+        'content': base64Encode(content),
+        'branch': _branch,
+        if (expectedSha != null) 'sha': expectedSha,
+      }),
+    );
+    // GitHub may report a concurrent create as 422 (missing required SHA).
+    if (response.statusCode == 422 && expectedSha == null) {
+      final latest = await readFileSnapshot(path);
+      if (latest.exists) {
+        throw GitHubException('Concurrent file creation', statusCode: 409);
+      }
+    }
+    _checkResponse(response, 'Write file');
+    try {
+      final sha = (jsonDecode(response.body)['content']['sha']) as String;
+      if (sha.isEmpty) throw const FormatException();
+      return sha;
+    } catch (_) {
+      throw GitHubException('Invalid write response', kind: 'invalid_data');
+    }
+  }
+
   /// Checks if the response is successful (2xx), throws if not
   void _checkResponse(http.Response response, String action) {
     if (response.statusCode >= 200 && response.statusCode < 300) return;
-    final body = response.body;
-    String message;
-    try {
-      final json = jsonDecode(body) as Map<String, dynamic>;
-      message = json['message'] as String? ?? body;
-    } catch (_) {
-      message = body;
-    }
     throw GitHubException(
-      '$action failed (${response.statusCode}): $message',
+      '$action failed (HTTP ${response.statusCode})',
+      statusCode: response.statusCode,
+      kind: response.statusCode == 429 ||
+              (response.statusCode == 403 &&
+                  (response.headers['x-ratelimit-remaining'] == '0' ||
+                      response.headers.containsKey('retry-after')))
+          ? 'rate_limit'
+          : 'http',
     );
   }
 
@@ -48,6 +159,9 @@ class GitHubService {
     String commitMessage = 'Update entry',
     bool isRetry = false,
   }) async {
+    if (path == Constants.trustedDevicesFile) {
+      throw StateError('Registry writes require an explicit snapshot SHA');
+    }
     try {
       // Check if file exists to get its SHA for updates
       String? existingSha;
@@ -57,7 +171,8 @@ class GitHubService {
           '/repos/$_repoOwner/$_repoName/contents/$path?ref=$_branch',
         );
         if (response.statusCode == 200) {
-          final responseJson = jsonDecode(response.body) as Map<String, dynamic>;
+          final responseJson =
+              jsonDecode(response.body) as Map<String, dynamic>;
           existingSha = responseJson['sha'] as String?;
         }
       } catch (e) {
@@ -95,13 +210,13 @@ class GitHubService {
         final errorStr = e.toString().toLowerCase();
         if (!isRetry &&
             (errorStr.contains('not found') ||
-             errorStr.contains('empty') ||
-             errorStr.contains('git repository is empty') ||
-             errorStr.contains('409') ||
-             errorStr.contains('404') ||
-             errorStr.contains('422') ||
-             errorStr.contains('no commit found') ||
-             errorStr.contains('branch'))) {
+                errorStr.contains('empty') ||
+                errorStr.contains('git repository is empty') ||
+                errorStr.contains('409') ||
+                errorStr.contains('404') ||
+                errorStr.contains('422') ||
+                errorStr.contains('no commit found') ||
+                errorStr.contains('branch'))) {
           // Ensure data branch exists and retry
           await _ensureDataBranch();
 
@@ -114,37 +229,16 @@ class GitHubService {
           );
         }
       }
-      throw e is GitHubException ? e : GitHubException('Failed to upload file: $e');
+      throw e is GitHubException
+          ? e
+          : GitHubException('Failed to upload file: $e');
     }
   }
 
   /// Downloads a file from the repository on the data branch
   /// Returns the file content as bytes, or null if file not found
   Future<Uint8List?> downloadFile(String path) async {
-    try {
-      final response = await _github.request(
-        'GET',
-        '/repos/$_repoOwner/$_repoName/contents/$path?ref=$_branch',
-      );
-
-      // Auth errors should throw, everything else treat as "not found"
-      if (response.statusCode == 401 || response.statusCode == 403) {
-        _checkResponse(response, 'Download file "$path"');
-      }
-      if (response.statusCode != 200) return null;
-
-      final responseJson = jsonDecode(response.body) as Map<String, dynamic>;
-      final base64Content = (responseJson['content'] as String?)?.replaceAll('\n', '') ?? '';
-      if (base64Content.isEmpty) return null;
-
-      return base64Decode(base64Content);
-    } catch (e) {
-      final errorStr = e.toString().toLowerCase();
-      if (errorStr.contains('404') || errorStr.contains('not found')) {
-        return null;
-      }
-      throw e is GitHubException ? e : GitHubException('Failed to download file: $e');
-    }
+    return (await readFileSnapshot(path)).bytes;
   }
 
   /// Lists all files in a directory on the data branch
@@ -170,7 +264,9 @@ class GitHubService {
       if (errorStr.contains('404') || errorStr.contains('not found')) {
         return [];
       }
-      throw e is GitHubException ? e : GitHubException('Failed to list files: $e');
+      throw e is GitHubException
+          ? e
+          : GitHubException('Failed to list files: $e');
     }
   }
 
@@ -212,7 +308,9 @@ class GitHubService {
       if (errorStr.contains('404') || errorStr.contains('not found')) {
         return; // File already gone
       }
-      throw e is GitHubException ? e : GitHubException('Failed to delete file: $e');
+      throw e is GitHubException
+          ? e
+          : GitHubException('Failed to delete file: $e');
     }
   }
 
@@ -237,11 +335,17 @@ class GitHubService {
       if (e is GitHubException) rethrow;
 
       if (errorStr.contains('404')) {
-        throw GitHubException('Repository not found. Check owner/repo name, or verify token has repository access.');
+        throw GitHubException(
+          'Repository not found. Check owner/repo name, or verify token has repository access.',
+        );
       } else if (errorStr.contains('401')) {
-        throw GitHubException('Invalid token. Generate a new token at github.com/settings/tokens');
+        throw GitHubException(
+          'Invalid token. Generate a new token at github.com/settings/tokens',
+        );
       } else if (errorStr.contains('403')) {
-        throw GitHubException('Insufficient permissions. Token needs Metadata and Contents permissions.');
+        throw GitHubException(
+          'Insufficient permissions. Token needs Metadata and Contents permissions.',
+        );
       } else {
         throw GitHubException('Failed to verify repository: $e');
       }
@@ -322,7 +426,7 @@ Generated by [GitVault](https://github.com/giofahreza/gitvault)
     // Branch doesn't exist, create it
     // Get the SHA of the default branch's latest commit
     final repo = await _github.repositories.getRepository(_slug);
-    final defaultBranch = repo.defaultBranch ?? 'main';
+    final defaultBranch = repo.defaultBranch;
 
     final refResponse = await _github.request(
       'GET',
@@ -372,8 +476,27 @@ Generated by [GitVault](https://github.com/giofahreza/gitvault)
 /// Custom exception for GitHub errors
 class GitHubException implements Exception {
   final String message;
-  GitHubException(this.message);
+  final int? statusCode;
+  final String? kind;
+  bool get isConflict => statusCode == 409;
+  GitHubException(this.message, {this.statusCode, this.kind});
 
   @override
   String toString() => 'GitHubException: $message';
+}
+
+class RemoteFileSnapshot {
+  final Uint8List? bytes;
+  final String? sha;
+  final DateTime? serverTime;
+  bool get exists => sha != null;
+  const RemoteFileSnapshot({
+    required this.bytes,
+    required this.sha,
+    this.serverTime,
+  });
+  const RemoteFileSnapshot.missing()
+      : bytes = null,
+        sha = null,
+        serverTime = null;
 }

@@ -1038,7 +1038,8 @@ void main() {
     },
   );
 
-  testWidgets('templates never appear in regular notes and are listed separately',
+  testWidgets(
+      'templates never appear in regular notes and are listed separately',
       (WidgetTester tester) async {
     final now = DateTime.utc(2026, 8, 12);
     final repository = _RecordingNotesRepository([
@@ -1530,6 +1531,7 @@ class _RecordingNotesRepository extends NotesRepository {
     List<ChecklistItem> checklistItems = const [],
     DateTime? journalDate,
     bool isTemplate = false,
+    void Function()? beforeCommit,
   }) async {
     final now = DateTime.now();
     final note = Note(
@@ -1548,6 +1550,7 @@ class _RecordingNotesRepository extends NotesRepository {
       createdAt: now,
       modifiedAt: now,
     );
+    beforeCommit?.call();
     savedNote = note;
     notes[note.uuid] = note;
     return note;
@@ -1558,6 +1561,19 @@ class _RecordingNotesRepository extends NotesRepository {
     savedNote = note;
     notes[note.uuid] = note;
     return note;
+  }
+
+  @override
+  Future<Note?> updateNoteIfUnchanged(
+    Note note, {
+    required DateTime expectedModifiedAt,
+    void Function()? beforeCommit,
+  }) async {
+    final current = notes[note.uuid];
+    if (current == null ||
+        !current.modifiedAt.isAtSameMomentAs(expectedModifiedAt)) return null;
+    beforeCommit?.call();
+    return updateNote(note);
   }
 
   @override

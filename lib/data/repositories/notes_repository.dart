@@ -67,6 +67,7 @@ class NotesRepository {
     List<ChecklistItem> checklistItems = const [],
     DateTime? journalDate,
     bool isTemplate = false,
+    void Function()? beforeCommit,
   }) async {
     final now = DateTime.now();
     final nextSortOrder = await _getNextSortOrder();
@@ -88,7 +89,7 @@ class NotesRepository {
       modifiedAt: now,
     );
 
-    await _saveNote(note);
+    await _saveNote(note, beforeCommit: beforeCommit);
     return note;
   }
 
@@ -103,6 +104,7 @@ class NotesRepository {
   Future<Note?> updateNoteIfUnchanged(
     Note note, {
     required DateTime expectedModifiedAt,
+    void Function()? beforeCommit,
   }) {
     return _enqueueWrite(() async {
       final current = await getNote(note.uuid);
@@ -111,7 +113,7 @@ class NotesRepository {
         return null;
       }
       final updated = note.copyWith(modifiedAt: DateTime.now());
-      await _writeNote(updated);
+      await _writeNote(updated, beforeCommit: beforeCommit);
       return updated;
     });
   }
@@ -133,6 +135,7 @@ class NotesRepository {
     String uuid, {
     required DateTime expectedModifiedAt,
     DateTime? deletedAt,
+    void Function()? beforeCommit,
   }) {
     if (!_isInitialized) {
       throw StateError('NotesRepository not initialized');
@@ -143,6 +146,7 @@ class NotesRepository {
           !current.modifiedAt.isAtSameMomentAs(expectedModifiedAt)) {
         return false;
       }
+      beforeCommit?.call();
       await _notesBox.delete(uuid);
       await SyncTombstoneStore.recordDeletion(
         uuid,
@@ -294,9 +298,8 @@ class NotesRepository {
 
   /// Get reusable encrypted note templates.
   Future<List<Note>> getTemplates() async {
-    final templates = (await getAllStoredNotes())
-        .where((note) => note.isTemplate)
-        .toList();
+    final templates =
+        (await getAllStoredNotes()).where((note) => note.isTemplate).toList();
     templates.sort((left, right) => left.title.compareTo(right.title));
     return templates;
   }
@@ -322,6 +325,7 @@ class NotesRepository {
     List<String> tags = const ['journal'],
     List<String> aliases = const [],
     NoteColor color = NoteColor.white,
+    void Function()? beforeCommit,
   }) {
     final day = journalDay(date);
     return _enqueueWrite(() async {
@@ -350,7 +354,7 @@ class NotesRepository {
         createdAt: now,
         modifiedAt: now,
       );
-      await _writeNote(note);
+      await _writeNote(note, beforeCommit: beforeCommit);
       return JournalNoteResult(note: note, created: true);
     });
   }
@@ -383,11 +387,11 @@ class NotesRepository {
     return maxOrder + 1;
   }
 
-  Future<void> _saveNote(Note note) async {
-    await _enqueueWrite(() => _writeNote(note));
+  Future<void> _saveNote(Note note, {void Function()? beforeCommit}) async {
+    await _enqueueWrite(() => _writeNote(note, beforeCommit: beforeCommit));
   }
 
-  Future<void> _writeNote(Note note) async {
+  Future<void> _writeNote(Note note, {void Function()? beforeCommit}) async {
     if (!_isInitialized) {
       throw StateError('NotesRepository not initialized');
     }
@@ -408,6 +412,9 @@ class NotesRepository {
     final encryptedBytes = encryptedBox.toBytes();
     final base64Encoded = base64Encode(encryptedBytes);
 
+    // Encryption and queue waits are asynchronous. Revalidate access at the
+    // persistence boundary, after those waits and before starting the write.
+    beforeCommit?.call();
     await _notesBox.put(note.uuid, base64Encoded);
   }
 

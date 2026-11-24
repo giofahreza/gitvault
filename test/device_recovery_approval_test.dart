@@ -1,13 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gitvault/core/crypto/crypto_manager.dart';
 import 'package:gitvault/core/crypto/key_storage.dart';
 import 'package:gitvault/core/services/github_service.dart';
 import 'package:gitvault/data/repositories/notes_repository.dart';
 import 'package:gitvault/data/repositories/sync_engine.dart';
+import 'package:gitvault/data/repositories/device_registry_store.dart';
 import 'package:gitvault/data/repositories/ssh_repository.dart';
 import 'package:gitvault/data/repositories/vault_repository.dart';
 import 'package:gitvault/utils/constants.dart';
@@ -38,6 +41,52 @@ void main() {
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
+  });
+
+  test('recognition rebases a concurrent approval instead of losing it',
+      () async {
+    final harness = await _createHarness({
+      'devices': [
+        {'deviceId': 'phone-device', 'registrationMethod': 'sync'},
+      ],
+      'pendingDeviceApprovals': [
+        _approval(
+          status: 'pending',
+          expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+        ),
+      ],
+    });
+    harness.githubService.beforeWrite = () async {
+      final registry = await _decryptRegistry(harness);
+      final request =
+          (registry['pendingDeviceApprovals'] as List).single as Map;
+      request['status'] = 'approved';
+      request['respondedAt'] = DateTime.now().toIso8601String();
+      request['respondedByDeviceId'] = 'other-trusted-device';
+      harness.githubService.files[Constants.trustedDevicesFile] =
+          await _encryptRegistry(
+        registry,
+        harness.cryptoManager,
+        harness.rootKey,
+      );
+    };
+
+    await SyncEngine.recognizeDeviceRegistration(
+      keyStorage: harness.keyStorage,
+      cryptoManager: harness.cryptoManager,
+      githubService: harness.githubService,
+      deviceId: 'phone-device',
+    );
+
+    final registry = await _decryptRegistry(harness);
+    expect(
+      ((registry['pendingDeviceApprovals'] as List).single as Map)['status'],
+      'approved',
+    );
+    expect(
+      ((registry['devices'] as List).single as Map)['registrationMethod'],
+      'recognized',
+    );
   });
 
   test('late trusted-device approval is treated as expired', () async {
@@ -267,7 +316,7 @@ void main() {
     expect(harness.githubService.uploadCount, uploadCountAfterLink);
   });
 
-  test('linked device with missing invite is still registered as linked',
+  test('new linked device with missing invite is rejected without writing',
       () async {
     final cryptoManager = CryptoManager();
     final rootKey = cryptoManager.generateRandomKey();
@@ -295,23 +344,20 @@ void main() {
     );
     await harness.keyStorage.storePendingDeviceInviteId('missing-invite');
 
-    final registry = await SyncEngine.refreshDeviceRegistry(
-      keyStorage: harness.keyStorage,
-      cryptoManager: harness.cryptoManager,
-      githubService: harness.githubService,
-      uploadIfNeeded: true,
+    await expectLater(
+      SyncEngine.refreshDeviceRegistry(
+        keyStorage: harness.keyStorage,
+        cryptoManager: harness.cryptoManager,
+        githubService: harness.githubService,
+        uploadIfNeeded: true,
+      ),
+      throwsStateError,
     );
-    final devices =
-        (registry!['devices'] as List<dynamic>).cast<Map<String, dynamic>>();
-    final linkedDevice = devices.singleWhere(
-      (device) => device['deviceId'] == 'phone-device',
-    );
-
+    expect(harness.githubService.uploadCount, 0);
     expect(
-      linkedDevice['registrationMethod'],
-      SyncEngine.deviceRegistrationMethodLink,
+      await harness.keyStorage.getPendingDeviceInviteId(),
+      'missing-invite',
     );
-    expect(await harness.keyStorage.getPendingDeviceInviteId(), isNull);
   });
 
   test('recognized device is not downgraded by later refresh', () async {
@@ -614,6 +660,616 @@ void main() {
     expect(registry['activeGitHubTokenFingerprint'], isNot(oldFingerprint));
   });
 
+  test('heartbeat rebases approval and preserves unknown fields', () async {
+    final h = await _createHarness({
+      'devices': [
+        {
+          'deviceId': 'trusted-device',
+          'name': 'Trusted Laptop',
+          'registrationMethod': 'setup',
+        }
+      ],
+      'pendingDeviceApprovals': [
+        _approval(
+          status: 'pending',
+          expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+        ),
+      ],
+      'futureField': {'version': 7},
+    });
+    h.githubService.beforeWrite = () => _remoteEdit(h, (r) {
+          (r['pendingDeviceApprovals'] as List).single.addAll({
+            'status': 'approved',
+            'respondedAt': DateTime.now().toUtc().toIso8601String(),
+            'respondedByDeviceId': 'other-trusted-device',
+            'respondedByName': 'Other Laptop',
+          });
+        });
+    await _refresh(h);
+    final r = await _decryptRegistry(h);
+    expect((r['pendingDeviceApprovals'] as List).single['status'], 'approved');
+    expect((r['devices'] as List).single['lastSeen'], isNotNull);
+    expect(r['futureField'], {'version': 7});
+    expect(h.githubService.conflicts, 1);
+  });
+
+  test('different concurrent approvals both survive', () async {
+    final h = await _pendingHarness();
+    await _remoteEdit(
+      h,
+      (r) => (r['pendingDeviceApprovals'] as List).add({
+        ..._approval(
+          status: 'pending',
+          expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+        ),
+        'approvalId': 'approval-2',
+      }),
+    );
+    h.githubService.beforeWrite = () => _remoteEdit(h, (r) {
+          (r['pendingDeviceApprovals'] as List)[1].addAll({
+            'status': 'approved',
+            'respondedAt': DateTime.now().toUtc().toIso8601String(),
+            'respondedByDeviceId': 'other-trusted-device',
+            'respondedByName': 'Other Laptop',
+          });
+        });
+    await _respond(h);
+    expect(
+      (await _decryptRegistry(h))['pendingDeviceApprovals'],
+      everyElement(containsPair('status', 'approved')),
+    );
+  });
+
+  test('concurrent opposite answers cannot reverse first terminal answer',
+      () async {
+    final h = await _pendingHarness();
+    h.githubService.beforeWrite = () => _remoteEdit(h, (r) {
+          (r['pendingDeviceApprovals'] as List).single
+            ..['status'] = 'denied'
+            ..['respondedAt'] = DateTime.now().toIso8601String();
+        });
+    await expectLater(_respond(h), throwsStateError);
+    expect(
+      (await _decryptRegistry(h))['pendingDeviceApprovals'],
+      everyElement(containsPair('status', 'denied')),
+    );
+  });
+
+  test('revocation during refresh prevents trust resurrection', () async {
+    final h = await _createHarness({
+      'devices': [
+        {'deviceId': 'trusted-device'},
+      ],
+    });
+    h.githubService.beforeWrite = () => _remoteEdit(h, (r) {
+          r['devices'] = [];
+          r['revokedDevices'] = [
+            {'deviceId': 'trusted-device'},
+          ];
+        });
+    await expectLater(_refresh(h), throwsA(isA<DeviceRevokedException>()));
+    expect((await _decryptRegistry(h))['devices'], isEmpty);
+    expect(h.githubService.uploadCount, 0);
+  });
+
+  test('revoked approver cannot answer after conflict', () async {
+    final h = await _pendingHarness();
+    h.githubService.beforeWrite = () => _remoteEdit(h, (r) {
+          r['revokedDevices'] = [
+            {'deviceId': 'trusted-device'},
+          ];
+        });
+    await expectLater(_respond(h), throwsA(isA<DeviceRevokedException>()));
+    expect(
+      (await _decryptRegistry(h))['pendingDeviceApprovals'],
+      everyElement(containsPair('status', 'pending')),
+    );
+  });
+
+  test('bounded retries reapply and recover without duplicate records',
+      () async {
+    final h = await _pendingHarness();
+    h.githubService.forcedConflicts = DeviceRegistryStore.maxAttempts - 1;
+    await _respond(h);
+    expect(h.githubService.conflicts, DeviceRegistryStore.maxAttempts - 1);
+    expect(h.githubService.uploadCount, 1);
+    await _respond(h);
+    expect(h.githubService.uploadCount, 1);
+  });
+
+  test('retry exhaustion marks cache stale and releases local queue', () async {
+    final h = await _pendingHarness();
+    await _refresh(h, upload: false);
+    h.githubService.forcedConflicts = DeviceRegistryStore.maxAttempts;
+    await expectLater(
+      _respond(h),
+      throwsA(
+        isA<GitHubException>()
+            .having((e) => e.kind, 'kind', 'conflict_exhausted'),
+      ),
+    );
+    expect(
+      jsonDecode((await h.keyStorage.getDeviceRegistrySnapshot())!)['stale'],
+      true,
+    );
+    expect(h.githubService.uploadCount, 0);
+    await _respond(h);
+    expect(h.githubService.uploadCount, 1);
+  });
+
+  test('same-process operations are serialized without local conflicts',
+      () async {
+    final h = await _createHarness({
+      'devices': [
+        {'deviceId': 'phone', 'registrationMethod': 'sync'},
+        {'deviceId': 'tablet', 'registrationMethod': 'sync'},
+      ],
+    });
+    await Future.wait(
+      ['phone', 'tablet'].map(
+        (id) => SyncEngine.recognizeDeviceRegistration(
+          keyStorage: h.keyStorage,
+          cryptoManager: h.cryptoManager,
+          githubService: h.githubService,
+          deviceId: id,
+        ),
+      ),
+    );
+    expect(
+      (await _decryptRegistry(h))['devices'],
+      everyElement(containsPair('registrationMethod', 'recognized')),
+    );
+    expect(h.githubService.conflicts, 0);
+  });
+
+  test('ambiguous approval commit is confirmed by idempotent re-read',
+      () async {
+    final h = await _pendingHarness();
+    h.githubService.failAfterCommit = true;
+    await _respond(h);
+    expect(h.githubService.uploadCount, 1);
+    expect(
+      (await _decryptRegistry(h))['pendingDeviceApprovals'],
+      everyElement(containsPair('status', 'approved')),
+    );
+  });
+
+  test('ambiguous invite and approval creation do not duplicate stable IDs',
+      () async {
+    final h = await _createHarness({'devices': []});
+    h.githubService.failAfterCommit = true;
+    final invite = await SyncEngine.createPendingDeviceInvite(
+      keyStorage: h.keyStorage,
+      cryptoManager: h.cryptoManager,
+      githubService: h.githubService,
+    );
+    h.githubService.failAfterCommit = true;
+    final approval = await SyncEngine.createPendingRecoveryApproval(
+      keyStorage: h.keyStorage,
+      cryptoManager: h.cryptoManager,
+      githubService: h.githubService,
+      rootKey: h.rootKey,
+    );
+    final r = await _decryptRegistry(h);
+    expect((r['pendingDeviceInvites'] as List).single['inviteId'], invite);
+    expect(
+      (r['pendingDeviceApprovals'] as List).single['approvalId'],
+      approval,
+    );
+    expect(h.githubService.uploadCount, 2);
+  });
+
+  test(
+      'completion rebases unrelated update and repeating completion is a no-op',
+      () async {
+    final h = await _approvedHarness();
+    h.githubService.beforeWrite = () => _remoteEdit(h, (r) {
+          (r['devices'] as List)
+              .add({'deviceId': 'concurrent-device', 'future': true});
+        });
+    await _complete(h);
+    final r = await _decryptRegistry(h);
+    expect((r['devices'] as List).length, 2);
+    expect(
+      (r['pendingDeviceApprovals'] as List).single['completedAt'],
+      isNotNull,
+    );
+    final before = h.githubService.uploadCount;
+    await _complete(h);
+    expect(h.githubService.uploadCount, before);
+  });
+
+  test('completion is bound to requester and revoked device cannot replay it',
+      () async {
+    final h = await _approvedHarness();
+    await h.keyStorage.storeDeviceId('different-device');
+    await expectLater(_complete(h), throwsStateError);
+    await h.keyStorage.storeDeviceId('trusted-device');
+    await _remoteEdit(
+      h,
+      (r) => r['revokedDevices'] = [
+        {'deviceId': 'trusted-device'},
+      ],
+    );
+    await expectLater(_complete(h), throwsA(isA<DeviceRevokedException>()));
+    expect(h.githubService.uploadCount, 0);
+  });
+
+  test('unknown and malformed approval state is never pending or approved',
+      () async {
+    for (final change in [
+      {'status': 'future_state'},
+      {'status': null},
+      {'expiresAt': 'invalid'},
+      {'expiresAt': null},
+    ]) {
+      final h = await _pendingHarness();
+      await _remoteEdit(
+        h,
+        (r) => (r['pendingDeviceApprovals'] as List).single.addAll(change),
+      );
+      final status = await SyncEngine.getDeviceApprovalStatus(
+        keyStorage: h.keyStorage,
+        cryptoManager: h.cryptoManager,
+        githubService: h.githubService,
+        rootKey: h.rootKey,
+        approvalId: 'approval-1',
+      );
+      expect(status.isExpired, true);
+      await expectLater(_respond(h), throwsStateError);
+      expect(
+          h.githubService.uploadCount, change.containsKey('expiresAt') ? 1 : 0);
+    }
+  });
+
+  test(
+      'expiry uses remote time despite local clock skew and equality is expired',
+      () async {
+    final h = await _pendingHarness();
+    final future = DateTime.now().toUtc().add(const Duration(days: 1));
+    h.githubService.serverTime = future;
+    await _remoteEdit(
+      h,
+      (r) => (r['pendingDeviceApprovals'] as List).single['expiresAt'] =
+          future.toIso8601String(),
+    );
+    await expectLater(_respond(h), throwsStateError);
+    expect(
+      (await _decryptRegistry(h))['pendingDeviceApprovals'],
+      everyElement(containsPair('status', 'expired')),
+    );
+  });
+
+  test(
+      'read-only refresh never consumes invites or manufactures own registration',
+      () async {
+    final h = await _createHarness({
+      'devices': [],
+      'pendingDeviceInvites': [
+        {
+          'inviteId': 'invite',
+          'expiresAt':
+              DateTime.now().add(const Duration(minutes: 1)).toIso8601String(),
+        }
+      ],
+    });
+    await h.keyStorage.storeDeviceRegistrationMethod('link');
+    await h.keyStorage.storePendingDeviceInviteId('invite');
+    final r = await _refresh(h, upload: false);
+    expect(r!['devices'], isEmpty);
+    expect((r['pendingDeviceInvites'] as List).length, 1);
+    expect(await h.keyStorage.getPendingDeviceInviteId(), 'invite');
+    expect(h.githubService.uploadCount, 0);
+  });
+
+  test('failed invite consumption keeps local invite for retry', () async {
+    final h = await _createHarness({
+      'devices': [],
+      'pendingDeviceInvites': [
+        {
+          'inviteId': 'invite',
+          'expiresAt':
+              DateTime.now().add(const Duration(minutes: 1)).toIso8601String(),
+        }
+      ],
+    });
+    await h.keyStorage.storeDeviceRegistrationMethod('link');
+    await h.keyStorage.storePendingDeviceInviteId('invite');
+    h.githubService.writeError =
+        GitHubException('Rate limited', statusCode: 429);
+    await expectLater(_refresh(h), throwsA(isA<GitHubException>()));
+    expect(await h.keyStorage.getPendingDeviceInviteId(), 'invite');
+    h.githubService.writeError = null;
+    await _refresh(h);
+    expect(await h.keyStorage.getPendingDeviceInviteId(), null);
+    expect((await _decryptRegistry(h))['pendingDeviceInvites'], isEmpty);
+    await h.keyStorage.storeDeviceId('another-device');
+    await h.keyStorage.storePendingDeviceInviteId('invite');
+    await expectLater(_refresh(h), throwsStateError);
+  });
+
+  test('approval survives concurrent invite consumption', () async {
+    final h = await _pendingHarness();
+    await h.keyStorage.storeDeviceRegistrationMethod('link');
+    await h.keyStorage.storePendingDeviceInviteId('invite');
+    await _remoteEdit(
+      h,
+      (r) => r['pendingDeviceInvites'] = [
+        {
+          'inviteId': 'invite',
+          'expiresAt':
+              DateTime.now().add(const Duration(minutes: 1)).toIso8601String(),
+        }
+      ],
+    );
+    h.githubService.beforeWrite = () => _remoteEdit(
+          h,
+          (r) => (r['pendingDeviceApprovals'] as List).single['status'] =
+              'approved',
+        );
+    await _refresh(h);
+    final r = await _decryptRegistry(h);
+    expect((r['pendingDeviceApprovals'] as List).single['status'], 'approved');
+    expect(r['pendingDeviceInvites'], isEmpty);
+    expect((r['devices'] as List).single['registrationMethod'], 'link');
+  });
+
+  for (final status in [401, 403, 429, 500, 502, 503]) {
+    test(
+        'HTTP $status read failure cannot upload fallback and stales scoped cache',
+        () async {
+      final h = await _pendingHarness();
+      await _refresh(h, upload: false);
+      final before = await h.keyStorage.getDeviceRegistry();
+      h.githubService.readError =
+          GitHubException('Unavailable', statusCode: status);
+      await expectLater(_refresh(h), throwsA(isA<GitHubException>()));
+      expect(h.githubService.uploadCount, 0);
+      expect(await h.keyStorage.getDeviceRegistry(), before);
+      final cache =
+          jsonDecode((await h.keyStorage.getDeviceRegistrySnapshot())!);
+      expect(cache['stale'], true);
+      expect(cache['scope'], h.githubService.registryScope);
+      expect(cache['sha'], isNotNull);
+    });
+  }
+
+  test(
+      'missing registry only initializes in explicit setup with no known registry',
+      () async {
+    final h = await _createHarness({'devices': []});
+    h.githubService.files.clear();
+    await expectLater(_refresh(h), throwsA(isA<GitHubException>()));
+    await h.keyStorage.storeDeviceRegistrationMethod('setup');
+    await _refresh(h);
+    expect(h.githubService.uploadCount, 1);
+    h.githubService.files.clear();
+    await expectLater(_refresh(h), throwsA(isA<GitHubException>()));
+    expect(h.githubService.uploadCount, 1);
+  });
+
+  for (final invalid in [
+    Uint8List(0),
+    Uint8List.fromList([1, 2, 3]),
+  ]) {
+    test('invalid ciphertext cannot cause fallback upload ${invalid.length}',
+        () async {
+      final h = await _createHarness({'devices': []});
+      h.githubService.files[Constants.trustedDevicesFile] = invalid;
+      await expectLater(_refresh(h), throwsA(isA<GitHubException>()));
+      expect(h.githubService.uploadCount, 0);
+    });
+  }
+
+  for (final invalid in [
+    {'devices': 'invalid'},
+    {
+      'devices': [
+        {'deviceId': 'same'},
+        {'deviceId': 'same'},
+      ],
+    },
+    {
+      'pendingDeviceApprovals': [42],
+    },
+    {
+      'devices': [
+        {'name': 'no id'},
+      ],
+    },
+    {
+      'devices': [
+        {'deviceId': 'phone', 'registrationMethod': 42}
+      ]
+    },
+    {
+      'pendingDeviceApprovals': [
+        {'approvalId': 'r1', 'status': true}
+      ]
+    },
+    {'activeGitHubTokenFingerprint': 42},
+  ]) {
+    test('malformed registry types and duplicate IDs fail closed $invalid',
+        () async {
+      final h = await _createHarness(invalid);
+      await expectLater(_refresh(h), throwsA(isA<GitHubException>()));
+      expect(h.githubService.uploadCount, 0);
+    });
+  }
+
+  test('wrong root key does not update cache or upload', () async {
+    final h = await _pendingHarness();
+    await h.keyStorage.storeRootKey(h.cryptoManager.generateRandomKey());
+    await expectLater(_refresh(h), throwsA(isA<GitHubException>()));
+    expect(h.githubService.uploadCount, 0);
+    expect(await h.keyStorage.getDeviceRegistry(), null);
+  });
+
+  test('post-commit cache failure preserves remote success', () async {
+    final storage = _FailingCacheStorage();
+    final crypto = CryptoManager();
+    final h = await _createHarnessWithRootKey(
+      rootKey: crypto.generateRandomKey(),
+      deviceId: 'trusted-device',
+      deviceName: 'Trusted Laptop',
+      storage: storage,
+      registry: {
+        'devices': [],
+        'pendingDeviceApprovals': [
+          _approval(
+            status: 'pending',
+            expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+          ),
+        ],
+      },
+    );
+    await _respond(h);
+    expect(h.githubService.uploadCount, 1);
+    expect(
+      (await _decryptRegistry(h))['pendingDeviceApprovals'],
+      everyElement(containsPair('status', 'approved')),
+    );
+  });
+
+  test('completed approval without matching registration cannot report success',
+      () async {
+    final h = await _approvedHarness();
+    await _remoteEdit(
+      h,
+      (r) => (r['pendingDeviceApprovals'] as List).single['completedAt'] =
+          DateTime.now().toIso8601String(),
+    );
+    await expectLater(_complete(h), throwsStateError);
+    expect(h.githubService.uploadCount, 0);
+  });
+
+  test(
+      'approved completion preserves existing trusted method and creation time',
+      () async {
+    final h = await _approvedHarness();
+    await _remoteEdit(
+      h,
+      (r) => r['devices'] = [
+        {
+          'deviceId': 'trusted-device',
+          'registrationMethod': 'recognized',
+          'addedAt': '2020-01-01T00:00:00Z',
+          'custom': true,
+        }
+      ],
+    );
+    await _complete(h);
+    final device = ((await _decryptRegistry(h))['devices'] as List).single;
+    expect(device['registrationMethod'], 'recognized');
+    expect(device['addedAt'], '2020-01-01T00:00:00Z');
+    expect(device['custom'], true);
+    expect(device['recoveryApprovalId'], 'approval-1');
+  });
+
+  test('browser snapshots without Date header use explicit local-clock policy',
+      () async {
+    final h = await _pendingHarness();
+    h.githubService.omitServerTime = true;
+    await _respond(h);
+    final cached =
+        jsonDecode((await h.keyStorage.getDeviceRegistrySnapshot())!);
+    expect(cached['clockSource'], 'local');
+    expect(cached['stale'], false);
+  });
+
+  test('expired linked invite cannot upgrade existing unverified registration',
+      () async {
+    final h = await _createHarness({
+      'devices': [
+        {'deviceId': 'trusted-device', 'registrationMethod': 'sync'},
+      ],
+      'pendingDeviceInvites': [
+        {
+          'inviteId': 'expired-invite',
+          'createdByDeviceId': 'other-trusted-device',
+          'expiresAt': DateTime.now()
+              .subtract(const Duration(seconds: 1))
+              .toUtc()
+              .toIso8601String(),
+        },
+      ],
+    });
+    await h.keyStorage.storeDeviceRegistrationMethod('link');
+    await h.keyStorage.storePendingDeviceInviteId('expired-invite');
+    await expectLater(_refresh(h), throwsStateError);
+    expect(h.githubService.uploadCount, 0);
+  });
+
+  test('case-sensitive IDs target records independently of display names',
+      () async {
+    final h = await _createHarness({
+      'devices': [
+        {'deviceId': 'phone', 'name': 'Same', 'registrationMethod': 'sync'},
+        {'deviceId': 'Phone', 'name': 'Same', 'registrationMethod': 'sync'},
+      ],
+    });
+    await SyncEngine.recognizeDeviceRegistration(
+      keyStorage: h.keyStorage,
+      cryptoManager: h.cryptoManager,
+      githubService: h.githubService,
+      deviceId: 'phone',
+    );
+    final devices = (await _decryptRegistry(h))['devices'] as List;
+    expect(devices[0]['registrationMethod'], 'recognized');
+    expect(devices[1]['registrationMethod'], 'sync');
+  });
+
+  test('diagnostics contain hashed identifiers and no decrypted content',
+      () async {
+    final h = await _pendingHarness();
+    final captured = <String>[];
+    final original = debugPrint;
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) captured.add(message);
+    };
+    try {
+      h.githubService.forcedConflicts = 2;
+      await _respond(h);
+    } finally {
+      debugPrint = original;
+    }
+    final event = jsonDecode(captured.last) as Map;
+    expect(event['conflicts'], 2);
+    expect(event['deviceIdHash'], isNotNull);
+    expect(event['requestIdHash'], isNotNull);
+    expect(event['clockSource'], 'github');
+    for (final secret in [
+      'trusted-device',
+      'approval-1',
+      'Trusted Laptop',
+      'test-token',
+      base64Encode(h.rootKey),
+      'pendingDeviceApprovals',
+    ]) {
+      expect(captured.join(), isNot(contains(secret)));
+    }
+  });
+
+  test(
+      'repeated competing writes are rebased with every unrelated update intact',
+      () async {
+    final h = await _pendingHarness();
+    var updates = 0;
+    late Future<void> Function() compete;
+    compete = () async {
+      updates++;
+      await _remoteEdit(h, (r) => r['concurrent-$updates'] = true);
+      if (updates < 3) h.githubService.beforeWrite = compete;
+    };
+    h.githubService.beforeWrite = compete;
+    await _respond(h);
+    final registry = await _decryptRegistry(h);
+    for (var i = 1; i <= 3; i++) {
+      expect(registry['concurrent-$i'], true);
+    }
+    expect(h.githubService.conflicts, 3);
+  });
+
   test('token-rotated recovery clears existing device revocation', () async {
     final cryptoManager = CryptoManager();
     final rootKey = cryptoManager.generateRandomKey();
@@ -686,6 +1342,71 @@ Map<String, dynamic> _approval({
   return approval;
 }
 
+Future<void> _remoteEdit(
+  _Harness h,
+  void Function(Map<String, dynamic>) edit,
+) async {
+  final registry = await _decryptRegistry(h);
+  edit(registry);
+  h.githubService.files[Constants.trustedDevicesFile] =
+      await _encryptRegistry(registry, h.cryptoManager, h.rootKey);
+}
+
+Future<_Harness> _pendingHarness() => _createHarness({
+      'devices': [],
+      'pendingDeviceApprovals': [
+        _approval(
+          status: 'pending',
+          expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+        ),
+      ],
+    });
+
+Future<_Harness> _approvedHarness() => _createHarness({
+      'devices': [],
+      'pendingDeviceApprovals': [
+        {
+          ..._approval(
+            status: 'approved',
+            expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+            respondedAt: DateTime.now(),
+          ),
+          'deviceId': 'trusted-device',
+        }
+      ],
+    });
+
+Future<Map<String, dynamic>?> _refresh(_Harness h, {bool upload = true}) =>
+    SyncEngine.refreshDeviceRegistry(
+      keyStorage: h.keyStorage,
+      cryptoManager: h.cryptoManager,
+      githubService: h.githubService,
+      uploadIfNeeded: upload,
+    );
+
+Future<void> _respond(_Harness h) => SyncEngine.respondToDeviceApproval(
+      keyStorage: h.keyStorage,
+      cryptoManager: h.cryptoManager,
+      githubService: h.githubService,
+      approvalId: 'approval-1',
+      approved: true,
+    );
+
+Future<void> _complete(_Harness h) => SyncEngine.completeApprovedRecovery(
+      keyStorage: h.keyStorage,
+      cryptoManager: h.cryptoManager,
+      githubService: h.githubService,
+      rootKey: h.rootKey,
+      approvalId: 'approval-1',
+    );
+
+class _FailingCacheStorage extends KeyStorage {
+  @override
+  Future<void> storeDeviceRegistrySnapshot(String envelope) async {
+    throw StateError('Storage unavailable');
+  }
+}
+
 Future<_Harness> _createHarness(Map<String, dynamic> registry) async {
   final cryptoManager = CryptoManager();
   final rootKey = cryptoManager.generateRandomKey();
@@ -704,9 +1425,10 @@ Future<_Harness> _createHarnessWithRootKey({
   required String deviceName,
   required Map<String, dynamic> registry,
   CryptoManager? cryptoManager,
+  KeyStorage? storage,
 }) async {
   final manager = cryptoManager ?? CryptoManager();
-  final keyStorage = KeyStorage();
+  final keyStorage = storage ?? KeyStorage();
   await keyStorage.initialize();
   await keyStorage.storeRootKey(rootKey);
   await keyStorage.storeDeviceId(deviceId);
@@ -774,6 +1496,57 @@ class _MemoryGitHubService extends GitHubService {
   final Map<String, Uint8List> files;
   final List<String> uploadedPaths = [];
   var uploadCount = 0;
+  Future<void> Function()? beforeWrite;
+  int conflicts = 0;
+  int forcedConflicts = 0;
+  Object? readError;
+  Object? writeError;
+  bool failAfterCommit = false;
+  DateTime? serverTime;
+  bool omitServerTime = false;
+
+  String? _sha(String path) =>
+      files[path] == null ? null : sha256.convert(files[path]!).toString();
+
+  @override
+  Future<RemoteFileSnapshot> readFileSnapshot(String path) async {
+    if (readError != null) throw readError!;
+    final bytes = files[path];
+    return bytes == null
+        ? const RemoteFileSnapshot.missing()
+        : RemoteFileSnapshot(
+            bytes: Uint8List.fromList(bytes),
+            sha: _sha(path),
+            serverTime:
+                omitServerTime ? null : serverTime ?? DateTime.now().toUtc(),
+          );
+  }
+
+  @override
+  Future<String> writeFileSnapshot({
+    required String path,
+    required Uint8List content,
+    required String? expectedSha,
+    required String commitMessage,
+  }) async {
+    final hook = beforeWrite;
+    beforeWrite = null;
+    await hook?.call();
+    if (forcedConflicts > 0 || expectedSha != _sha(path)) {
+      if (forcedConflicts > 0) forcedConflicts--;
+      conflicts++;
+      throw GitHubException('Conflict', statusCode: 409);
+    }
+    if (writeError != null) throw writeError!;
+    uploadCount++;
+    uploadedPaths.add(path);
+    files[path] = Uint8List.fromList(content);
+    if (failAfterCommit) {
+      failAfterCommit = false;
+      throw GitHubException('Response lost', kind: 'network');
+    }
+    return _sha(path)!;
+  }
 
   _MemoryGitHubService(this.files)
       : super(
@@ -795,6 +1568,9 @@ class _MemoryGitHubService extends GitHubService {
     String commitMessage = 'Update entry',
     bool isRetry = false,
   }) async {
+    final hook = beforeWrite;
+    beforeWrite = null;
+    await hook?.call();
     uploadCount++;
     uploadedPaths.add(path);
     files[path] = content;

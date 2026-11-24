@@ -26,6 +26,7 @@ import '../device_linking/link_device_screen.dart';
 import '../ai_apps/ai_apps_screen.dart';
 import '../../mcp/mcp_platform.dart';
 import 'background_sync_settings.dart';
+import 'recovery_approval_dialog.dart';
 
 Future<T?> _showDialogAndWait<T>({
   required BuildContext context,
@@ -364,7 +365,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const Divider(),
               ],
               const _SectionHeader(title: 'Devices'),
-              _DeviceListSection(isActive: widget.isActive),
+              DeviceListSection(isActive: widget.isActive),
               ListTile(
                 leading: const Icon(Icons.add),
                 title: const Text('Link New Device'),
@@ -422,8 +423,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Divider(),
               const _SectionHeader(title: 'Danger Zone'),
               ListTile(
-                leading:
-                    Icon(Icons.delete_forever, color: colorScheme.error),
+                leading: Icon(Icons.delete_forever, color: colorScheme.error),
                 title: Text(
                   'Wipe All Data',
                   style: TextStyle(color: colorScheme.error),
@@ -2107,7 +2107,7 @@ Future<void> showGitHubSetupDialog(
   bool validating = false;
   String? validationError;
 
-  await showDialog(
+  await _showDialogAndWait(
     context: context,
     barrierDismissible: true,
     builder: (ctx) => StatefulBuilder(
@@ -2554,11 +2554,11 @@ Future<void> _showEnterRecoveryCodeDialog(
   bool validating = false;
   String? validationError;
 
-  await showDialog(
+  await _showDialogAndWait(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
+      builder: (dialogContext, setState) => AlertDialog(
         title: const Text('Enter 24-Word Recovery Phrase'),
         content: SingleChildScrollView(
           child: Column(
@@ -2717,7 +2717,7 @@ Future<void> _showEnterRecoveryCodeDialog(
   recoveryCodeFocus.dispose();
 }
 
-void _showRecoveryApprovalDialog(
+Future<void> _showRecoveryApprovalDialog(
   BuildContext context,
   WidgetRef ref, {
   required String token,
@@ -2725,234 +2725,82 @@ void _showRecoveryApprovalDialog(
   required String repo,
   required Uint8List rootKey,
   required String approvalId,
-}) {
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => _RecoveryApprovalDialog(
-      oldToken: token,
-      owner: owner,
-      repo: repo,
-      rootKey: rootKey,
-      approvalId: approvalId,
-    ),
-  );
-}
-
-class _RecoveryApprovalDialog extends ConsumerStatefulWidget {
-  final String oldToken;
-  final String owner;
-  final String repo;
-  final Uint8List rootKey;
-  final String approvalId;
-
-  const _RecoveryApprovalDialog({
-    required this.oldToken,
-    required this.owner,
-    required this.repo,
-    required this.rootKey,
-    required this.approvalId,
-  });
-
-  @override
-  ConsumerState<_RecoveryApprovalDialog> createState() =>
-      _RecoveryApprovalDialogState();
-}
-
-class _RecoveryApprovalDialogState
-    extends ConsumerState<_RecoveryApprovalDialog> {
-  Timer? _timer;
-  int _remainingSeconds = 30;
-  bool _busy = false;
-  String? _error;
-  String _status = 'Waiting for another trusted device to approve...';
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      setState(() {
-        if (_remainingSeconds > 0) _remainingSeconds--;
-      });
-      if (_remainingSeconds % 3 == 0) {
-        unawaited(_checkApproval());
-      }
-    });
-    unawaited(_checkApproval());
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _checkApproval() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-
-    final keyStorage = ref.read(keyStorageProvider);
-    await keyStorage.initialize();
-    final github = GitHubService(
-      accessToken: widget.oldToken,
-      repoOwner: widget.owner,
-      repoName: widget.repo,
-    );
-
+}) async {
+  final keyStorage = ref.read(keyStorageProvider);
+  final crypto = ref.read(cryptoManagerProvider);
+  Future<T> withGitHub<T>(Future<T> Function(GitHubService) action) async {
+    final github =
+        GitHubService(accessToken: token, repoOwner: owner, repoName: repo);
     try {
-      final status = await SyncEngine.getDeviceApprovalStatus(
-        keyStorage: keyStorage,
-        cryptoManager: ref.read(cryptoManagerProvider),
-        githubService: github,
-        rootKey: widget.rootKey,
-        approvalId: widget.approvalId,
-      );
-
-      if (status.isApproved) {
-        setState(() => _status = 'Approval received. Restoring vault...');
-        await SyncEngine.completeApprovedRecovery(
-          keyStorage: keyStorage,
-          cryptoManager: ref.read(cryptoManagerProvider),
-          githubService: github,
-          rootKey: widget.rootKey,
-          approvalId: widget.approvalId,
-        );
-        if (!mounted) return;
-        await _finishRecoveredVault(
-          context,
-          ref,
-          rootKey: widget.rootKey,
-          token: widget.oldToken,
-          owner: widget.owner,
-          repo: widget.repo,
-          registrationMethod:
-              SyncEngine.deviceRegistrationMethodRecoveryApproved,
-          completedMessage: 'Device approved. Restoring vault from GitHub...',
-        );
-        if (mounted) Navigator.of(context).pop();
-        return;
-      }
-
-      if (status.isDenied) {
-        setState(() {
-          _status = 'Recovery request denied.';
-          _error = 'Another trusted device denied this recovery request.';
-        });
-        return;
-      }
-
-      if (status.isExpired || _remainingSeconds <= 0) {
-        setState(() {
-          _status = 'No approval received.';
-        });
-        return;
-      }
-
-      setState(() {
-        _status = 'Waiting for approval... $_remainingSeconds seconds left';
-      });
-    } catch (e) {
-      setState(() => _error = 'Could not check approval: $e');
+      await keyStorage.initialize();
+      return await action(github);
     } finally {
       github.dispose();
-      if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _recoverWithNewToken() async {
-    if (_busy) return;
-
-    final completed = await _showNewTokenRecoveryDialog(
-      context,
-      ref,
-      oldToken: widget.oldToken,
-      owner: widget.owner,
-      repo: widget.repo,
-      rootKey: widget.rootKey,
-      approvalId: widget.approvalId,
-    );
-    if (!mounted || !completed) return;
-    Navigator.of(context).pop();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return AlertDialog(
-      title: const Text('Approve This Device'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'GitVault asked your other trusted devices to approve this restore.',
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  if (_busy)
-                    const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else
-                    Icon(
-                      _remainingSeconds > 0
-                          ? Icons.hourglass_top
-                          : Icons.info_outline,
-                      size: 18,
-                    ),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(_status)),
-                ],
-              ),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _error!,
-                style: TextStyle(color: colorScheme.error),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Text(
-              'If you lost all trusted devices, create a new GitHub token and use it here. This proves you currently control the GitHub account, not only an old copied token.',
-              style: TextStyle(
-                fontSize: 12,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
+  final approved = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => RecoveryApprovalDialog(
+      approvalId: approvalId,
+      check: (id) => withGitHub(
+        (github) => SyncEngine.getDeviceApprovalStatus(
+          keyStorage: keyStorage,
+          cryptoManager: crypto,
+          githubService: github,
+          rootKey: rootKey,
+          approvalId: id,
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _busy ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
+      complete: (id) => withGitHub(
+        (github) => SyncEngine.completeApprovedRecovery(
+          keyStorage: keyStorage,
+          cryptoManager: crypto,
+          githubService: github,
+          rootKey: rootKey,
+          approvalId: id,
         ),
-        OutlinedButton.icon(
-          onPressed: _busy ? null : _checkApproval,
-          icon: const Icon(Icons.refresh, size: 18),
-          label: const Text('Check Approval'),
+      ),
+      requestAgain: () => withGitHub(
+        (github) => SyncEngine.createPendingRecoveryApproval(
+          keyStorage: keyStorage,
+          cryptoManager: crypto,
+          githubService: github,
+          rootKey: rootKey,
         ),
-        FilledButton.icon(
-          onPressed: _busy ? null : _recoverWithNewToken,
-          icon: const Icon(Icons.key, size: 18),
-          label: const Text('Use New Token'),
+      ),
+      recoverWithNewToken: (id) => _showNewTokenRecoveryDialog(
+        context,
+        ref,
+        oldToken: token,
+        owner: owner,
+        repo: repo,
+        rootKey: rootKey,
+        approvalId: id,
+      ),
+    ),
+  );
+  if (approved != true || !context.mounted) return;
+  try {
+    await _finishRecoveredVault(
+      context,
+      ref,
+      rootKey: rootKey,
+      token: token,
+      owner: owner,
+      repo: repo,
+      registrationMethod: SyncEngine.deviceRegistrationMethodRecoveryApproved,
+      completedMessage: 'Device approved. Restoring vault from GitHub...',
+    );
+  } catch (_) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Device approval completed, but local setup failed. Retry recovery to finish setup.',
         ),
-      ],
+      ),
     );
   }
 }
@@ -2972,7 +2820,7 @@ Future<bool> _showNewTokenRecoveryDialog(
   String? validationError;
   var completed = false;
 
-  await showDialog(
+  await _showDialogAndWait(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => StatefulBuilder(
@@ -3357,18 +3205,19 @@ void _showEraseRepoDialog(
   );
 }
 
-class _DeviceListSection extends ConsumerStatefulWidget {
+class DeviceListSection extends ConsumerStatefulWidget {
   final bool isActive;
 
-  const _DeviceListSection({
+  const DeviceListSection({
+    super.key,
     required this.isActive,
   });
 
   @override
-  ConsumerState<_DeviceListSection> createState() => _DeviceListSectionState();
+  ConsumerState<DeviceListSection> createState() => _DeviceListSectionState();
 }
 
-class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
+class _DeviceListSectionState extends ConsumerState<DeviceListSection> {
   List<Map<String, dynamic>> _devices = [];
   List<Map<String, dynamic>> _pendingApprovals = [];
   String? _localDeviceId;
@@ -3379,6 +3228,8 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
   bool _loadingDevices = false;
   bool _hasGitHubCredentials = false;
   bool _deviceActionBusy = false;
+  bool _registryFresh = false;
+  String? _registryError;
 
   @override
   void initState() {
@@ -3388,7 +3239,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
   }
 
   @override
-  void didUpdateWidget(covariant _DeviceListSection oldWidget) {
+  void didUpdateWidget(covariant DeviceListSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
       _loadDevices();
@@ -3429,6 +3280,8 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
       List<Map<String, dynamic>> devices = [];
       List<Map<String, dynamic>> pendingApprovals = [];
       var hasGitHubCredentials = false;
+      var registryFresh = false;
+      String? registryError;
 
       final token = await keyStorage.getGitHubToken();
       final owner = await keyStorage.getRepoOwner();
@@ -3436,7 +3289,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
 
       if (token != null && owner != null && repo != null) {
         hasGitHubCredentials = true;
-        final githubService = GitHubService(
+        final githubService = ref.read(gitHubServiceFactoryProvider)(
           accessToken: token,
           repoOwner: owner,
           repoName: repo,
@@ -3448,7 +3301,22 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
             githubService: githubService,
             uploadIfNeeded: uploadCurrent,
           );
-          final deviceList = registry?['devices'] as List<dynamic>? ?? [];
+          if (!mounted) return;
+          if (token != await keyStorage.getGitHubToken() ||
+              owner != await keyStorage.getRepoOwner() ||
+              repo != await keyStorage.getRepoName()) {
+            setState(() {
+              _devices = [];
+              _pendingApprovals = [];
+              _registryFresh = false;
+              _registryError = 'Sync account changed. Refresh devices again.';
+              _loaded = true;
+            });
+            return;
+          }
+          if (registry == null) throw StateError('Registry unavailable');
+          registryFresh = true;
+          final deviceList = registry['devices'] as List<dynamic>? ?? [];
           devices = deviceList
               .map((d) => Map<String, dynamic>.from(d as Map))
               .toList();
@@ -3476,26 +3344,29 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
               );
             });
           }
+        } catch (_) {
+          registryError =
+              'Could not refresh devices. Last-known devices are shown; trust actions are unavailable.';
         } finally {
           githubService.dispose();
         }
       }
 
-      if (devices.isEmpty) {
-        final registryJson = await keyStorage.getDeviceRegistry();
-        if (registryJson != null) {
+      if (!registryFresh) {
+        final snapshot = await keyStorage.getDeviceRegistrySnapshot();
+        if (snapshot != null) {
           try {
-            final registry = jsonDecode(registryJson) as Map<String, dynamic>;
-            final deviceList = registry['devices'] as List<dynamic>? ?? [];
-            devices = deviceList
-                .map((d) => Map<String, dynamic>.from(d as Map))
-                .toList();
-            pendingApprovals = _activePendingApprovals(
-              registry,
-              localDeviceId: identity.id,
-            );
+            final cached = jsonDecode(snapshot) as Map<String, dynamic>;
+            final scope =
+                '${'$owner/$repo'.toLowerCase()}@${Constants.dataBranch}';
+            if (cached['scope'] == scope) {
+              devices = ((cached['registry'] as Map)['devices'] as List? ?? [])
+                  .map((d) => Map<String, dynamic>.from(d as Map))
+                  .toList();
+            }
           } catch (_) {}
         }
+        pendingApprovals = [];
       }
 
       if (devices.isEmpty) {
@@ -3544,9 +3415,21 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
           unverifiedDeviceIds.difference(dismissedUnverifiedDeviceIds);
       final newUnverifiedDeviceIds =
           activeUnverifiedDeviceIds.difference(_notifiedUnverifiedDeviceIds);
+      if (registryFresh) {
+        final previousDismissed = dismissedUnverifiedDeviceIds.length;
+        dismissedUnverifiedDeviceIds.retainAll(unverifiedDeviceIds);
+        _notifiedUnverifiedDeviceIds.retainAll(unverifiedDeviceIds);
+        if (previousDismissed != dismissedUnverifiedDeviceIds.length) {
+          await keyStorage.storeDismissedUnverifiedDeviceIds(
+            jsonEncode(dismissedUnverifiedDeviceIds.toList()),
+          );
+        }
+      }
 
       if (mounted) {
         setState(() {
+          _registryFresh = registryFresh;
+          _registryError = registryError;
           _devices = devices;
           _pendingApprovals = pendingApprovals;
           _localDeviceId = identity.id;
@@ -3555,7 +3438,9 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
           _loaded = true;
         });
 
-        if (newUnverifiedDeviceIds.isNotEmpty && widget.isActive) {
+        if (registryFresh &&
+            newUnverifiedDeviceIds.isNotEmpty &&
+            widget.isActive) {
           _notifiedUnverifiedDeviceIds.addAll(newUnverifiedDeviceIds);
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted || !widget.isActive) return;
@@ -3572,6 +3457,15 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
             );
           });
         }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _registryFresh = false;
+          _registryError = 'Devices unavailable. Please retry.';
+          _pendingApprovals = [];
+          _loaded = true;
+        });
       }
     } finally {
       _loadingDevices = false;
@@ -3646,7 +3540,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
     return approvals
         .map((approval) => Map<String, dynamic>.from(approval as Map))
         .where((approval) {
-      if ((approval['status'] as String? ?? 'pending') != 'pending') {
+      if ((approval['status'] as String?) != 'pending') {
         return false;
       }
       if (approval['deviceId'] == localDeviceId) return false;
@@ -3716,7 +3610,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
   Future<void> _recognizeUnverifiedDevices(
     List<Map<String, dynamic>> devices,
   ) async {
-    if (_deviceActionBusy) return;
+    if (_deviceActionBusy || !_registryFresh) return;
 
     final ids = _deviceIds(devices);
     if (ids.isEmpty) return;
@@ -3743,7 +3637,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
     }
 
     setState(() => _deviceActionBusy = true);
-    final githubService = GitHubService(
+    final githubService = ref.read(gitHubServiceFactoryProvider)(
       accessToken: token,
       repoOwner: owner,
       repoName: repo,
@@ -3789,7 +3683,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
   }
 
   Future<void> _removeDevice(Map<String, dynamic> device) async {
-    if (_deviceActionBusy) return;
+    if (_deviceActionBusy || !_registryFresh) return;
 
     final deviceId = device['deviceId'] as String?;
     if (deviceId == null || deviceId.isEmpty || deviceId == _localDeviceId) {
@@ -3847,7 +3741,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
     }
 
     setState(() => _deviceActionBusy = true);
-    final githubService = GitHubService(
+    final githubService = ref.read(gitHubServiceFactoryProvider)(
       accessToken: token,
       repoOwner: owner,
       repoName: repo,
@@ -3908,7 +3802,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
     Map<String, dynamic> approval,
     bool approved,
   ) async {
-    if (_deviceActionBusy) return;
+    if (_deviceActionBusy || !_registryFresh) return;
 
     final approvalId = approval['approvalId'] as String?;
     if (approvalId == null || approvalId.isEmpty) return;
@@ -3935,7 +3829,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
     }
 
     setState(() => _deviceActionBusy = true);
-    final githubService = GitHubService(
+    final githubService = ref.read(gitHubServiceFactoryProvider)(
       accessToken: token,
       repoOwner: owner,
       repoName: repo,
@@ -4011,6 +3905,18 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
 
     return Column(
       children: [
+        if (!_registryFresh &&
+            (_hasGitHubCredentials || _registryError != null))
+          ListTile(
+            leading: const Icon(Icons.cloud_off),
+            title: const Text('Device list is not confirmed'),
+            subtitle: Text(_registryError ?? 'Showing last-known devices.'),
+            trailing: IconButton(
+              tooltip: 'Retry device refresh',
+              onPressed: () => _loadDevices(),
+              icon: const Icon(Icons.refresh),
+            ),
+          ),
         if (_pendingApprovals.isNotEmpty)
           ..._pendingApprovals.map(
             (approval) => Padding(
@@ -4058,22 +3964,24 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
                             runSpacing: 8,
                             children: [
                               FilledButton.icon(
-                                onPressed: _deviceActionBusy
-                                    ? null
-                                    : () => _respondToApproval(
-                                          approval,
-                                          true,
-                                        ),
+                                onPressed:
+                                    (_deviceActionBusy || !_registryFresh)
+                                        ? null
+                                        : () => _respondToApproval(
+                                              approval,
+                                              true,
+                                            ),
                                 icon: const Icon(Icons.check, size: 18),
                                 label: const Text('Approve'),
                               ),
                               OutlinedButton.icon(
-                                onPressed: _deviceActionBusy
-                                    ? null
-                                    : () => _respondToApproval(
-                                          approval,
-                                          false,
-                                        ),
+                                onPressed:
+                                    (_deviceActionBusy || !_registryFresh)
+                                        ? null
+                                        : () => _respondToApproval(
+                                              approval,
+                                              false,
+                                            ),
                                 icon: const Icon(Icons.block, size: 18),
                                 label: const Text('Deny'),
                                 style: OutlinedButton.styleFrom(
@@ -4137,7 +4045,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
                           runSpacing: 8,
                           children: [
                             TextButton.icon(
-                              onPressed: _deviceActionBusy
+                              onPressed: (_deviceActionBusy || !_registryFresh)
                                   ? null
                                   : () => _dismissUnverifiedDevices(
                                         activeUnverifiedDevices,
@@ -4149,7 +4057,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
                               ),
                             ),
                             FilledButton.tonalIcon(
-                              onPressed: _deviceActionBusy
+                              onPressed: (_deviceActionBusy || !_registryFresh)
                                   ? null
                                   : () => _recognizeUnverifiedDevices(
                                         activeUnverifiedDevices,
@@ -4282,7 +4190,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
                 : Tooltip(
                     message: 'Remove this trusted device',
                     child: IconButton(
-                      onPressed: _deviceActionBusy
+                      onPressed: (_deviceActionBusy || !_registryFresh)
                           ? null
                           : () => _removeDevice(device),
                       icon: const Icon(Icons.delete_outline),
@@ -4333,6 +4241,7 @@ class _DeviceListSectionState extends ConsumerState<_DeviceListSection> {
               if (name.isNotEmpty) {
                 final keyStorage = ref.read(keyStorageProvider);
                 await keyStorage.storeLocalDeviceName(name);
+                if (!ctx.mounted) return;
                 Navigator.pop(ctx);
                 _loadDevices(uploadCurrent: true);
               }

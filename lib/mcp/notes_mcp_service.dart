@@ -169,7 +169,14 @@ class NotesMcpService {
           tags.addAll(note.tags);
         }
         final sorted = tags.toList()..sort();
-        return {'tags': sorted};
+        return {
+          'tags': sorted
+              .take(maximumPageSize)
+              .map((tag) => _clip(tag, 80))
+              .toList(),
+          'total': sorted.length,
+          'truncated': sorted.length > maximumPageSize
+        };
       },
     );
   }
@@ -221,6 +228,7 @@ class NotesMcpService {
           isPinned: pinned,
           isChecklist: false,
           checklistItems: const [],
+          beforeCommit: () => _ensureOperationAccess(client, sessionGeneration),
         );
         _afterMutation('MCP note created');
         return {'note': _noteJson(note, includeContent: true)};
@@ -271,6 +279,7 @@ class NotesMcpService {
             checklistItems: const [],
           ),
           expectedModifiedAt: note.modifiedAt,
+          beforeCommit: () => _ensureOperationAccess(client, sessionGeneration),
         );
         if (updated == null) await _throwCurrentConflict(note.uuid);
         _afterMutation('MCP note appended');
@@ -344,6 +353,7 @@ class NotesMcpService {
         final saved = await _notesRepository.updateNoteIfUnchanged(
           updated,
           expectedModifiedAt: note.modifiedAt,
+          beforeCommit: () => _ensureOperationAccess(client, sessionGeneration),
         );
         if (saved == null) await _throwCurrentConflict(note.uuid);
         _afterMutation('MCP note updated');
@@ -381,7 +391,10 @@ class NotesMcpService {
         return {
           'query': normalized,
           'status': resolution.status.name,
+          'total': resolution.matches.length,
+          'truncated': resolution.matches.length > maximumPageSize,
           'matches': resolution.matches
+              .take(maximumPageSize)
               .map((note) => _noteJson(note, includeContent: false))
               .toList(),
         };
@@ -408,15 +421,19 @@ class NotesMcpService {
         );
         return {
           'note_id': note.uuid,
+          'total': backlinks.length,
+          'truncated': backlinks.length > maximumPageSize,
           'backlinks': backlinks
+              .take(maximumPageSize)
               .map(
                 (backlink) => {
                   'source': _noteJson(
                     backlink.source,
                     includeContent: false,
                   ),
-                  'label': backlink.label,
-                  if (backlink.heading != null) 'heading': backlink.heading,
+                  'label': _clip(backlink.label, 500),
+                  if (backlink.heading != null)
+                    'heading': _clip(backlink.heading!, 500),
                   'unlinked_mention': backlink.isUnlinkedMention,
                 },
               )
@@ -441,17 +458,23 @@ class NotesMcpService {
         return {
           'note_id': note.uuid,
           'modified_at': note.modifiedAt.toUtc().toIso8601String(),
+          'heading_count': parsed.headings.length,
+          'block_count': parsed.blocks.length,
+          'truncated': parsed.headings.length > maximumPageSize ||
+              parsed.blocks.length > maximumPageSize,
           'headings': parsed.headings
+              .take(maximumPageSize)
               .map(
                 (heading) => {
                   'level': heading.level,
-                  'title': heading.title,
-                  'anchor': heading.anchor,
+                  'title': _clip(heading.title, 500),
+                  'anchor': _clip(heading.anchor, 500),
                 },
               )
               .toList(),
           'blocks': parsed.blocks
-              .map((block) => {'id': block.id, 'text': block.text})
+              .take(maximumPageSize)
+              .map((block) => {'id': block.id, 'text': _clip(block.text, 500)})
               .toList(),
           'tasks': {
             'total': parsed.taskCount,
@@ -513,6 +536,7 @@ class NotesMcpService {
             checklistItems: const [],
           ),
           expectedModifiedAt: note.modifiedAt,
+          beforeCommit: () => _ensureOperationAccess(client, sessionGeneration),
         );
         if (saved == null) await _throwCurrentConflict(note.uuid);
         _afterMutation('MCP note section updated');
@@ -579,6 +603,7 @@ class NotesMcpService {
           title: dailyNoteTitle(day),
           content: content,
           tags: tags,
+          beforeCommit: () => _ensureOperationAccess(client, sessionGeneration),
         );
         final note = result.note;
         if (!result.created && !_canAccessNote(client, note)) {
@@ -644,6 +669,8 @@ class NotesMcpService {
             title: dailyNoteTitle(day),
             content: validatedText,
             tags: tags,
+            beforeCommit: () =>
+                _ensureOperationAccess(client, sessionGeneration),
           );
           if (!result.created) {
             if (!_canAccessNote(client, result.note)) {
@@ -711,6 +738,7 @@ class NotesMcpService {
             checklistItems: const [],
           ),
           expectedModifiedAt: existing.modifiedAt,
+          beforeCommit: () => _ensureOperationAccess(client, sessionGeneration),
         );
         if (saved == null) await _throwCurrentConflict(existing.uuid);
         _afterMutation('MCP daily note appended');
@@ -752,11 +780,14 @@ class NotesMcpService {
               : matches.length == 1
                   ? 'resolved'
                   : 'ambiguous',
+          'total': matches.length,
+          'truncated': matches.length > maximumPageSize,
           'matches': matches
+              .take(maximumPageSize)
               .map(
                 (location) => {
                   'note': _noteJson(location.note, includeContent: false),
-                  'text': location.block.text,
+                  'text': _clip(location.block.text, 500),
                 },
               )
               .toList(),
@@ -790,6 +821,7 @@ class NotesMcpService {
         final saved = await _notesRepository.updateNoteIfUnchanged(
           note.copyWith(isArchived: true),
           expectedModifiedAt: note.modifiedAt,
+          beforeCommit: () => _ensureOperationAccess(client, sessionGeneration),
         );
         if (saved == null) await _throwCurrentConflict(note.uuid);
         _afterMutation('MCP note archived');
@@ -825,6 +857,7 @@ class NotesMcpService {
         final deleted = await _notesRepository.deleteNoteIfUnchanged(
           note.uuid,
           expectedModifiedAt: note.modifiedAt,
+          beforeCommit: () => _ensureOperationAccess(client, sessionGeneration),
         );
         if (!deleted) await _throwCurrentConflict(note.uuid);
         _afterMutation('MCP note deleted');
@@ -1309,17 +1342,26 @@ class NotesMcpService {
     bool contentAsSnippet = false,
   }) {
     final markdownContent = note.markdownContent;
+    if (includeContent && !contentAsSnippet) _validateContent(markdownContent);
     final content = contentAsSnippet && markdownContent.length > 500
         ? '${markdownContent.substring(0, 500)}...'
         : markdownContent;
     return {
       'uuid': note.uuid,
-      'title': note.title,
+      'title': _clip(note.title, maximumTitleLength),
       if (includeContent) 'content': content,
       'color': note.color.name,
       'is_pinned': note.isPinned,
-      'tags': note.tags,
-      'aliases': note.aliases,
+      'tags':
+          note.tags.take(maximumTagCount).map((tag) => _clip(tag, 80)).toList(),
+      'aliases':
+          note.aliases.take(50).map((alias) => _clip(alias, 200)).toList(),
+      if (note.title.length > maximumTitleLength ||
+          note.tags.length > maximumTagCount ||
+          note.aliases.length > 50 ||
+          note.tags.any((tag) => tag.length > 80) ||
+          note.aliases.any((alias) => alias.length > 200))
+        'metadata_truncated': true,
       'format': 'markdown',
       'format_version': 2,
       'is_checklist': false,
@@ -1330,6 +1372,9 @@ class NotesMcpService {
       'modified_at': note.modifiedAt.toUtc().toIso8601String(),
     };
   }
+
+  String _clip(String value, int maximum) =>
+      value.length <= maximum ? value : value.substring(0, maximum);
 
   String _approvalSnapshot(Note note) {
     return [

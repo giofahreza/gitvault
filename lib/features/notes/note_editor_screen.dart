@@ -1543,7 +1543,18 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
     try {
       await _saveQueue;
       await _repository.initialize();
-      await _repository.deleteNote(note.uuid);
+      // An already queued save may have advanced our own version while the
+      // confirmation was open. Compare against that version after it settles.
+      final current = _persistedNote!;
+      final deleted = await _repository.deleteNoteIfUnchanged(
+        current.uuid,
+        expectedModifiedAt: current.modifiedAt,
+      );
+      if (!deleted) {
+        throw StateError(
+          'This note changed elsewhere. Reopen the latest note before deleting.',
+        );
+      }
       ForegroundSyncService.scheduleSync(
         reason: _isTemplate ? 'note template deleted' : 'note deleted',
         debounce: const Duration(seconds: 1),
@@ -1567,9 +1578,18 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
       return;
     }
     try {
-      _persistedNote = await _repository.updateNote(
-        _persistedNote!.copyWith(isArchived: true),
+      final current = _persistedNote!;
+      final archived = await _repository.updateNoteIfUnchanged(
+        current.copyWith(isArchived: true),
+        expectedModifiedAt: current.modifiedAt,
       );
+      if (archived == null) {
+        throw StateError(
+          'This note changed elsewhere. Your draft is still in the editor. '
+          'Reopen the latest note before archiving.',
+        );
+      }
+      _persistedNote = archived;
       ForegroundSyncService.scheduleSync(
         reason: 'note archived',
         debounce: const Duration(seconds: 1),
@@ -1655,7 +1675,7 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
         );
         createdNote = true;
       } else {
-        _persistedNote = await _repository.updateNote(
+        final updated = await _repository.updateNoteIfUnchanged(
           current.copyWith(
             title: draft.title,
             content: draft.content,
@@ -1669,7 +1689,15 @@ class _NoteEditorDialogState extends ConsumerState<NoteEditorDialog>
             journalDate: draft.journalDate,
             isTemplate: draft.isTemplate,
           ),
+          expectedModifiedAt: current.modifiedAt,
         );
+        if (updated == null) {
+          throw StateError(
+            'This note changed elsewhere. Your draft is still in the editor. '
+            'Copy your changes before reopening the latest note.',
+          );
+        }
+        _persistedNote = updated;
       }
     });
     _saveQueue = operation.catchError((_) {});

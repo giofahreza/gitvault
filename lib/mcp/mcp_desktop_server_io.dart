@@ -126,7 +126,9 @@ class McpDesktopServer extends ChangeNotifier {
       _updateState();
     } catch (error, stackTrace) {
       debugPrint('[MCP] Start failed: $error\n$stackTrace');
-      _httpServer = null;
+      // Binding can succeed before discovery persistence fails. Release the
+      // listener and any sessions opened during startup before allowing retry.
+      await _stop();
       _setState(
         McpDesktopServerState(
           status: McpDesktopServerStatus.error,
@@ -137,6 +139,7 @@ class McpDesktopServer extends ChangeNotifier {
   }
 
   Future<void> stop() {
+    _approvalController.cancelAll();
     final active = _lifecycleOperation;
     if (active != null) {
       return active.then((_) => stop());

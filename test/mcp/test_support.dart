@@ -46,6 +46,7 @@ class MemoryNotesRepository extends NotesRepository {
     List<ChecklistItem> checklistItems = const [],
     DateTime? journalDate,
     bool isTemplate = false,
+    void Function()? beforeCommit,
   }) async {
     final now = DateTime.now().toUtc();
     final note = Note(
@@ -64,6 +65,7 @@ class MemoryNotesRepository extends NotesRepository {
       createdAt: now,
       modifiedAt: now,
     );
+    beforeCommit?.call();
     notes[note.uuid] = note;
     return note;
   }
@@ -88,6 +90,7 @@ class MemoryNotesRepository extends NotesRepository {
     List<String> tags = const ['journal'],
     List<String> aliases = const [],
     NoteColor color = NoteColor.white,
+    void Function()? beforeCommit,
   }) async {
     final existing = await findJournalNote(date);
     if (existing != null) {
@@ -100,6 +103,7 @@ class MemoryNotesRepository extends NotesRepository {
       aliases: aliases,
       color: color,
       journalDate: journalDay(date),
+      beforeCommit: beforeCommit,
     );
     return JournalNoteResult(note: note, created: true);
   }
@@ -108,6 +112,7 @@ class MemoryNotesRepository extends NotesRepository {
   Future<Note?> updateNoteIfUnchanged(
     Note note, {
     required DateTime expectedModifiedAt,
+    void Function()? beforeCommit,
   }) async {
     final current = notes[note.uuid];
     if (current == null ||
@@ -117,6 +122,7 @@ class MemoryNotesRepository extends NotesRepository {
     final updated = note.copyWith(
       modifiedAt: DateTime.now().toUtc().add(const Duration(milliseconds: 1)),
     );
+    beforeCommit?.call();
     notes[note.uuid] = updated;
     return updated;
   }
@@ -126,12 +132,14 @@ class MemoryNotesRepository extends NotesRepository {
     String uuid, {
     required DateTime expectedModifiedAt,
     DateTime? deletedAt,
+    void Function()? beforeCommit,
   }) async {
     final current = notes[uuid];
     if (current == null ||
         !current.modifiedAt.isAtSameMomentAs(expectedModifiedAt)) {
       return false;
     }
+    beforeCommit?.call();
     notes.remove(uuid);
     return true;
   }

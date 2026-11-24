@@ -84,12 +84,51 @@ void main() {
     });
 
     final endpoint = server.state.endpoint!;
+
+    // Probe only addresses assigned to this machine. A loopback-only listener
+    // must not accept the same port through IPv6 or a local LAN interface.
+    final localAddresses = <InternetAddress>[InternetAddress.loopbackIPv6];
+    for (final interface in await NetworkInterface.list(
+        type: InternetAddressType.IPv4, includeLoopback: false)) {
+      localAddresses.addAll(interface.addresses);
+    }
+    for (final address in localAddresses) {
+      Socket? unexpected;
+      try {
+        unexpected = await Socket.connect(address, endpoint.port,
+            timeout: const Duration(milliseconds: 500));
+      } on SocketException {
+        // Refused, unreachable, and timeout all mean no exposed listener.
+      } finally {
+        unexpected?.destroy();
+      }
+      expect(unexpected, null,
+          reason: 'MCP exposed through ${address.address}');
+    }
     final unauthorized = await http.post(
       endpoint,
       headers: {'content-type': 'application/json'},
       body: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
     );
     expect(unauthorized.statusCode, HttpStatus.unauthorized);
+
+    for (final authorization in [
+      'Basic invalid',
+      'Bearer',
+      'Bearer ',
+      'Bearer invalid-token',
+      'Bearer ${issued.token} extra'
+    ]) {
+      final malformed = await http.post(endpoint,
+          headers: {
+            'authorization': authorization,
+            'content-type': 'application/json',
+          },
+          body: '{}');
+      expect(malformed.statusCode, HttpStatus.unauthorized,
+          reason: 'Malformed authorization must not establish a session');
+      expect(malformed.body, isNot(contains(issued.token)));
+    }
 
     final client = McpClient(
       const Implementation(name: 'integration-test', version: '1'),
@@ -435,6 +474,26 @@ void main() {
     );
     expect(origin.statusCode, HttpStatus.forbidden);
 
+    for (final invalidJson in [
+      '',
+      '{',
+      '{"jsonrpc":',
+      '[',
+      'null-canary',
+      '{"jsonrpc":"2.0","id":1,}',
+      '"unterminated'
+    ]) {
+      final malformed = await http.post(endpoint,
+          headers: {
+            HttpHeaders.authorizationHeader: 'Bearer ${issued.token}',
+            HttpHeaders.contentTypeHeader: 'application/json',
+          },
+          body: invalidJson);
+      expect((jsonDecode(malformed.body) as Map)['error']['code'], -32700);
+      expect(malformed.body, isNot(contains(issued.token)));
+      expect(malformed.body, isNot(contains('null-canary')));
+    }
+
     final ioClient = HttpClient();
     addTearDown(() => ioClient.close(force: true));
     final hostRequest = await ioClient.postUrl(endpoint);
@@ -446,6 +505,28 @@ void main() {
     final invalidHost = await hostRequest.close();
     expect(invalidHost.statusCode, HttpStatus.forbidden);
     await invalidHost.drain<void>();
+
+    // A reproducible concurrent malformed-input corpus stays below this
+    // client's rate limit and must not poison the server or echo its source.
+    final corpus = [
+      for (var i = 0; i < 48; i++)
+        '{"secret":"protocol-body-canary-$i",${'[' * (i % 12 + 1)}',
+    ];
+    for (var offset = 0; offset < corpus.length; offset += 8) {
+      await Future.wait(corpus.skip(offset).take(8).map((body) async {
+        final response = await http.post(endpoint,
+            headers: {
+              HttpHeaders.authorizationHeader: 'Bearer ${issued.token}',
+              HttpHeaders.contentTypeHeader: 'application/json',
+            },
+            body: body);
+        expect(response.statusCode, 200);
+        expect(jsonDecode(response.body)['error']['code'], -32700);
+        expect(response.body.length, lessThan(1024));
+        expect(response.body, isNot(contains('protocol-body-canary')));
+        expect(response.body, isNot(contains(issued.token)));
+      }));
+    }
 
     final oversized = await http.post(
       endpoint,
@@ -484,8 +565,6 @@ void main() {
   test(
     'stdio bridge reports Desktop unavailable after the server quits',
     () async {
-      if (!Platform.isLinux) return;
-
       final registry = McpClientRegistry();
       final approvals = McpApprovalController();
       final session = VaultSessionState(
@@ -559,6 +638,9 @@ void main() {
       );
       expect(result.stdout, isEmpty);
     },
+    skip: !Platform.isLinux
+        ? 'Linux stdio subprocess test; macOS/Windows bridge acceptance remains open.'
+        : false,
     timeout: const Timeout(Duration(minutes: 1)),
   );
 }

@@ -11,7 +11,6 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/providers/providers.dart';
 import '../../core/crypto/blind_handshake.dart';
 import '../../core/services/background_sync_service.dart';
-import '../../core/services/github_service.dart';
 import '../../data/repositories/sync_engine.dart';
 import '../../utils/clipboard_feedback.dart';
 import '../../utils/constants.dart';
@@ -183,7 +182,7 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
       String? deviceInviteId;
 
       if (hasGitHub) {
-        final githubService = GitHubService(
+        final githubService = ref.read(gitHubServiceFactoryProvider)(
           accessToken: githubToken,
           repoOwner: repoOwner,
           repoName: repoName,
@@ -539,6 +538,52 @@ class _ShowQRViewState extends ConsumerState<_ShowQRView> {
 enum _LinkInputMethod { scan, paste }
 
 /// View for scanning QR code on the new device
+class _LinkedDeviceNameDialog extends StatefulWidget {
+  const _LinkedDeviceNameDialog();
+
+  @override
+  State<_LinkedDeviceNameDialog> createState() =>
+      _LinkedDeviceNameDialogState();
+}
+
+class _LinkedDeviceNameDialogState extends State<_LinkedDeviceNameDialog> {
+  final _controller = TextEditingController(text: 'Linked Device');
+  final _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _controller.clear();
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Name This Device'),
+        content: PointerFocus(
+          focusNode: _focus,
+          child: TextField(
+            controller: _controller,
+            focusNode: _focus,
+            decoration: const InputDecoration(
+              labelText: 'Device Name',
+              hintText: 'e.g., My Pixel, Work Phone',
+              border: OutlineInputBorder(),
+            ),
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      );
+}
+
 class _ScanQRView extends ConsumerStatefulWidget {
   const _ScanQRView();
 
@@ -968,39 +1013,11 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       if (!mounted) return;
 
       // Prompt for device name
-      final nameController = TextEditingController(text: 'Linked Device');
-      final nameFocus = FocusNode();
       final deviceName = await showDialog<String>(
         context: context,
         barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Name This Device'),
-          content: PointerFocus(
-            focusNode: nameFocus,
-            child: TextField(
-              controller: nameController,
-              focusNode: nameFocus,
-              decoration: const InputDecoration(
-                labelText: 'Device Name',
-                hintText: 'e.g., My Pixel, Work Phone',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-              textCapitalization: TextCapitalization.words,
-            ),
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, nameController.text.trim()),
-              child: const Text('Save'),
-            ),
-          ],
-        ),
+        builder: (_) => const _LinkedDeviceNameDialog(),
       );
-
-      nameController.clear();
-      nameController.dispose();
-      nameFocus.dispose();
 
       if (!mounted) return;
 
@@ -1012,25 +1029,29 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
       if (hasGitHub) {
         if (!mounted) return;
         setState(() => _statusMessage = 'Registering this device...');
-        final githubService = GitHubService(
+        final githubService = ref.read(gitHubServiceFactoryProvider)(
           accessToken: linkingData.githubToken,
           repoOwner: linkingData.repoOwner,
           repoName: linkingData.repoName,
         );
         try {
-          await SyncEngine.refreshDeviceRegistry(
+          final registry = await SyncEngine.refreshDeviceRegistry(
             keyStorage: keyStorage,
             cryptoManager: ref.read(cryptoManagerProvider),
             githubService: githubService,
             uploadIfNeeded: true,
           );
+          if (registry == null) throw StateError('Registration unavailable');
         } catch (e) {
-          registryWarning = 'Device linked, but invite verification failed: $e';
+          registryWarning =
+              'Keys transferred, but device registration is not confirmed. '
+              'Retry sync or scan a new QR code if the invite expired.';
         } finally {
           githubService.dispose();
         }
       }
 
+      if (!mounted) return;
       // If GitHub was configured, run an immediate sync to pull vault data
       if (hasGitHub) {
         if (kIsWeb) {
@@ -1062,8 +1083,9 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    'Device linked! GitHub sync configured automatically. '
-                    'Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
+                    registryWarning ??
+                        'Device linked! GitHub sync configured automatically. '
+                            'Pulled ${result.pulled} item${result.pulled == 1 ? "" : "s"} from vault.',
                     style: TextStyle(color: colorScheme.onPrimary),
                   ),
                   backgroundColor: colorScheme.primary,
@@ -1078,7 +1100,7 @@ class _ScanQRViewState extends ConsumerState<_ScanQRView> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    'Device linked! GitHub sync configured, but initial sync failed: $syncError\n'
+                    '${registryWarning ?? 'Device linked! GitHub sync configured.'} Initial sync failed: $syncError\n'
                     'You can sync manually from Settings.',
                     style: TextStyle(color: colorScheme.onTertiary),
                   ),

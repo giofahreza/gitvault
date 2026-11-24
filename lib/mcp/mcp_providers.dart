@@ -69,6 +69,11 @@ final desktopLifecycleServiceProvider =
       final notifier = ref.read(appLockSignalProvider.notifier);
       notifier.state = notifier.state + 1;
     },
+    onQuit: () {
+      ref.read(vaultSessionProvider.notifier).lock(
+            reason: 'Application is quitting',
+          );
+    },
   );
   ref.onDispose(service.dispose);
   return service;

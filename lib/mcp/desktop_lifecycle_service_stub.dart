@@ -8,6 +8,7 @@ class DesktopLifecycleService {
     required McpApprovalController approvalController,
     required McpDesktopServer server,
     required void Function() onLock,
+    required void Function() onQuit,
   });
 
   Future<void> initialize() async {}

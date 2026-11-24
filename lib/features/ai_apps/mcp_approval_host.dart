@@ -22,6 +22,22 @@ class _McpApprovalHostState extends ConsumerState<McpApprovalHost> {
   BuildContext? _dialogContext;
 
   @override
+  void dispose() {
+    // Locking removes this host before it can rebuild for the cancelled
+    // request. Its dialog belongs to the root navigator and otherwise keeps
+    // showing the note preview over the locked screen.
+    final dialogContext = _dialogContext;
+    final route = dialogContext == null ? null : ModalRoute.of(dialogContext);
+    final navigator = route?.navigator;
+    if (route != null && navigator != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (navigator.mounted && route.isActive) navigator.removeRoute(route);
+      });
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final controller = ref.watch(mcpApprovalControllerProvider);
     final next = controller.nextRequest;
@@ -116,11 +132,15 @@ class _McpApprovalDialog extends StatelessWidget {
               ),
               if (request.before != null || request.after != null) ...[
                 const SizedBox(height: 20),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final horizontal = constraints.maxWidth >= 620 &&
-                        request.before != null &&
-                        request.after != null;
+                Builder(
+                  builder: (context) {
+                    // AlertDialog measures intrinsic dimensions, which a
+                    // LayoutBuilder cannot provide. Account for dialog margins
+                    // when choosing the preview layout from the window width.
+                    final horizontal =
+                        MediaQuery.sizeOf(context).width >= 760 &&
+                            request.before != null &&
+                            request.after != null;
                     final previews = [
                       if (request.before != null)
                         _Preview(

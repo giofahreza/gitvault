@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../crypto/crypto_manager.dart';
 import '../crypto/key_storage.dart';
+import '../services/github_service.dart';
 import '../auth/biometric_auth.dart';
 import '../auth/duress_manager.dart';
 import '../auth/pin_auth.dart';
@@ -20,6 +21,25 @@ import '../../data/models/ssh_credential.dart';
 import '../../main.dart' show navigatorKey;
 
 export '../theme/theme_provider.dart';
+
+typedef GitHubServiceFactory = GitHubService Function({
+  required String accessToken,
+  required String repoOwner,
+  required String repoName,
+});
+
+final gitHubServiceFactoryProvider = Provider<GitHubServiceFactory>(
+  (ref) => ({
+    required accessToken,
+    required repoOwner,
+    required repoName,
+  }) =>
+      GitHubService(
+        accessToken: accessToken,
+        repoOwner: repoOwner,
+        repoName: repoName,
+      ),
+);
 
 /// Provider for CryptoManager singleton
 final cryptoManagerProvider = Provider<CryptoManager>((ref) {

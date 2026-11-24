@@ -7,6 +7,7 @@ import 'package:gitvault/mcp/mcp_approval_controller.dart';
 import 'package:gitvault/mcp/mcp_client_registry.dart';
 import 'package:gitvault/mcp/mcp_providers.dart';
 import 'package:gitvault/mcp/mcp_models.dart';
+import 'package:gitvault/mcp/mcp_paths_io.dart';
 import 'package:hive/hive.dart';
 
 import 'test_support.dart';
@@ -54,6 +55,24 @@ void main() {
     expect(controller.state.status, VaultSessionStatus.revoked);
     expect(controller.state.canAccessVault, isFalse);
   });
+
+  test(
+      'MCP-GAP-018 POSIX credential file is owner-only after write and rotation',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('gitvault-profile-mode-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/profile.json');
+    for (final value in ['credential-canary', 'rotated-canary']) {
+      await file.writeAsString(value, flush: true);
+      await McpLocalPaths.restrictFile(file);
+      expect((await file.stat()).mode & 0x1ff, 0x180);
+      expect(await file.readAsString(), value);
+    }
+  },
+      skip: Platform.isWindows
+          ? 'POSIX modes; Windows ACL acceptance is separate.'
+          : false);
 
   test('credentials are hashed, rotated, and revoked', () async {
     final registry = McpClientRegistry();

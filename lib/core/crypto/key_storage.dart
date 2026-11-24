@@ -426,6 +426,17 @@ class KeyStorage {
     return _box.get(_deviceRegistryKey);
   }
 
+  /// One cache envelope binds the display data to a repository and observation.
+  Future<void> storeDeviceRegistrySnapshot(String envelope) async {
+    _ensureInitialized();
+    await _box.put('${_deviceRegistryKey}_snapshot', envelope);
+  }
+
+  Future<String?> getDeviceRegistrySnapshot() async {
+    _ensureInitialized();
+    return _box.get('${_deviceRegistryKey}_snapshot');
+  }
+
   /// Wipes all stored keys (emergency)
   Future<void> wipeAllKeys() async {
     _ensureInitialized();

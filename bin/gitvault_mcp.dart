@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:mcp_dart/mcp_dart.dart';
 
 import 'package:gitvault/mcp/mcp_paths_io.dart';
+import 'package:gitvault/mcp/bounded_stdio_input.dart';
 
 Future<void> main(List<String> arguments) async {
   silenceMcpLogs();
@@ -45,8 +46,8 @@ Future<void> main(List<String> arguments) async {
         },
       ),
     );
-    remoteClient.onerror = (error) {
-      stderr.writeln('GitVault MCP connection error: $error');
+    remoteClient.onerror = (_) {
+      stderr.writeln('GitVault MCP: connection to GitVault Desktop failed.');
     };
     await remoteClient.connect(remoteTransport);
 
@@ -66,7 +67,8 @@ Future<void> main(List<String> arguments) async {
 
     await _proxyTools(remoteClient, localServer);
     await _proxyResources(remoteClient, localServer);
-    await localServer.connect(StdioServerTransport());
+    await localServer
+        .connect(StdioServerTransport(stdin: BoundedStdioInput(stdin)));
   } on FileSystemException {
     stderr.writeln(
       'GitVault MCP: GitVault Desktop is not running or this AI app profile no longer exists.',
@@ -77,8 +79,11 @@ Future<void> main(List<String> arguments) async {
       'GitVault MCP: could not connect to GitVault Desktop. Open the desktop app and unlock the vault.',
     );
     exitCode = 69;
-  } catch (error) {
-    stderr.writeln('GitVault MCP: $error');
+  } catch (_) {
+    // Parser and remote-protocol errors can include profile tokens or note
+    // bodies in their source/message. Never echo those values to host logs.
+    stderr
+        .writeln('GitVault MCP: invalid configuration or connection failure.');
     exitCode = 70;
   }
 }
@@ -139,8 +144,8 @@ Future<void> _proxyResources(
         },
       );
     }
-  } catch (error) {
-    stderr.writeln('GitVault MCP: note resources unavailable: $error');
+  } catch (_) {
+    stderr.writeln('GitVault MCP: note resources unavailable.');
   }
 }
 
